@@ -33,7 +33,6 @@ from prime_rl.trainer.model import (
     is_tt_moe_model,
     reshard_module,
     setup_processor,
-    setup_tokenizer,
     setup_model,
 )
 from prime_rl.trainer.parallel_dims import get_parallel_dims, resolve_ep
@@ -59,6 +58,7 @@ from prime_rl.trainer.utils import (
     setup_torch_distributed,
 )
 from prime_rl.trainer.world import get_world
+from prime_rl.utils.tokenizer import setup_tokenizer
 from prime_rl.control.controller import Controller, broadcast_pause
 from prime_rl.control.server import ControlServer
 from prime_rl.utils.heartbeat import Heartbeat

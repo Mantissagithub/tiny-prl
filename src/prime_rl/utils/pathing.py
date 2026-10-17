@@ -102,6 +102,7 @@ def format_log_message(
     env_names: dict[str, list[str]] | None = None,
     num_train_nodes: int = 1,
     num_infer_nodes: int = 0,
+    trainer_rank_logs: bool = True,
 ) -> str:
     """Format a log message showing where to find all log files."""
     col = 18
@@ -117,7 +118,8 @@ def format_log_message(
         log_lines.append(f"{i1}{'Trainer:':<{col}}tail -F {log_dir}/trainer.log")
         if num_train_nodes > 1:
             log_lines.append(f"{i2}{'All nodes:':<{col - 1}}tail -F {log_dir}/trainer/node_*.log")
-        log_lines.append(f"{i2}{'All ranks:':<{col - 1}}tail -F {log_dir}/trainer/torchrun/*/*/*/*.log")
+        if trainer_rank_logs:
+            log_lines.append(f"{i2}{'All ranks:':<{col - 1}}tail -F {log_dir}/trainer/torchrun/*/*/*/*.log")
     if orchestrator:
         log_lines.append(f"{i1}{'Orchestrator:':<{col}}tail -F {log_dir}/orchestrator.log")
     if eval:

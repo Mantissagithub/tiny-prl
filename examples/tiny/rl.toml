@@ -1,0 +1,69 @@
+max_steps = 10
+seq_len = 512
+
+[model]
+name = "Qwen/Qwen3-0.6B"
+
+[trainer.model]
+compile = "None"
+fused_lm_head_token_chunk_size = 128
+
+[trainer.model.lora]
+rank = 8
+alpha = 16
+
+[trainer.optim]
+lr = 1e-5
+
+[monitors.file]
+
+[weight_broadcast]
+type = "filesystem"
+
+[ckpt]
+single_file_per_rank = false
+
+[deployment]
+type = "single_node"
+gpus_per_node = 1
+num_train_gpus = 1
+num_infer_gpus = 1
+share_train_infer_gpu = true
+
+[orchestrator]
+batch_size = 4
+
+[orchestrator.train]
+group_size = 2
+
+[orchestrator.train.sampling]
+max_completion_tokens = 64
+
+[[orchestrator.train.source]]
+name = "alphabet-sort"
+serve.pool.type = "elastic"
+serve.pool.max_workers = 1
+env.taskset.id = "alphabet-sort"
+env.taskset.min_turns = 1
+env.taskset.max_turns = 1
+env.taskset.min_names_per_turn = 2
+env.taskset.max_names_per_turn = 2
+env.taskset.task.power_per_turn = false
+env.agent.harness.id = "null"
+env.agent.runtime.type = "subprocess"
+
+[inference]
+router = "None"
+
+[inference.vllm]
+gpu_memory_utilization = 0.25
+max_model_len = 512
+max_num_seqs = 2
+max_num_batched_tokens = 512
+enforce_eager = false
+compilation_config = { mode = "NONE", cudagraph_mode = "FULL_DECODE_ONLY", cudagraph_capture_sizes = [1, 2] }
+kernel_config = { enable_jit_warmup = false }
+
+[orchestrator.renderer]
+name = "qwen3"
+enable_thinking = false

@@ -6,7 +6,6 @@ from torch.distributed.tensor import DTensor
 from prime_rl.configs.shared import FileSystemWeightBroadcastConfig
 from prime_rl.configs.trainer import LoRAConfig
 from prime_rl.orchestrator.clients import load_lora_adapter
-from prime_rl.trainer.lora import get_lora_state, save_lora_config
 from prime_rl.transports.weights.base import FINISHED_MARKER, WeightReceiver, WeightSender
 from prime_rl.utils.pathing import wait_for_path
 from prime_rl.utils.weights import (
@@ -33,6 +32,8 @@ class FileSystemWeightSender(WeightSender):
 
     def _broadcast(self, model: nn.Module, step: int, step_dir: Path) -> None:
         if self.lora_config is not None:
+            from prime_rl.trainer.lora import get_lora_state, save_lora_config
+
             # All ranks must participate in DTensor gathering, but only master saves
             state_dict = get_lora_state().adapter_state_dict()
             for key, value in state_dict.items():

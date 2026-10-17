@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 from torch import nn
+from torch.distributed.checkpoint.filesystem import FileSystemWriter
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_model_state_dict, set_state_dict
 from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
 from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
@@ -201,7 +202,17 @@ class CheckpointManager:
             torch.save(dataloader.state_dict(), dataloader_dir / f"rank_{self.world.rank}.pt")
 
         # Save sharded state
-        dcp_save(state_dict, checkpoint_id=path, process_group=get_dcp_group())
+        storage_writer = FileSystemWriter(
+            path,
+            single_file_per_rank=self.config.single_file_per_rank,
+            per_thread_copy_ahead=10_000_000 if self.config.single_file_per_rank else 0,
+        )
+        dcp_save(
+            state_dict,
+            checkpoint_id=path,
+            storage_writer=storage_writer,
+            process_group=get_dcp_group(),
+        )
 
         self.logger.debug(f"Saved training checkpoint in {format_time(time.perf_counter() - start_time)}")
 

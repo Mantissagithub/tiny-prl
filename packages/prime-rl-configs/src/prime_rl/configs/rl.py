@@ -81,6 +81,9 @@ class SharedMonitorsConfig(BaseConfig):
 
 
 class SharedCheckpointConfig(BaseConfig):
+    single_file_per_rank: bool = True
+    """Trainer checkpoint layout; False writes each tensor or object separately without GPU-to-CPU copy-ahead."""
+
     output_dir: Path | None = None
     """Override directory for checkpoints and weights. When set, checkpoints and weight snapshots are written here instead of under the trainer ``output_dir``."""
 
@@ -110,6 +113,9 @@ class BaseDeploymentConfig(BaseConfig):
 class SingleNodeDeploymentConfig(BaseDeploymentConfig):
     type: Literal["single_node"] = "single_node"
 
+    share_train_infer_gpu: bool = False
+    """Run the trainer and inference server concurrently on the same sole GPU. Requires LoRA and filesystem weight broadcast."""
+
     num_train_gpus: int = 1
     """GPUs allocated to the trainer."""
 
@@ -118,6 +124,13 @@ class SingleNodeDeploymentConfig(BaseDeploymentConfig):
 
     @model_validator(mode="after")
     def validate_gpu_count(self):
+        if self.share_train_infer_gpu:
+            if (self.gpus_per_node, self.num_train_gpus, self.num_infer_gpus) != (1, 1, 1):
+                raise ValueError(
+                    "deployment.share_train_infer_gpu requires gpus_per_node = 1, "
+                    "num_train_gpus = 1, and num_infer_gpus = 1."
+                )
+            return self
         total = self.num_train_gpus + self.num_infer_gpus
         if total > self.gpus_per_node:
             raise ValueError(
@@ -487,6 +500,22 @@ class RLConfig(BaseConfig):
                     stacklevel=2,
                 )
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_shared_train_infer_gpu(self):
+        if self.deployment.type != "single_node" or not self.deployment.share_train_infer_gpu:
+            return self
+        if self.slurm is not None:
+            raise ValueError("deployment.share_train_infer_gpu is supported only for local runs, not SLURM.")
+        if self.trainer.model.lora is None:
+            raise ValueError("deployment.share_train_infer_gpu requires trainer.model.lora to be configured.")
+        if self.weight_broadcast.type != "filesystem":
+            raise ValueError("deployment.share_train_infer_gpu requires weight_broadcast.type = 'filesystem'.")
+        if self.inference is None:
+            raise ValueError("deployment.share_train_infer_gpu requires an inference configuration.")
+        if (self.inference.vllm.tensor_parallel_size, self.inference.vllm.data_parallel_size) != (1, 1):
+            raise ValueError("deployment.share_train_infer_gpu requires inference.vllm TP=1 and DP=1.")
         return self
 
     @model_validator(mode="after")

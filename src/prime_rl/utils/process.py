@@ -58,9 +58,17 @@ def get_physical_gpu_ids() -> list[int]:
     return [int(token.strip()) for token in raw_visible.split(",") if token.strip()]
 
 
-def partition_gpus(num_infer: int, num_train: int) -> tuple[list[int], list[int]]:
-    """Split the launcher's physical GPUs into inference GPUs followed by trainer GPUs."""
+def partition_gpus(num_infer: int, num_train: int, *, share: bool = False) -> tuple[list[int], list[int]]:
+    """Split physical GPUs between inference and training, or share the sole GPU."""
     physical_gpu_ids = get_physical_gpu_ids()
+    if share:
+        if num_infer != 1 or num_train != 1:
+            raise ValueError("Sharing a GPU requires one inference GPU and one trainer GPU")
+        if len(physical_gpu_ids) != 1:
+            raise ValueError(
+                f"GPU sharing requires exactly one physical GPU, found {len(physical_gpu_ids)}: {physical_gpu_ids}"
+            )
+        return physical_gpu_ids, physical_gpu_ids
     if num_infer + num_train > len(physical_gpu_ids):
         raise ValueError(
             f"Requested {num_infer + num_train} GPUs via deployment settings, but only "
@@ -189,7 +197,7 @@ class ProcessGroup:
         cleanup_threads(self.monitor_threads)
         cleanup_processes(self.processes)
 
-    def start(self, name: str, cmd: list[str], env: dict[str, str], log_path: Path) -> None:
+    def start(self, name: str, cmd: list[str], env: dict[str, str], log_path: Path) -> Popen:
         get_logger().debug(f"{name[:1].upper() + name[1:]} command: {' '.join(cmd)}")
         log_path.parent.mkdir(parents=True, exist_ok=True)
         # If we don't log stdout, the inference server hangs
@@ -201,6 +209,7 @@ class ProcessGroup:
         monitor_thread = Thread(target=monitor_process, args=(process, stop_event, self.error_queue, name), daemon=True)
         monitor_thread.start()
         self.monitor_threads.append(monitor_thread)
+        return process
 
     def wait(self, *names: str) -> None:
         """Block until the named processes exit; exit with code 1 as soon as any started process fails."""

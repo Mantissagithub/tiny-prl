@@ -448,6 +448,9 @@ OptimizerConfig: TypeAlias = Annotated[AdamWConfig | MuonConfig | SignSGDConfig,
 
 
 class CheckpointConfig(BaseConfig):
+    single_file_per_rank: bool = True
+    """Write one checkpoint file per rank. False writes each tensor or object separately without GPU-to-CPU copy-ahead."""
+
     output_dir: Path | None = None
     """Override directory for checkpoints. If set, checkpoints are written here instead of under the trainer ``output_dir`` — useful for writing large checkpoints to a separate storage volume."""
 

@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Annotated, Literal, get_args
 
@@ -673,6 +674,74 @@ def test_single_node_auto_inference_ports_follow_server_port():
     assert config.orchestrator.model.client.admin_base_url == ["http://localhost:8101/v1"]
 
 
+def test_shared_single_gpu_lora_config_is_validated():
+    config_data = {
+        "trainer": {"model": {"lora": {"rank": 8}}},
+        "orchestrator": {},
+        "inference": {
+            "router": None,
+            "vllm": {"tensor_parallel_size": 1, "gpu_memory_utilization": 0.3},
+        },
+        "weight_broadcast": {"type": "filesystem"},
+        "deployment": {
+            "type": "single_node",
+            "gpus_per_node": 1,
+            "num_train_gpus": 1,
+            "num_infer_gpus": 1,
+            "share_train_infer_gpu": True,
+        },
+    }
+
+    config = RLConfig.model_validate(config_data)
+    assert config.deployment.share_train_infer_gpu is True
+    assert config.inference is not None
+    assert config.inference.vllm.data_parallel_size == 1
+    assert config.inference.vllm.enable_lora is True
+    assert config.inference.router is None
+    assert config.orchestrator.model.client.base_url == "http://localhost:8000/v1"
+    assert config.orchestrator.model.client.admin_base_url is None
+
+    tiny_config = cli(RLConfig, args=["@", "examples/tiny/rl.toml"])
+    assert tiny_config.trainer.ckpt is not None
+    assert tiny_config.trainer.ckpt.single_file_per_rank is False
+    no_ckpt_config = cli(RLConfig, args=["@", "examples/tiny/rl.toml", "--no-ckpt"])
+    assert no_ckpt_config.trainer.ckpt is None
+    assert no_ckpt_config.orchestrator.ckpt is None
+    assert tiny_config.inference is not None
+    assert (
+        tiny_config.inference.vllm.max_model_len,
+        tiny_config.inference.vllm.max_num_seqs,
+        tiny_config.inference.vllm.model_extra["max_num_batched_tokens"],
+    ) == (512, 2, 512)
+
+    invalid_configs = [
+        ({"trainer": {"model": {"lora": None}}}, "requires trainer.model.lora"),
+        ({"slurm": {}}, "supported only for local runs"),
+        ({"weight_broadcast": {"type": "nccl"}}, "requires weight_broadcast.type = 'filesystem'"),
+        ({"inference": {"vllm": {"tensor_parallel_size": 2}}}, "requires inference.vllm TP=1 and DP=1"),
+        ({"inference": {"vllm": {"data_parallel_size": 2}}}, "requires inference.vllm TP=1 and DP=1"),
+        ({"inference": None}, "requires an inference configuration"),
+        ({"deployment": {"num_train_gpus": 2}}, "requires gpus_per_node = 1"),
+        ({"deployment": {"num_infer_gpus": 2}}, "requires gpus_per_node = 1"),
+    ]
+    for overrides, message in invalid_configs:
+        candidate = deepcopy(config_data)
+        for section, values in overrides.items():
+            if values is None:
+                candidate[section] = None
+            else:
+                candidate.setdefault(section, {}).update(values)
+        with pytest.raises(ValidationError, match=message):
+            RLConfig.model_validate(candidate)
+
+    import json
+
+    reloaded = RLConfig.model_validate_json(
+        json.dumps(dump_resolved_config(config, exclude={"slurm", "dry_run", "clean"}))
+    )
+    assert reloaded == config
+
+
 def test_single_node_nccl_resolved_json_roundtrips(tmp_path):
     """The resolved rl.json re-parses (as a SLURM launch does) to the same config."""
     import json
@@ -1019,6 +1088,7 @@ def test_empty_shared_ckpt_block_does_not_conflict_with_subconfig_ckpt():
     )
     assert config.trainer.ckpt is not None
     assert config.trainer.ckpt.interval == 50
+    assert config.trainer.ckpt.single_file_per_rank is True
 
 
 def test_shared_and_subconfig_disjoint_fields_coexist():

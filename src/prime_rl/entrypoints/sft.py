@@ -482,8 +482,8 @@ def sft(config: SFTConfig):
         clean_stale_eval_artifacts(config)
 
     if not config.dry_run:
-        from prime_rl.trainer.model import pre_download_model
         from prime_rl.trainer.sft.data import pre_download_data
+        from prime_rl.utils.hub import pre_download_model
 
         pre_download_model(config.model.name, skip_weights=config.model.debug.random_init)
         pre_download_data(config.data, config.env_vars)

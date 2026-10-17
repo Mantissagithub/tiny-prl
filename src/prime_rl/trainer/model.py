@@ -23,8 +23,7 @@ from torch.distributed.fsdp._fully_shard._fsdp_common import FSDPMeshInfo, Shard
 from torch.distributed.fsdp._fully_shard._fsdp_init import _get_mesh_info
 from torch.distributed.tensor import Shard
 from torch.distributed.tensor.parallel import parallelize_module
-from transformers import AutoConfig, AutoTokenizer, GenerationConfig, PretrainedConfig
-from transformers.tokenization_utils import PreTrainedTokenizer
+from transformers import AutoConfig, GenerationConfig, PretrainedConfig
 from transformers.utils.import_utils import is_flash_attn_3_available
 
 from prime_rl.configs.trainer import (
@@ -33,7 +32,6 @@ from prime_rl.configs.trainer import (
     FP8Config,
     ModelConfig,
     MXFP8Config,
-    TokenizerConfig,
 )
 from prime_rl.multimodal import ForwardPolicy
 from prime_rl.trainer.activation_checkpointing import get_activation_checkpoint_wrapper
@@ -73,29 +71,6 @@ from prime_rl.utils.weights import (
     load_state_dict_keys,
     save_state_dict,
 )
-
-
-def pre_download_model(model_name: str, *, skip_weights: bool = False) -> None:
-    """Pre-download model from HuggingFace Hub so all nodes have cached weights before training.
-
-    With ``skip_weights`` (random-init debug runs), only config and tokenizer files are fetched.
-    """
-    if Path(model_name).exists():
-        get_logger().info(f"Model {model_name} found at local path, skipping download")
-        return
-    t0 = time.perf_counter()
-    if skip_weights:
-        get_logger().info(f"Pre-downloading config and tokenizer for {model_name} (random init, skipping weights)")
-        path = snapshot_download(
-            repo_id=model_name, repo_type="model", allow_patterns=["*.json", "*.txt", "tokenizer*", "*.jinja"]
-        )
-    else:
-        get_logger().info(f"Pre-downloading model {model_name}")
-        path = snapshot_download(repo_id=model_name, repo_type="model")
-    get_logger().debug(
-        f"Finished pre-downloading model {model_name} to {path} in {format_time(time.perf_counter() - t0)}"
-    )
-
 
 # Add filter to the standard logging module for transformers.modeling_utils to supress the
 # flash attention dtype warnings since FSDP is used to handle mixed precision.
@@ -454,23 +429,6 @@ def get_model(
         f"LM head dtype wasnt loaded correctly {model.lm_head.weight.dtype} != {dtype}"
     )
     return model
-
-
-def setup_tokenizer(config: TokenizerConfig) -> PreTrainedTokenizer:
-    logger = get_logger()
-    tokenizer = AutoTokenizer.from_pretrained(config.name, trust_remote_code=config.trust_remote_code)
-    if config.chat_template is not None:
-        path = Path(config.chat_template)
-        if path.is_file():
-            logger.info(f"Loading custom chat template from file: {path}")
-            tokenizer.chat_template = path.read_text()
-            logger.debug(f"Chat template content:\n{tokenizer.chat_template}")
-        else:
-            logger.info("Using inline custom chat template")
-            tokenizer.chat_template = config.chat_template
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-
-    return tokenizer
 
 
 def setup_processor(config: ModelConfig):

@@ -1,0 +1,70 @@
+# Tiny single-GPU RL baseline
+
+[`examples/tiny/rl.toml`](../examples/tiny/rl.toml) is a small starting run for
+Qwen3-0.6B with LoRA on one 8 GiB GPU. It uses the deterministic, seeded
+`alphabet-sort` taskset with one turn and two names, a 64-token completion
+limit, orchestrator batch size 4, and group size 2. The trainer uses a
+128-token fused LM-head chunk and disables `torch.compile` for this first run.
+
+The trainer and vLLM stay resident concurrently on the same physical GPU. The
+launcher waits for vLLM's engine liveness check before starting the trainer, so
+trainer allocations do not interfere with vLLM's startup memory profile. The
+launcher downloads model files without importing the trainer's Torch runtime.
+In shared-GPU mode, the launcher starts one trainer process directly after
+inference is live; the trainer initializes its one-rank distributed process
+group from the environment and writes output to `trainer.log`. This mode has no
+torchrun per-rank logs.
+The tiny profile runs its environment server inline with one worker, avoiding a
+separate broker process while keeping the task's network protocol unchanged.
+The run uses the opt-in `deployment.share_train_infer_gpu` setting with one logical
+trainer GPU and one logical inference GPU mapped to that device. LoRA and
+filesystem weight broadcast are required. vLLM is bounded to a 512-token model
+length, two sequences, a 512-token scheduler budget, and 25% GPU memory
+utilization. Torch compilation stays disabled. vLLM captures full CUDA graphs
+for decode batches of one and two sequences; prefill runs without CUDA graphs.
+JIT kernel warmup is disabled. These settings define a bounded profile; they do
+not guarantee that the whole run fits in 8 GiB.
+
+Use uv 0.11.1 or newer and initialize the repository's `verifiers`,
+`renderers`, `prime-envs`, and `pydantic-config` submodules. Install the GPU
+runtime and this environment with:
+
+```bash
+uv sync --extra gpu --extra flash-attn --extra kernels --package prime-rl --package alphabet-sort
+```
+
+This installs CUDA, vLLM, FlashAttention, the pinned `prime-kernels` wheel, and
+environment dependencies, which can require substantial disk space. Check
+available disk space before syncing. On GPUs outside the wheel's supported
+architecture, the package reports its kernels unavailable and prime-rl uses
+its regular fallback paths.
+The config sets `inference.router = "None"` so this local run uses the bare
+vLLM engine and does not require the separate `disagg` router extra. Use
+`uv run --no-sync` below to keep the selected environment intact.
+
+Validate the resolved config, then start the run:
+
+```bash
+uv run --no-sync rl @ examples/tiny/rl.toml --dry-run --run.name tiny-qwen3-0.6b-lora
+uv run --no-sync rl @ examples/tiny/rl.toml --run.name tiny-qwen3-0.6b-lora
+```
+
+The `[ckpt]` section saves a final checkpoint for later resume checks. Ensure
+the output filesystem has room for the checkpoint and run artifacts.
+The trainer sets `ckpt.single_file_per_rank = false` to write each tensor or
+object separately. This limits how many CPU tensor copies the pinned PyTorch
+writer retains during saving and disables GPU-to-CPU copy-ahead, at the cost
+of producing more files. The
+checkpoint still contains the model, optimizer, scheduler, and progress.
+
+The config enables the file monitor. The run directory records metrics and
+rollout traces; trainer logs also report step time, throughput, and trainer
+peak memory. Before treating a result as the frozen baseline, record the exact
+command, resolved config, git revision and any dirty diff, `uv.lock` revision,
+and model snapshot identity. Confirm that all 10 steps completed, at least one
+trainable LoRA parameter received a nonzero update, the matching adapter
+version was applied for rollouts, the final checkpoint exists, and a resume
+smoke test succeeds. Record total run time and peak whole-GPU memory while both
+processes are resident; the trainer's peak-memory metric alone does not include
+vLLM's allocation. Fit and performance must be measured on the target machine;
+the recipe alone is not a runtime guarantee.
