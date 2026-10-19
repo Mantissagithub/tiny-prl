@@ -54,7 +54,7 @@ MPLBACKEND=Agg uv run --isolated --no-project --python 3.12 --with matplotlib \
   outputs/tiny-opt-tokenizer-20261017/hillclimb.png
 ```
 
-The graph separates measured import memory, complete training trials and future experiments. Future gains are never drawn as measured points. No commit, push or publication is part of these experiments.
+The graph separates measured import memory, complete training trials and future experiments. Future gains are never drawn as measured points. Repository publication is authorized; experiment results remain scoped to the recorded configurations and hardware.
 
 ## Experiment 2: disable activation offloading, retain checkpointing
 
@@ -333,3 +333,14 @@ A separate four-run A-B-B-A CPU writer benchmark compared the default single-sha
 The six-shard, 64,000,000-byte setting then completed a guarded two-update SmolLM2-135M full-parameter RL pilot in 54.49 seconds with finite metrics, 5.22 GB minimum host-available RAM, 6.11 GiB cgroup peak, 4,816 MiB sampled GPU peak, and 2.24 GB minimum free disk. The receiver completed all six shards on both reloads, returned HTTP 200 for the startup and two update broadcasts, and continued serving generations. A vLLM rotary-weight load warning appeared during reload; successful acknowledgements and continued serving do not prove exact equality of every inference parameter. This is a functional integration test without a matched single-shard control, not an end-to-end memory or speed result. Evidence: `outputs/tiny-fulltrain-20261018/analysis/shard64-pilot2-review.md`, `shard64-pilot2-guard/result.json`, and the guarded run artifacts.
 
 Evidence: `outputs/tiny-fulltrain-20261018/pilot2-guard/result.json`, `pilot2-offload-none-summary.json`, `baseline10-checkpoint-summary.json`, `baseline10-no-ac-offload-summary.json`, `baseline10-cap4-summary.json`, `memory-profile4-guard/result.json`, `phase-trim10-guard/result.json`, `phase-profile/trim10/`, `dcp_audit/phase-trim10-audit.json`, `archive/failed-older-checkpoints-v1/`, `archive/reclaim-for-mfu-v1/`, and `mfu-resume20-guard/`.
+
+## Reproducing the optional LM-head kernels
+
+A fresh clone needs the experimental kernel source submodule because the pinned `prime-kernels` wheel does not include these kernels. Initialize the pinned submodule, then launch with the explicit backend option:
+
+```bash
+git submodule update --init deps/prime-kernels
+PYTHONPATH="$PWD/deps/prime-kernels${PYTHONPATH:+:$PYTHONPATH}" uv run --no-sync rl @ examples/tiny/rl.toml --trainer.model.fused-lm-head-kernel cute_fused_forward_backward
+```
+
+The experimental kernels require compatible CuTe/Triton dependencies and supported SM89 hardware. The `torch` backend remains the default.
