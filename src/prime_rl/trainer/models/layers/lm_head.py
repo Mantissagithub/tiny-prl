@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import types
-from typing import TypedDict
+from typing import Callable, TypedDict
 
 import torch
 import torch.nn as nn
@@ -12,6 +12,11 @@ from prime_rl.utils.logger import get_logger
 
 # Same as torch's cross entropy loss
 IGNORE_INDEX = -100
+OnlineUpdateFn = Callable[[Tensor, Tensor, Tensor, Tensor], tuple[Tensor, Tensor, Tensor]]
+BackwardEpilogueFn = Callable[[Tensor, Tensor, Tensor, Tensor, Tensor, int], Tensor]
+FusedOnlineUpdateFn = Callable[
+    [Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, int, Tensor], tuple[Tensor, Tensor, Tensor, Tensor]
+]
 
 
 class PrimeLmOutput(TypedDict, total=False):
@@ -45,9 +50,20 @@ class FusedOutputLinear(torch.nn.Linear):
     With ``temperature`` it returns per-token ``logprobs`` and ``entropy``.
     """
 
-    def __init__(self, in_features: int, out_features: int, chunk_size: int):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        chunk_size: int,
+        online_update_fn: OnlineUpdateFn | None = None,
+        backward_epilogue_fn: BackwardEpilogueFn | None = None,
+        fused_online_update_fn: FusedOnlineUpdateFn | None = None,
+    ):
         super().__init__(in_features, out_features, bias=False)
         self.chunk_size = chunk_size
+        self.online_update_fn = online_update_fn
+        self.backward_epilogue_fn = backward_epilogue_fn
+        self.fused_online_update_fn = fused_online_update_fn
 
     def forward(
         self,
@@ -72,7 +88,15 @@ class FusedOutputLinear(torch.nn.Linear):
             sampling_mask = sampling_mask.reshape(b * s, sampling_mask.shape[-1]).contiguous()
 
         logprobs, entropy = _SequenceChunkedLogProbEntropyFn.apply(
-            hidden_states, self.weight, labels, inv_t, self.chunk_size, sampling_mask
+            hidden_states,
+            self.weight,
+            labels,
+            inv_t,
+            self.chunk_size,
+            sampling_mask,
+            self.online_update_fn,
+            self.backward_epilogue_fn,
+            self.fused_online_update_fn,
         )
 
         logprobs = logprobs.reshape(b, s)
@@ -148,6 +172,9 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
         inv_temperature: torch.Tensor,  # [N]
         chunk_size: int,
         sampling_mask: torch.Tensor | None = None,  # [N, K] int32, -1-padded
+        online_update_fn: OnlineUpdateFn | None = None,
+        backward_epilogue_fn: BackwardEpilogueFn | None = None,
+        fused_online_update_fn: FusedOnlineUpdateFn | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns per-token logprobs and entropy by chunking over flattened sequence tokens.
@@ -174,6 +201,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
         n = hidden.shape[0]
         vocab = weight.shape[0]
         vocab_chunk_size = min(vocab, 8192)
+        update_fn = online_update_fn or _online_logsumexp_and_weighted_update
         logprobs = torch.empty((n,), device=device, dtype=torch.float32)
         entropy = torch.empty((n,), device=device, dtype=torch.float32)
         logz = torch.empty((n,), device=device, dtype=torch.float32)
@@ -202,9 +230,14 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
                 vocab_end = min(vocab_start + vocab_chunk_size, vocab)
                 weight_chunk = weight[vocab_start:vocab_end]
                 logits_chunk = hidden_chunk @ weight_chunk.t()
-                scaled_logits = logits_chunk.to(torch.float32) * inv_t_chunk
+                if fused_online_update_fn is not None and mask_chunk is None:
+                    m, s, t, target_logits = fused_online_update_fn(
+                        m, s, t, logits_chunk, inv_temperature[start:end], labels_chunk, vocab_start, target_logits
+                    )
+                    continue
 
-                m, s, t = _online_logsumexp_and_weighted_update(m, s, t, scaled_logits)
+                scaled_logits = logits_chunk.to(torch.float32) * inv_t_chunk
+                m, s, t = update_fn(m, s, t, scaled_logits)
 
                 if mask_chunk is not None:
                     mask_local, mask_in_range = _sampling_mask_local_indices(mask_chunk, vocab_start, vocab_end)
@@ -231,6 +264,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
         )  # Without materialized grads unused outputs get grad None instead of zeros and backward can reject them without a sync
         ctx.save_for_backward(hidden, weight, labels, inv_temperature, logz, sampling_mask, replay)
         ctx.chunk_size = chunk_size
+        ctx.backward_epilogue_fn = backward_epilogue_fn
 
         return logprobs, entropy
 
@@ -265,32 +299,44 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
                 vocab_end = min(vocab_start + vocab_chunk_size, vocab)
                 weight_chunk = weight[vocab_start:vocab_end]
                 logits_chunk = hidden_chunk @ weight_chunk.t()
-                scaled_logits = logits_chunk.to(torch.float32) * inv_t_chunk
+                if ctx.backward_epilogue_fn is not None and mask_chunk is None:
+                    grad_logits = ctx.backward_epilogue_fn(
+                        logits_chunk,
+                        inv_temperature[start:end].contiguous(),
+                        logz_chunk.contiguous(),
+                        grad_chunk.contiguous(),
+                        labels_chunk.contiguous(),
+                        vocab_start,
+                    )
+                else:
+                    scaled_logits = logits_chunk.to(torch.float32) * inv_t_chunk
 
-                if mask_chunk is not None:
-                    # Replayed rows get softmax gradient only on mask ids. Set masked-out
-                    # logits to -inf before exp: a masked-out logit above the sampling-mask
-                    # logZ would overflow exp() to inf (and inf * 0 = NaN in the grads).
-                    local, in_range = _sampling_mask_local_indices(mask_chunk, vocab_start, vocab_end)
-                    mask_indicator = torch.zeros(scaled_logits.shape, dtype=torch.int8, device=scaled_logits.device)
-                    mask_indicator.scatter_add_(1, local, in_range.to(torch.int8))
-                    masked_out = replay_chunk.unsqueeze(-1) & (mask_indicator == 0)
-                    scaled_logits.masked_fill_(masked_out, float("-inf"))
-                probs = torch.exp(scaled_logits - logz_chunk.unsqueeze(-1))
+                if ctx.backward_epilogue_fn is None or mask_chunk is not None:
+                    if mask_chunk is not None:
+                        # Replayed rows get softmax gradient only on mask ids. Set masked-out
+                        # logits to -inf before exp: a masked-out logit above the sampling-mask
+                        # logZ would overflow exp() to inf (and inf * 0 = NaN in the grads).
+                        local, in_range = _sampling_mask_local_indices(mask_chunk, vocab_start, vocab_end)
+                        mask_indicator = torch.zeros(scaled_logits.shape, dtype=torch.int8, device=scaled_logits.device)
+                        mask_indicator.scatter_add_(1, local, in_range.to(torch.int8))
+                        masked_out = replay_chunk.unsqueeze(-1) & (mask_indicator == 0)
+                        scaled_logits.masked_fill_(masked_out, float("-inf"))
+                    probs = torch.exp(scaled_logits - logz_chunk.unsqueeze(-1))
 
-                grad_logits = (-grad_chunk).unsqueeze(-1) * probs
-                # Branchless grad scatter like we did in the sync-free forward
-                in_range = (labels_chunk >= vocab_start) & (labels_chunk < vocab_end)
-                local_idx = (labels_chunk - vocab_start).clamp(0, vocab_end - vocab_start - 1).to(torch.int64)
-                grad_logits.scatter_add_(1, local_idx.unsqueeze(1), (grad_chunk * in_range).unsqueeze(1))
-                grad_logits = grad_logits * inv_t_chunk
+                    grad_logits = (-grad_chunk).unsqueeze(-1) * probs
+                    # Branchless grad scatter like we did in the sync-free forward
+                    in_range = (labels_chunk >= vocab_start) & (labels_chunk < vocab_end)
+                    local_idx = (labels_chunk - vocab_start).clamp(0, vocab_end - vocab_start - 1).to(torch.int64)
+                    grad_logits.scatter_add_(1, local_idx.unsqueeze(1), (grad_chunk * in_range).unsqueeze(1))
+                    grad_logits = grad_logits * inv_t_chunk
 
                 if needs_hidden:
                     grad_hidden[start:end].add_(grad_logits.to(hidden.dtype) @ weight_chunk)
                 if needs_weight:
                     grad_weight[vocab_start:vocab_end].add_(grad_logits.to(weight.dtype).t() @ hidden_chunk)
 
-        return grad_hidden, grad_weight, None, None, None, None
+        gradients = (grad_hidden, grad_weight, None, None, None, None, None, None, None)
+        return gradients[: len(ctx.needs_input_grad)]
 
 
 class _ChunkedCrossEntropySumFn(torch.autograd.Function):
@@ -361,6 +407,9 @@ class _ChunkedCrossEntropySumFn(torch.autograd.Function):
 def inject_prime_lm_head(
     model: nn.Module,
     chunk_size: int | None = None,
+    online_update_fn: OnlineUpdateFn | None = None,
+    backward_epilogue_fn: BackwardEpilogueFn | None = None,
+    fused_online_update_fn: FusedOnlineUpdateFn | None = None,
 ) -> None:
     """
     Inject a PrimeRL LM head into a model.
@@ -384,12 +433,22 @@ def inject_prime_lm_head(
 
     logger = get_logger()
 
+    if any(fn is not None for fn in (online_update_fn, backward_epilogue_fn, fused_online_update_fn)) and not isinstance(
+        chunk_size, int
+    ):
+        raise ValueError("an online LM-head update requires a chunked fused LM head")
+
     # Replace the lm_head with the appropriate wrapper
     old_lm_head = model.lm_head
     if isinstance(chunk_size, int):
         logger.info(f"Injecting chunked LM head with chunk size {chunk_size}")
         model.lm_head = FusedOutputLinear(
-            in_features=old_lm_head.in_features, out_features=old_lm_head.out_features, chunk_size=chunk_size
+            in_features=old_lm_head.in_features,
+            out_features=old_lm_head.out_features,
+            chunk_size=chunk_size,
+            online_update_fn=online_update_fn,
+            backward_epilogue_fn=backward_epilogue_fn,
+            fused_online_update_fn=fused_online_update_fn,
         )
     else:
         logger.info("Injecting vanilla LM head")

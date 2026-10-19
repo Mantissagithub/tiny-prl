@@ -88,6 +88,50 @@ def test_fused_lm_head_frozen_weight_backward_cpu():
     assert lm.weight.grad is None
 
 
+def test_backward_epilogue_receives_contiguous_broadcast_upstream_grad_cpu():
+    torch.manual_seed(4)
+    rows, hidden_size, vocab = 4, 5, 17
+    hidden = torch.randn(1, rows, hidden_size, requires_grad=True)
+    weight = torch.randn(vocab, hidden_size, requires_grad=True)
+    labels = torch.randint(vocab, (1, rows))
+    temperature = torch.linspace(0.7, 1.8, rows).reshape(1, rows)
+    seen_strides = []
+
+    baseline_hidden = hidden.detach().clone().requires_grad_(True)
+    baseline_weight = weight.detach().clone().requires_grad_(True)
+    baseline_logprobs, _ = _baseline_logprobs_and_entropy(
+        baseline_hidden, baseline_weight, labels, temperature=temperature
+    )
+    baseline_logprobs.sum().backward()
+
+    def backward_epilogue(logits, inv_temperature, logz, grad_logprobs, chunk_labels, vocab_start):
+        seen_strides.append(grad_logprobs.stride())
+        assert grad_logprobs.is_contiguous()
+        scaled = logits.float() * inv_temperature.float().unsqueeze(-1)
+        grad_logits = -grad_logprobs.unsqueeze(-1) * torch.exp(scaled - logz.unsqueeze(-1))
+        in_range = (chunk_labels >= vocab_start) & (chunk_labels < vocab_start + logits.shape[-1])
+        local = (chunk_labels - vocab_start).clamp(0, logits.shape[-1] - 1).unsqueeze(-1)
+        grad_logits.scatter_add_(1, local, (grad_logprobs * in_range).unsqueeze(-1))
+        return grad_logits * inv_temperature.float().unsqueeze(-1)
+
+    lm = FusedOutputLinear(
+        hidden_size, vocab, chunk_size=rows, backward_epilogue_fn=backward_epilogue
+    )
+    lm.weight = torch.nn.Parameter(weight.detach().clone())
+    out = lm(hidden, labels, temperature=temperature)
+    output_gradient_strides = []
+    out["logprobs"].register_hook(lambda grad: output_gradient_strides.append(grad.stride()) or grad)
+    out["logprobs"].sum().backward()
+
+    assert any(0 in stride for stride in output_gradient_strides)
+    assert seen_strides == [(1,)]
+    assert hidden.grad is not None
+    assert lm.weight.grad is not None
+    torch.testing.assert_close(out["logprobs"], baseline_logprobs, rtol=0, atol=1e-5)
+    torch.testing.assert_close(hidden.grad, baseline_hidden.grad, rtol=0, atol=1e-5)
+    torch.testing.assert_close(lm.weight.grad, baseline_weight.grad, rtol=0, atol=1e-5)
+
+
 def test_fused_lm_head_requires_labels():
     """Test that FusedOutputLinear raises assertion error when labels is None."""
     torch.manual_seed(0)

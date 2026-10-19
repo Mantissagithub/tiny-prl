@@ -28,6 +28,7 @@ class FileSystemWeightSender(WeightSender):
     ):
         super().__init__(output_dir, config.timeout)
         self.lora_config = lora_config
+        self.max_shard_size_bytes = config.max_shard_size_bytes
         self.logger.debug("Initialized filesystem weight broadcast")
 
     def _broadcast(self, model: nn.Module, step: int, step_dir: Path) -> None:
@@ -55,7 +56,11 @@ class FileSystemWeightSender(WeightSender):
             state_dict = gather_weights_parallel(model)
             state_dict = convert_state_dict_to_hf(model, state_dict)
             self.logger.debug(f"Saving weights to {step_dir}")
-            save_state_dict_parallel(state_dict, step_dir)
+            save_state_dict_parallel(
+                state_dict,
+                step_dir,
+                max_shard_size_bytes=self.max_shard_size_bytes,
+            )
 
 
 class FileSystemWeightReceiver(WeightReceiver):

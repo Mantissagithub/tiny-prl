@@ -12,4 +12,4 @@
 	url = https://github.com/PrimeIntellect-ai/pydantic-config
 [submodule "prime-kernels"]
 	path = deps/prime-kernels
-	url = https://github.com/PrimeIntellect-ai/prime-kernels
+	url = https://github.com/Mantissagithub/prime-kernels.git

@@ -36,7 +36,7 @@ class PerfCounter:
         if torch.cuda.is_available():
             self.gpu_peak_flops = self._get_peak_flops(torch.cuda.get_device_name(torch.device("cuda")))
         else:
-            self.gpu_peak_flops = 0
+            self.gpu_peak_flops = None
         self.num_flop_per_token = self._get_num_flop_per_token(model.config, seq_len=seq_len)
 
     def count_tokens(self, tokens: int) -> None:
@@ -62,13 +62,15 @@ class PerfCounter:
         """Single-step throughput from a caller-provided duration."""
         return tokens / fwd_bwd_time
 
-    def get_step_mfu(self, tokens: int, fwd_bwd_time: float) -> float:
+    def get_step_mfu(self, tokens: int, fwd_bwd_time: float) -> float | None:
         return self._mfu_from_tps(self.get_step_tokens_per_second(tokens, fwd_bwd_time))
 
-    def _mfu_from_tps(self, tokens_per_second: float) -> float:
+    def _mfu_from_tps(self, tokens_per_second: float) -> float | None:
+        if self.gpu_peak_flops is None or self.gpu_peak_flops <= 0:
+            return None
         return 100 * self.num_flop_per_token * tokens_per_second / self.gpu_peak_flops / self._world.world_size
 
-    def _get_peak_flops(self, device_name: str) -> float:
+    def _get_peak_flops(self, device_name: str) -> float | None:
         """
         Peak BF16 FLOPs (without sparsity)
 
@@ -95,6 +97,15 @@ class PerfCounter:
             # https://nvdam.widen.net/s/wwnsxrhm2w/blackwell-datasheet-3384703
             # Checked after GB200/GB300 to avoid false match on "GB300"
             return 2.25e15  # This is half of the FLOPS reported in torchtitan
+        if "RTX 4060 Laptop GPU" in device_name:
+            # Ada GeForce dense BF16/FP32-accumulate peak: 512 FLOP/SM/cycle.
+            # 24 SMs x 512 FLOP/SM/cycle x NVIDIA's 2.370 GHz rated boost clock.
+            # Do not use the higher driver-reported max clock as the reference peak.
+            # Sources: Ada GPU Architecture Whitepaper v2.02, pp. 29-31;
+            # https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
+            # RTX 4060 Laptop specifications (3,072 CUDA cores = 24 SMs; 2.370 GHz boost):
+            # https://www.nvidia.com/en-ph/geforce/laptops/compare/
+            return 29.12256e12
         # AMD Instinct GPUs
         if "MI300X" in device_name:
             # https://www.amd.com/en/products/accelerators/instinct/mi300/mi300x.html
@@ -105,8 +116,8 @@ class PerfCounter:
             # Peak BF16: 1307.4 TFLOPS (matrix) - same compute dies as MI300X, more HBM3e
             return 1307.4e12
         else:
-            self._logger.warning(f"Peak FLOPS undefined for `{device_name}`. Falling back to A100 (312 TFLOPS)")
-            return 312e12
+            self._logger.warning(f"Peak FLOPS undefined for `{device_name}`. MFU will be unavailable")
+            return None
 
     @staticmethod
     def get_active_mm_params(config: PretrainedConfig) -> float:

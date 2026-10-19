@@ -508,8 +508,6 @@ class RLConfig(BaseConfig):
             return self
         if self.slurm is not None:
             raise ValueError("deployment.share_train_infer_gpu is supported only for local runs, not SLURM.")
-        if self.trainer.model.lora is None:
-            raise ValueError("deployment.share_train_infer_gpu requires trainer.model.lora to be configured.")
         if self.weight_broadcast.type != "filesystem":
             raise ValueError("deployment.share_train_infer_gpu requires weight_broadcast.type = 'filesystem'.")
         if self.inference is None:

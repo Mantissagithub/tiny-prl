@@ -935,7 +935,75 @@ def setup_model(
     if isinstance(config.fused_lm_head_token_chunk_size, int):
         lm_head_chunk_size = config.fused_lm_head_token_chunk_size
 
-    inject_prime_lm_head(model, chunk_size=lm_head_chunk_size)
+    lm_head_update_fn = None
+    lm_head_backward_epilogue_fn = None
+    lm_head_fused_update_fn = None
+
+    def log_first_callback_call(callback: Callable, message: str) -> Callable:
+        logged = False
+
+        def invoke(*args):
+            nonlocal logged
+            result = callback(*args)
+            if not logged:
+                logger.info(message)
+                logged = True
+            return result
+
+        return invoke
+
+    if config.fused_lm_head_kernel == "cute_online_update":
+        import prime_kernels
+
+        kernel_name = "lm_head_online_update"
+        if kernel_name not in prime_kernels.KERNELS:
+            raise RuntimeError(
+                f"fused_lm_head_kernel='cute_online_update' requires the {kernel_name!r} kernel in prime-kernels"
+            )
+        lm_head_update_fn = prime_kernels.load(kernel_name).online_update
+        get_logger().info("Using CuTe online LM-head update from prime-kernels")
+
+    if config.fused_lm_head_kernel == "cute_fused_forward_backward":
+        import prime_kernels
+
+        kernel_name = "lm_head_cute_fused_forward_backward"
+        if kernel_name not in prime_kernels.KERNELS:
+            raise RuntimeError(
+                f"fused_lm_head_kernel='cute_fused_forward_backward' requires the {kernel_name!r} kernel in prime-kernels"
+            )
+        cute_kernel = prime_kernels.load(kernel_name)
+        lm_head_backward_epilogue_fn = log_first_callback_call(
+            cute_kernel.fused_backward_epilogue, "CuTe LM-head backward epilogue executed"
+        )
+        lm_head_fused_update_fn = log_first_callback_call(
+            cute_kernel.fused_online_update, "CuTe LM-head forward update executed"
+        )
+        get_logger().info("Using CuTe fused forward and backward LM-head kernels from prime-kernels")
+
+    if config.fused_lm_head_kernel == "triton_online_update":
+        import prime_kernels
+
+        kernel_name = "lm_head_triton_online_update"
+        if kernel_name not in prime_kernels.KERNELS:
+            raise RuntimeError(
+                f"fused_lm_head_kernel='triton_online_update' requires the {kernel_name!r} kernel in prime-kernels"
+            )
+        triton_kernel = prime_kernels.load(kernel_name)
+        lm_head_backward_epilogue_fn = log_first_callback_call(
+            triton_kernel.fused_backward_epilogue, "Triton LM-head backward epilogue executed"
+        )
+        lm_head_fused_update_fn = log_first_callback_call(
+            triton_kernel.fused_online_update, "Triton LM-head forward update executed"
+        )
+        get_logger().info("Using Triton fused online LM-head update and backward epilogue from prime-kernels")
+
+    inject_prime_lm_head(
+        model,
+        chunk_size=lm_head_chunk_size,
+        online_update_fn=lm_head_update_fn,
+        backward_epilogue_fn=lm_head_backward_epilogue_fn,
+        fused_online_update_fn=lm_head_fused_update_fn,
+    )
 
     apply_quantization(model, config)
 

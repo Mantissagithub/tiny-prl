@@ -580,7 +580,8 @@ def train(config: SFTConfig):
         step_message = f"Step {progress.step} | {format_time(step_time):>7} | Loss {batch_loss:.4f}"
         if grad_norm is not None:
             step_message += f" | Grad. Norm {grad_norm:.4f}"
-        step_message += f" | LR {current_lr:.2e} | Throughput {throughput:.0f} tokens/s | MFU {mfu:.1f}% | Peak Mem. {peak_memory:.1f}/{max_memory:.1f} GiB ({peak_memory / max_memory * 100:.1f}%)"
+        mfu_text = f"{mfu:.1f}%" if mfu is not None else "n/a"
+        step_message += f" | LR {current_lr:.2e} | Throughput {throughput:.0f} tokens/s | MFU {mfu_text} | Peak Mem. {peak_memory:.1f}/{max_memory:.1f} GiB ({peak_memory / max_memory * 100:.1f}%)"
         if is_moe_model:
             for name, label in (("max_vio/mean", "Max Vio"), ("routing_confidence/mean", "Routing Conf.")):
                 value = moe_stats[name].item()
@@ -619,6 +620,8 @@ def train(config: SFTConfig):
             "perf/throughput_per_gpu": throughput / world.world_size,
             "perf/peak_memory": peak_memory,
             "perf/mfu": mfu,
+            "perf/gpu_peak_tflops": perf_counter.gpu_peak_flops / 1e12 if perf_counter.gpu_peak_flops is not None else None,
+            "perf/model_flops_per_token": perf_counter.num_flop_per_token,
             "step": progress.step,
         }
         asyncio.run(monitors.log(perf_metrics, step=progress.step))

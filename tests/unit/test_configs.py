@@ -26,6 +26,7 @@ from prime_rl.configs.orchestrator import (
 )
 from prime_rl.configs.rl import RLConfig
 from prime_rl.configs.sft import SFTConfig
+from prime_rl.configs.shared import FileSystemWeightBroadcastConfig
 from prime_rl.configs.trainer import ModelConfig as TrainerModelConfig
 from prime_rl.configs.trainer import TrainerConfig
 from prime_rl.utils.config import BaseConfig, cli, dump_resolved_config
@@ -189,6 +190,37 @@ def test_cli_overrides_toml(tmp_path):
 def test_removed_fused_lm_head_chunk_size_field_is_rejected():
     with pytest.raises(ValidationError, match="fused_lm_head_chunk_size"):
         TrainerModelConfig.model_validate({"fused_lm_head_chunk_size": "auto"})
+
+
+def test_fused_lm_head_kernel_is_opt_in_and_requires_chunking():
+    assert TrainerModelConfig().fused_lm_head_kernel == "torch"
+    assert TrainerModelConfig.model_validate({"fused_lm_head_kernel": "cute_online_update"}).fused_lm_head_kernel == (
+        "cute_online_update"
+    )
+    assert TrainerModelConfig.model_validate(
+        {"fused_lm_head_kernel": "triton_online_update"}
+    ).fused_lm_head_kernel == "triton_online_update"
+    assert TrainerModelConfig.model_validate(
+        {"fused_lm_head_kernel": "cute_fused_forward_backward"}
+    ).fused_lm_head_kernel == "cute_fused_forward_backward"
+
+    with pytest.raises(ValidationError, match="requires fused_lm_head_token_chunk_size to be enabled"):
+        TrainerModelConfig.model_validate(
+            {"fused_lm_head_kernel": "cute_online_update", "fused_lm_head_token_chunk_size": "disabled"}
+        )
+
+    with pytest.raises(ValidationError, match="requires fused_lm_head_token_chunk_size to be enabled"):
+        TrainerModelConfig.model_validate(
+            {"fused_lm_head_kernel": "triton_online_update", "fused_lm_head_token_chunk_size": "disabled"}
+        )
+
+    with pytest.raises(ValidationError, match="requires fused_lm_head_token_chunk_size to be enabled"):
+        TrainerModelConfig.model_validate(
+            {
+                "fused_lm_head_kernel": "cute_fused_forward_backward",
+                "fused_lm_head_token_chunk_size": "disabled",
+            }
+        )
 
 
 def test_icepop_is_an_optional_loss_with_validated_ratio_bounds():
@@ -674,7 +706,17 @@ def test_single_node_auto_inference_ports_follow_server_port():
     assert config.orchestrator.model.client.admin_base_url == ["http://localhost:8101/v1"]
 
 
-def test_shared_single_gpu_lora_config_is_validated():
+def test_filesystem_weight_broadcast_shard_size_validation():
+    assert FileSystemWeightBroadcastConfig().max_shard_size_bytes == 5_000_000_000
+    config = FileSystemWeightBroadcastConfig.model_validate({"max_shard_size_bytes": 64_000_000})
+    assert config.max_shard_size_bytes == 64_000_000
+    with pytest.raises(ValidationError):
+        FileSystemWeightBroadcastConfig.model_validate({"max_shard_size_bytes": 0})
+    with pytest.raises(ValidationError):
+        FileSystemWeightBroadcastConfig.model_validate({"max_shard_size_bytes": -1})
+
+
+def test_shared_single_gpu_full_and_lora_configs_are_validated():
     config_data = {
         "trainer": {"model": {"lora": {"rank": 8}}},
         "orchestrator": {},
@@ -701,6 +743,15 @@ def test_shared_single_gpu_lora_config_is_validated():
     assert config.orchestrator.model.client.base_url == "http://localhost:8000/v1"
     assert config.orchestrator.model.client.admin_base_url is None
 
+    full_model_data = deepcopy(config_data)
+    full_model_data["trainer"]["model"]["lora"] = None
+    full_model_config = RLConfig.model_validate(full_model_data)
+    assert full_model_config.deployment.share_train_infer_gpu is True
+    assert full_model_config.trainer.model.lora is None
+    assert full_model_config.inference is not None
+    assert full_model_config.inference.vllm.enable_lora is False
+    assert full_model_config.weight_broadcast.type == "filesystem"
+
     tiny_config = cli(RLConfig, args=["@", "examples/tiny/rl.toml"])
     assert tiny_config.trainer.ckpt is not None
     assert tiny_config.trainer.ckpt.single_file_per_rank is False
@@ -715,7 +766,6 @@ def test_shared_single_gpu_lora_config_is_validated():
     ) == (512, 2, 512)
 
     invalid_configs = [
-        ({"trainer": {"model": {"lora": None}}}, "requires trainer.model.lora"),
         ({"slurm": {}}, "supported only for local runs"),
         ({"weight_broadcast": {"type": "nccl"}}, "requires weight_broadcast.type = 'filesystem'"),
         ({"inference": {"vllm": {"tensor_parallel_size": 2}}}, "requires inference.vllm TP=1 and DP=1"),

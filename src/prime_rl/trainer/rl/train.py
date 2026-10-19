@@ -665,7 +665,8 @@ def train(config: TrainerConfig):
             step_message += f" | Mismatch KL {tensor_stats['mismatch_kl/all/mean']:.4f}"
         if grad_norm is not None:
             step_message += f" | Grad. Norm {grad_norm:.4f}"
-        step_message += f" | LR {current_lr:.2e} | Throughput {throughput:.0f} tokens/s | MFU {mfu:.1f}% | Peak Mem. {peak_memory:.1f} GiB"
+        mfu_text = f"{mfu:.1f}%" if mfu is not None else "n/a"
+        step_message += f" | LR {current_lr:.2e} | Throughput {throughput:.0f} tokens/s | MFU {mfu_text} | Peak Mem. {peak_memory:.1f} GiB"
         if "max_vio/mean" in tensor_stats:
             step_message += f" | Max Vio {tensor_stats['max_vio/mean']:.4f}"
         if "routing_confidence/mean" in tensor_stats:
@@ -677,6 +678,8 @@ def train(config: TrainerConfig):
             "perf/throughput": throughput,
             "perf/throughput_per_gpu": throughput / world.world_size,
             "perf/mfu": mfu,
+            "perf/gpu_peak_tflops": perf_counter.gpu_peak_flops / 1e12 if perf_counter.gpu_peak_flops is not None else None,
+            "perf/model_flops_per_token": perf_counter.num_flop_per_token,
             "perf/peak_memory": peak_memory,
             "step": progress.step,
         }

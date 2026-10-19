@@ -199,10 +199,12 @@ def gather_weights_parallel(model: nn.Module, dtype: torch.dtype = torch.bfloat1
     return partial
 
 
-def save_state_dict_parallel(state_dict: dict[str, Tensor], save_dir: Path) -> None:
+def save_state_dict_parallel(
+    state_dict: dict[str, Tensor], save_dir: Path, max_shard_size_bytes: int = 5_000_000_000
+) -> None:
     """Cooperatively save a rank-partitioned state dict as sharded safetensors.
 
-    Each rank splits its slice into <=5GB shards and writes them under temporary
+    Each rank splits its slice into bounded shards and writes them under temporary
     names, shard maps are exchanged, and every rank renames its own files into the
     global numbering (non-POSIX shared filesystems cannot reliably rename another
     rank's unpublished writes). Master writes the index last, after the barrier, so
@@ -218,7 +220,11 @@ def save_state_dict_parallel(state_dict: dict[str, Tensor], save_dir: Path) -> N
     dist.barrier()
 
     tmp_pattern = f"tmp-rank{world.rank}{{suffix}}.safetensors"
-    split = split_torch_state_dict_into_shards(state_dict, filename_pattern=tmp_pattern)
+    split = split_torch_state_dict_into_shards(
+        state_dict,
+        filename_pattern=tmp_pattern,
+        max_shard_size=max_shard_size_bytes,
+    )
     local_shards: list[tuple[str, dict[str, int]]] = []
     for tmp_name, tensor_names in split.filename_to_tensors.items():
         if not tensor_names:

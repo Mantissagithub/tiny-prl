@@ -47,6 +47,8 @@ class BaseWeightBroadcastConfig(BaseConfig):
 
 class FileSystemWeightBroadcastConfig(BaseWeightBroadcastConfig):
     type: Literal["filesystem"] = "filesystem"
+    max_shard_size_bytes: int = Field(5_000_000_000, gt=0)
+    """Target bytes per safetensors shard for full-weight filesystem broadcasts; a single tensor may exceed it."""
 
 
 class InMemoryWeightBroadcastConfig(BaseWeightBroadcastConfig):

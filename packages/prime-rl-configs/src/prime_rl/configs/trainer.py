@@ -306,6 +306,11 @@ class ModelConfig(BaseModelConfig):
     fused_lm_head_token_chunk_size: int | Literal["disabled"] = 8192
     """Flattened token chunk size for the fused LM head. ``int >= 1`` sets the tokens per LM-head chunk explicitly; ``disabled`` uses the vanilla LM head. In SFT the fused head computes the summed cross-entropy and its gradients chunk by chunk, holding one chunk's full-vocab logits at a time."""
 
+    fused_lm_head_kernel: Literal[
+        "torch", "cute_online_update", "cute_fused_forward_backward", "triton_online_update"
+    ] = "torch"
+    """Online LM-head update backend. Registered CuTe and Triton options opt into their kernels and fail at model setup if unavailable; ``torch`` keeps the PyTorch implementation."""
+
     @model_validator(mode="after")
     def vlm_cp_requires_ulysses(self):
         if self.vlm is not None and self.cp > 1 and self.cp_style not in ("auto", "ulysses"):
@@ -316,6 +321,12 @@ class ModelConfig(BaseModelConfig):
     def validate_cp(self):
         if self.cp > 1 and self.attn not in ["flash_attention_2", "flash_attention_3", "flash_attention_4", "auto"]:
             raise ValueError("CP is only supported with flash attention 2, 3, or 4")
+        return self
+
+    @model_validator(mode="after")
+    def fused_lm_head_kernel_requires_chunking(self):
+        if self.fused_lm_head_kernel != "torch" and self.fused_lm_head_token_chunk_size == "disabled":
+            raise ValueError("fused_lm_head_kernel requires fused_lm_head_token_chunk_size to be enabled")
         return self
 
     @model_validator(mode="after")
