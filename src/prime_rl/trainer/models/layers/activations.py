@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Literal, Protocol
 
 import torch
@@ -45,6 +46,18 @@ class Silu(Activation):
         if gate is None:
             return F.silu(up)
         return F.silu(gate) * up
+
+
+class KernelSilu(Activation):
+    """``Silu`` with the gated product computed by an external fused kernel."""
+
+    def __init__(self, swiglu: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]) -> None:
+        self.swiglu = swiglu
+
+    def apply(self, gate: torch.Tensor | None, up: torch.Tensor) -> torch.Tensor:
+        if gate is None:
+            return F.silu(up)
+        return self.swiglu(gate, up)
 
 
 ActivationType = Literal["silu", "relu2", "clamped_swiglu"]

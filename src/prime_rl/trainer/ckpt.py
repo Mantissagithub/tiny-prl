@@ -21,6 +21,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from prime_rl.configs.shared import ResumeConfig
 from prime_rl.configs.trainer import CheckpointConfig
 from prime_rl.trainer.models.fusions import (
+    get_model_packed_parameters,
     join_loaded_optimizer_state_for_runtime,
     split_packed_optimizer_state_for_checkpoint,
     write_back_loaded_packed_optimizer_state,
@@ -30,6 +31,7 @@ from prime_rl.trainer.utils import get_dcp_group
 from prime_rl.trainer.world import get_world
 from prime_rl.utils.logger import format_time, get_logger
 from prime_rl.utils.pathing import get_all_ckpt_steps, get_ckpt_dir, get_step_path
+from prime_rl.utils.weights import resolve_fqn
 
 
 @dataclass
@@ -131,6 +133,9 @@ class AppState(Stateful):
             # The template only aliases a packed parameter's state where the packing
             # dimension is unsharded, so the loaded logical entries are packed back in.
             write_back_loaded_packed_optimizer_state(self.model, checkpoint_optimizers, state_dict["optimizers"])
+            _restore_offloaded_optimizer_param_groups(
+                self.model, checkpoint_optimizers, self.optimizers, state_dict["optimizers"]
+            )
             for optimizer in self.optimizers:
                 if isinstance(optimizer, OffloadOptimizer):
                     optimizer.finish_checkpoint_load()
@@ -152,6 +157,49 @@ class AppState(Stateful):
         if self.progress is not None:
             for key, value in state_dict["progress"].items():
                 setattr(self.progress, key, value)
+
+
+def _restore_offloaded_optimizer_param_groups(
+    model: nn.Module,
+    checkpoint_optimizers: list[Optimizer],
+    destination_optimizers: list[OptimizerLike],
+    checkpoint_state_dict: dict[str, Any],
+) -> None:
+    """Restore optimizer group options without moving CPU-offloaded state tensors."""
+    checkpoint_groups = checkpoint_state_dict.get("param_groups", [])
+    checkpoint_runtime_groups = [group for optimizer in checkpoint_optimizers for group in optimizer.param_groups]
+    destination_groups = [group for optimizer in destination_optimizers for group in optimizer.param_groups]
+    if len(checkpoint_runtime_groups) != len(checkpoint_groups) or len(destination_groups) != len(checkpoint_groups):
+        raise RuntimeError(
+            "Optimizer parameter-group count changed across checkpoint: "
+            f"checkpoint={len(checkpoint_groups)}, proxy={len(checkpoint_runtime_groups)}, destination={len(destination_groups)}"
+        )
+
+    fqn_by_param_id = {id(param): resolve_fqn(model, name) for name, param in model.named_parameters()}
+    packed_by_param_id = {id(info.parameter): info.fqn for info in get_model_packed_parameters(model)}
+    fqn_by_param_id.update(packed_by_param_id)
+    packed_fqn_by_logical_fqn = {
+        logical_fqn: info.fqn
+        for info in get_model_packed_parameters(model)
+        for logical_fqn in info.logical_fqns
+    }
+
+    for proxy_group, destination_group, checkpoint_group in zip(
+        checkpoint_runtime_groups, destination_groups, checkpoint_groups, strict=True
+    ):
+        runtime_params = [fqn_by_param_id.get(id(param)) for param in proxy_group["params"]]
+        if any(fqn is None for fqn in runtime_params):
+            raise RuntimeError("Could not map an optimizer parameter to its checkpoint FQN")
+        checkpoint_params = []
+        for fqn in checkpoint_group["params"]:
+            runtime_fqn = packed_fqn_by_logical_fqn.get(fqn, fqn)
+            if runtime_fqn not in checkpoint_params:
+                checkpoint_params.append(runtime_fqn)
+        if runtime_params != checkpoint_params:
+            raise RuntimeError("Optimizer parameter order changed across checkpoint")
+        for key, value in checkpoint_group.items():
+            if key != "params":
+                destination_group[key] = value
 
 
 class CheckpointManager:

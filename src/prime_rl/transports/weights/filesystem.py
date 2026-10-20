@@ -29,10 +29,13 @@ class FileSystemWeightSender(WeightSender):
         super().__init__(output_dir, config.timeout)
         self.lora_config = lora_config
         self.max_shard_size_bytes = config.max_shard_size_bytes
+        self.stream_gather_to_disk = config.stream_gather_to_disk
         self.logger.debug("Initialized filesystem weight broadcast")
 
     def _broadcast(self, model: nn.Module, step: int, step_dir: Path) -> None:
         if self.lora_config is not None:
+            if self.stream_gather_to_disk:
+                raise ValueError("stream_gather_to_disk does not support LoRA weight broadcasts")
             from prime_rl.trainer.lora import get_lora_state, save_lora_config
 
             # All ranks must participate in DTensor gathering, but only master saves
@@ -52,6 +55,14 @@ class FileSystemWeightSender(WeightSender):
                     alpha=self.lora_config.alpha,
                     dropout=self.lora_config.dropout,
                 )
+        elif self.stream_gather_to_disk:
+            from prime_rl.utils.weights import save_llama_state_dict_streaming
+
+            save_llama_state_dict_streaming(
+                model,
+                step_dir,
+                max_shard_size_bytes=self.max_shard_size_bytes,
+            )
         else:
             state_dict = gather_weights_parallel(model)
             state_dict = convert_state_dict_to_hf(model, state_dict)

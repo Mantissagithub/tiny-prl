@@ -112,3 +112,42 @@ def test_offload_reuses_pinned_buffers_across_steps() -> None:
     assert pointers_before.keys() == pointers_after.keys()
     for key, pointer in pointers_before.items():
         assert pointers_after[key] == pointer, f"state buffer reallocated for {key}"
+
+
+def test_chunked_gpu_state_budget_keeps_selected_fp32_moments_resident() -> None:
+    reference_model = make_model(0)
+    reference_optimizer = torch.optim.AdamW(reference_model.parameters(), lr=1e-2)
+    offloaded_model = make_model(0)
+    base_optimizer = torch.optim.AdamW(offloaded_model.parameters(), lr=1e-2)
+    first_param = next(iter(base_optimizer.param_groups[0]["params"]))
+    budget_bytes = first_param.numel() * first_param.element_size() * 2
+    optimizer = CPUOffloadOptimizer(
+        base_optimizer,
+        pin_memory=False,
+        chunked=True,
+        gpu_state_budget_bytes=budget_bytes,
+        parameter_names={id(param): name for name, param in offloaded_model.named_parameters()},
+    )
+
+    assert optimizer.gpu_state_bytes == budget_bytes
+    assert optimizer.gpu_state_parameter_names == ["0.weight"]
+    run_steps(reference_model, reference_optimizer, num_steps=3, seed=1)
+    run_steps(offloaded_model, optimizer, num_steps=3, seed=1)
+
+    assert_params_equal(reference_model, offloaded_model)
+    assert optimizer.state[first_param]["exp_avg"].device.type == "cuda"
+    assert optimizer.state[first_param]["exp_avg_sq"].device.type == "cuda"
+    assert optimizer.state[first_param]["exp_avg"].dtype == torch.float32
+    assert optimizer.state[first_param]["exp_avg_sq"].dtype == torch.float32
+    assert all(
+        value.device.type == "cpu"
+        for param, state in optimizer.state.items()
+        if param is not first_param
+        for value in state.values()
+    )
+    assert all(param is not first_param for param, _ in optimizer._cpu_buffers)
+
+    mixed_state = optimizer.state_dict()
+    state_for_first = mixed_state["state"][0]
+    assert state_for_first["exp_avg"].device.type == "cuda"
+    assert state_for_first["exp_avg_sq"].device.type == "cuda"

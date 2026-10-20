@@ -93,6 +93,47 @@ def main() -> None:
         ("135M\nfull param", "10/10 + DCP\ncheckpoint audit", yellow),
         ("135M resume\n10->20", "10/10 finite;\nMFU 4.18%", mint),
         ("64 MB\nbroadcast", "2/2 + ACK;\nfunctional only", mint),
+        ("CuTe RL\nA-B-B-A", "10/10 finite;\nno wall gain", lilac),
+        ("Stream\nwriter ABBA", "273 exact;\nPSS -192 MiB", sky),
+        ("Stream\nRL pilot", "2/2; 59.10 s;\nfunctional only", mint),
+        ("SmolLM v1\ntask gate", "519/520 zero;\n0 updates; gate", coral),
+        ("TVM-FFI\nhead", "host submit lower;\nevent similar", sky),
+        ("TVM-FFI\nRL pilot", "2 updates;\nbranch + ACK", mint),
+        ("360M\ntrainer", "ABBA; -446 MiB\nsampled peak; synth", yellow),
+        ("360M\ninference", "2x512 reqs;\n.15/.13 separate", sky),
+        ("Bounded\nstate", "small parity r5;\n360M capacity r3", yellow),
+        ("360M co-res", "both hit cap;\ntrim -904 KiB", coral),
+        ("Packed DCP", "QKV + tied;\n3-update exact", mint),
+        ("Mixed state", "strict parity;\ncapacity probes", yellow),
+        ("360M RL\npilot", "1 update; host stop;\nv1 broadcast incomplete", coral),
+        ("Lazy Muon\nimport", "9 modules fewer;\nPSS +412 KiB", coral),
+        ("360M phase\ndiagnostic", "host-floor stop;\noptimizer incomplete", coral),
+        ("360M phase r2", "host-floor stop;\nF/B +496 MiB", coral),
+        ("Allocator phase", "1 trainer-only step;\ntrim -44 KiB", coral),
+        ("Tracemalloc", "Python <5 MiB;\nVMA source unknown", coral),
+        ("Memray\nnative heap", "0.83 GiB heap;\nCUDA loading labels", yellow),
+        ("360M RL\npilot 2", "2/2 steps;\nload HTTP 200s", mint),
+        ("CuTe FFI\n360M parity", "strict gradient\ngate failed", coral),
+        ("360M 10-update", "10 finite steps;\ncheckpoint OOM", coral),
+        ("PTX no-FMA", "strict pass;\n512 rows only", yellow),
+        ("PTX no-FMA\nextended", "7 strict cases;\nint32 labels pass", mint),
+        ("Serial DCP", "fresh resume to 2;\ntrainer-only", mint),
+        ("Registered FFI\nfull head", "23.6% lower;\ncomponent only", sky),
+        ("360M serial\nDCP full-stack", "safe host-floor\nstop after 1 update", yellow),
+        ("360M 2.25 GiB\nopt budget", "safe host-floor stop;\nnegative capacity", yellow),
+        ("135M no-FMA\nFFI head", "strict grad gate\nfailed; not timed", coral),
+        ("Inference head\nGEMM roofline", "~93% of BW floor;\n<=0.24% left, no run", lilac),
+        ("135M full\nproduct stop", "safe host-floor\nstop; not OOM", yellow),
+        ("135M full\n10 updates", "10/10 updates; ckpt-save host stop", yellow),
+        ("135M serial\nDCP resume", "trainer-only save+resume pass", mint),
+        ("135M full-RL\nbaseline", "ckpt + resume pass", mint),
+        ("135M step\nprofile", "launch-bound: GPU\n30% busy", sky),
+        ("Triton RoPE\n+ SwiGLU", "RoPE -0.8% / SwiGLU\n+7.6%: no gain/reject", coral),
+        ("Inductor\ncompile", "compile -47% trainer\n(later invalid)", yellow),
+        ("Triton RMSNorm\n+ RoPE", "-4.7% fixed-shape;\nRL regress (recompile)", coral),
+        ("Inductor\nparity gate", "compile fails strict\nparity: rejected", coral),
+        ("Triton RL\nrecompiles", "recompiles fixed;\nstart-up autotune +12.8% wall", coral),
+        ("Pinned Triton\nRL", "RL fwd/bwd -15.6%;\nwall gain not attributable", mint),
     ]
     x = list(range(len(stages)))
     runtime_comparisons = {
@@ -136,7 +177,7 @@ def main() -> None:
     if pool_a and pool_b:
         job_drop = mib(pool_b["peak_cgroup_anon_plus_swap_bytes"] - pool_a["peak_cgroup_anon_plus_swap_bytes"])
 
-    fig = plt.figure(figsize=(20, 11.5), facecolor=bg)
+    fig = plt.figure(figsize=(56, 11.5), facecolor=bg)
     grid = fig.add_gridspec(
         3, 1, height_ratios=[1.05, 1.45, 1.45], left=0.075, right=0.985, top=0.835, bottom=0.36, hspace=0.30
     )
@@ -224,7 +265,7 @@ def main() -> None:
                 fontfamily=mono,
             )
 
-    runtime_ax.set_ylim(-16, 12)
+    runtime_ax.set_ylim(-19, 12)
     runtime_ax.set_yticks([-15, -10, -5, 0, 5, 10])
     runtime_ax.set_ylabel("B vs A (%)", color=soft, labelpad=10)
     runtime_ax.set_title(
@@ -252,20 +293,94 @@ def main() -> None:
             fontfamily=mono,
         )
 
+    kernel_points = {
+        58: [(-0.8, "-0.8%"), (7.6, "+7.6%")],
+        60: [(-4.7, "-4.7%")],
+        62: [(-4.9, "-4.9%")],
+        63: [(-15.6, "-15.6%")],
+    }
+    for stage, points in kernel_points.items():
+        color = stages[stage][2]
+        for change, text in points:
+            runtime_ax.vlines(stage, 0, change, color=color, linewidth=1.6, alpha=0.85, zorder=2)
+            runtime_ax.scatter(stage, change, marker="D", facecolor=bg, edgecolor=color, linewidth=1.6, s=47, zorder=3)
+            runtime_ax.annotate(
+                text,
+                (stage, change),
+                xytext=(0, 8 if change >= 0 else -10),
+                textcoords="offset points",
+                ha="center",
+                va="bottom" if change >= 0 else "top",
+                color=color,
+                fontsize=8,
+                fontfamily=mono,
+            )
+    runtime_ax.legend(
+        handles=[
+            plt.Line2D(
+                [],
+                [],
+                marker="D",
+                linestyle="",
+                markerfacecolor=bg,
+                markeredgecolor=soft,
+                markeredgewidth=1.6,
+                markersize=7,
+                label="trainer fwd/bwd or step time (not end-to-end)",
+            )
+        ],
+        loc="lower left",
+        bbox_to_anchor=(0.62, 0.0),
+        frameon=False,
+        labelcolor=soft,
+        fontsize=8,
+    )
+    runtime_ax.text(
+        61.5,
+        -17.5,
+        "RL wall -3.6% not attributable (wait variance)",
+        ha="right",
+        va="center",
+        color=mint,
+        fontsize=7,
+        fontfamily=mono,
+    )
+    runtime_ax.text(
+        13.2,
+        11.5,
+        "TVM-FFI · REAL 298x1024x151936 HEAD · STRICT PARITY\nFrozen weights host submit CuTe/FFI 9.96/4.64 ms; events 15.41/15.33\nFull dW host submit 10.37/4.72 ms; events 31.61/31.57\nEvent intervals include queue gaps; host-submit difference is not GPU or RL speed.",
+        ha="left",
+        va="top",
+        color=sky,
+        fontsize=5.5,
+        fontfamily=mono,
+        bbox={"boxstyle": "round,pad=0.45", "facecolor": bg, "edgecolor": sky, "linewidth": 0.8},
+    )
     runtime_ax.text(
         len(stages) - 0.68,
         11.5,
-        "LOCAL HEAD FIXTURES · 298 ROWS · STRICT PARITY\nForward-only T/Cu/Tri 25.075 / 20.720 / 20.342 ms\nTriton backward T/fwd/full 24.801 / 20.148 / 14.790 ms\nCuTe v2 full T/Triton/mixed/CuTe 24.751 / 14.692 / 16.555 / 15.192 ms\n8 samples/arm · CuTe 38.6% below Torch · local only\nTriton RL ABBA control/candidate 97.07 / 96.36 s (-0.7%)\nNo attributable whole-RL gain",
+        "LOCAL HEAD FIXTURES · 298 ROWS · STRICT PARITY\nForward-only T/Cu/Tri 25.075 / 20.720 / 20.342 ms\nTriton backward T/fwd/full 24.801 / 20.148 / 14.790 ms\nCuTe v2 full T/Triton/mixed/CuTe 24.751 / 14.692 / 16.555 / 15.192 ms\n8 samples/arm · CuTe 38.6% below Torch · local only\nTriton RL ABBA control/candidate 97.07 / 96.36 s (-0.7%)\nCuTe RL ABBA Torch/CuTe 96.65 / 95.98 s (-0.69%; within control spread)\nCuTe F/B all +7.42%, warm -4.22%; first-step cost\nNo attributable whole-RL gain",
         ha="right",
         va="top",
         color=lilac,
-        fontsize=5.5,
+        fontsize=5.05,
         fontfamily=mono,
         bbox={"boxstyle": "round,pad=0.45", "facecolor": bg, "edgecolor": lilac, "linewidth": 0.8},
     )
     runtime_ax.text(
-        len(stages) - 0.68,
-        -5.5,
+        13.2,
+        -2.5,
+        "360M CAPACITY + FULL-RL EVIDENCE · DIFFERENT SCOPE\nStaged allocator ABBA 7197->6751 MiB; vLLM peaks 1283/1125 MiB in separate runs, not combined.\nCo-res 1/2 GiB staged probes: GPU 6316/7336 MiB, cgroup 7.47/6.24 GB, min host 2.35/3.50 GB; each 3 updates + 2 requests.\nFull RL r1 stopped after update 1 at 1.949 GB host; 362/366 no_signal, v1 incomplete, no checkpoint.\nPhase probes: F/B +496-559 MiB PSS, clip +80 MiB; trim -44 KiB. Diagnostic correlation only.\nTracemalloc: PSS +620 MiB, Python peak 4.32 MB; smaps heap +432 MiB and unnamed VMAs ~192 MiB, no owner.\nMemray: 893 MB requested heap excludes 9.23 GB virtual MMAP; top-100 heap has 466 MB library-load and 218 MB other CUDA labels; no app-leak attribution.\nPilot2 r2: 2/2 finite steps, 4/4 trainable episodes, v0-v2 transfers finished; three load HTTP 200s; 167.94 s. Min host 5.155 GB, cgroup 6.749 GB, GPU 7224 MiB.\nTwo-step admission pass only; no checkpoint. loss/std undefined for n=1. Host availability ~10 vs ~7 GiB; no code/performance gain claim. CuTe FFI 512-row H960/V49152: strict grad gate failed; no integration.\nBaseline10 RL: 10 finite steps, v10 HTTP 200; 337.52 s. Final step-10 save started, then systemd OOM at 7 GiB RAM + 2 GiB swap caps. Partial 2.126 GB distcp, no metadata, not resumable; min host 3.381 GB, GPU 7224 MiB. No full-RL speed claim.\nPTX no-FMA: strict N=512 pass; 0 BF16 mismatches across 25.166M dlogits, grad errors 0.000977/0.001953 within unchanged tolerances. 9.66 s, GPU 1175 MiB, cgroup 1.893 GB. Extended r1 hit int32 label-pointer specialization; r2 corrected labels dtype and passed 7 strict cases (Smol 512/511, Qwen 298/286, small masked/unmasked/int32, non-default stream). Integration pending.\nSerial DCP fake-data save and fresh resume passed: saved step 1 -> resumed step 2; 226 counters at 2 cover 361.8M FP32 parameters. Resume 17.84 s; cgroup 5.455 GB, GPU 6051 MiB, min host 4.844 GB; no new checkpoint. Actual-RL acceptance pending.\nRegistered FFI no-FMA full head, H960/V49152/N512: strict 7-case gate; 2 warmups + 6 alternating samples. Wall Torch/FFI 18.783/14.343 ms (-23.64%); events 18.774/14.333, enqueue 5.971/2.691 ms. Clones/autograd/head component only, not RL speed.",
+        ha="left",
+        va="top",
+        color=yellow,
+        fontsize=4.45,
+        fontfamily=mono,
+        bbox={"boxstyle": "round,pad=0.45", "facecolor": bg, "edgecolor": yellow, "linewidth": 0.8},
+    )
+    runtime_ax.text(
+        len(stages) - 6.7,
+        -7.5,
         "LORA SHRINK · RANK8/K1024 · SPLIT-K 64->4\nQKV M1 23.024->18.452; M2 19.111->13.942\nM2 all-active 18.188->13.583 µs\nGate/up M1 21.525->19.020; M2 17.332->14.449\n100 replays/sample · component parity passed\nModel stress and stock repeat exceeded 1e-3",
         ha="right",
         va="top",
@@ -297,14 +412,14 @@ def main() -> None:
         )
 
     tick_labels = [
-        f"#{i}\n{textwrap.fill(name.replace(chr(10), ' '), width=12)}\n{textwrap.fill(status, width=12)}"
+        f"#{i}\n{textwrap.fill(name.replace(chr(10), ' '), width=10)}\n{textwrap.fill(status, width=10)}"
         for i, (name, status, _) in enumerate(stages)
     ]
     gpu_ax.set_xticks(x, tick_labels)
     for label, (_, _, color) in zip(gpu_ax.get_xticklabels(), stages):
         label.set_color(color)
         label.set_fontfamily(mono)
-        label.set_fontsize(8.8)
+        label.set_fontsize(7.8)
     gpu_ax.tick_params(axis="x", pad=10)
 
     fig.text(
@@ -345,38 +460,54 @@ def main() -> None:
     fig.text(
         0.075,
         0.096,
-        "KV .25 stays for GPU headroom; full AC stays. Three SHA-verified XOR archives preserve older broadcasts; startup, pilot step 2 and checkpoints remain raw. Shards: writer RSS -249.9 MiB, time +2.21%; 2-update ACK pilot passed, no end-to-end gain.",
+        "KV .25 stays for GPU headroom; full AC stays. Three verified archives replaced 8 older broadcasts; a fourth archives pilot step 2 and MFU step 20 with originals retained. Startup, step 10 and checkpoints stay raw. Later cleanup removed 183 finished-run broadcasts (7.21 GB / 6.71 GiB; manifest); UV/Triton cache cleanup tracked separately. Storage maintenance only.",
         color=dim,
-        fontsize=8.2,
+        fontsize=7.6,
         ha="left",
     )
     fig.text(
         0.075,
-        0.063,
-        "32-update acceptance: 32/32 finite · 3.52 GiB min RAM · 5908 MiB GPU · stability only",
-        color=mint,
-        fontsize=8.2,
-        ha="left",
-    )
-    fig.text(
-        0.075,
-        0.043,
-        "Nsight 15 s partial: kernel-interval union vLLM 3.219 s / trainer 0.356 s; report-generation OOM at 6/10. Attribution only, not utilization or RL timing. NVML device-wide utilization (trainer+vLLM): 14.62% full loop, 16.90% warm 39.71 s; sampled values, not SM occupancy.",
+        0.078,
+        "Streaming writer ABBA: 273 tensors exact; post-write PSS 1,545 -> 1,353 MiB. HWM appears 136.73 MiB lower but stream value is setup-censored; phase 0.316925 -> 0.308159 s (-2.77%). No exact writer peak or end-to-end RL claim.",
         color=sky,
-        fontsize=7.1,
+        fontsize=7.3,
         ha="left",
     )
     fig.text(
         0.075,
-        0.019,
+        0.059,
+        "32-update acceptance: 32/32 finite · 3.52 GiB min RAM · 5908 MiB GPU · stability only  |  Earlier co-res control/trim both reached cap; trim reclaimed 904 KiB only and was not adopted.",
+        color=mint,
+        fontsize=6.7,
+        ha="left",
+    )
+    fig.text(
+        0.075,
+        0.040,
+        "Nsight 15 s partial: kernel-interval union vLLM 3.219 s / trainer 0.356 s; report-generation OOM at 6/10. Attribution only, not utilization or RL timing. NVML device-wide utilization (trainer+vLLM): 14.62% full loop, 16.90% warm 39.71 s; sampled values, not SM occupancy. Packed DCP parity covers QKV + tied embedding/head with two LR groups.",
+        color=sky,
+        fontsize=6.8,
+        ha="left",
+    )
+    fig.text(
+        0.075,
+        0.020,
         "135M resume 11-20: 10/10 finite; weighted model-FLOP MFU 4.18% all / 6.24% warm 12-20; RTX 4060 peak 29.12256 TFLOPS (not A100); no occupancy claim.",
         color=yellow,
-        fontsize=6.6,
+        fontsize=6.4,
+        ha="left",
+    )
+    fig.text(
+        0.075,
+        0.004,
+        "Exps 49–55: trainer-step metrics; no attributable end-to-end RL gain.",
+        color=soft,
+        fontsize=7.6,
         ha="left",
     )
     fig.text(
         0.985,
-        0.019,
+        0.020,
         "RTX 4060 Laptop · 8 GiB VRAM · 7 GiB cgroup guard · 2 GiB host-RAM reserve",
         color=dim,
         fontsize=8,

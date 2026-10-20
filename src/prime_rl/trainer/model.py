@@ -53,10 +53,13 @@ from prime_rl.trainer.models.fusions import (
     write_back_loaded_packed_parameters,
 )
 from prime_rl.trainer.models.glm_moe_dsa.sparse_mla_attention import Indexer
+from prime_rl.trainer.models.layers.activations import KernelSilu, Silu
 from prime_rl.trainer.models.layers.fp8_linear import replace_linear_with_fp8_blockwise_linear
 from prime_rl.trainer.models.layers.lm_head import inject_prime_lm_head
+from prime_rl.trainer.models.layers.mlp import FeedForward
 from prime_rl.trainer.models.layers.moe import MoE, TokenChoiceTopKRouter
 from prime_rl.trainer.models.layers.mxfp8_linear import replace_linear_with_mxfp8_linear
+from prime_rl.trainer.models.layers.norms import RMSNorm
 from prime_rl.trainer.models.qwen3_8_flash_next.indexer import SparseAttentionIndexer
 from prime_rl.trainer.models.qwen3_8_flash_next.ngram_embedding import NGramEmbedding
 from prime_rl.trainer.moe_runtime import configure_moe_runtime
@@ -804,6 +807,34 @@ def apply_compile(model: nn.Module, compile_config: CompileConfig):
     )
 
 
+def apply_triton_kernels(model: nn.Module, kernels: list[str]) -> None:
+    import prime_kernels
+
+    for name in kernels:
+        kernel_name = f"triton_{name}"
+        reason = prime_kernels.unavailable_reason(kernel_name)
+        if reason is not None:
+            raise RuntimeError(
+                f"triton_kernels={name!r} requires the {kernel_name!r} kernel in prime-kernels: {reason}"
+            )
+        kernel = prime_kernels.load(kernel_name)
+        if name == "rope":
+            modules = [module for module in model.modules() if hasattr(module, "apply_rotary")]
+            for module in modules:
+                module.apply_rotary = kernel.apply_rotary
+        elif name == "rmsnorm":
+            modules = [module for module in model.modules() if isinstance(module, RMSNorm)]
+            for module in modules:
+                module.kernel_fn = kernel.rmsnorm
+        elif name == "swiglu":
+            modules = [module for module in model.modules() if isinstance(module, FeedForward)]
+            for module in modules:
+                if module.activation is not Silu:
+                    raise ValueError(f"triton_kernels='swiglu' requires the silu activation, got {module.activation!r}")
+                module.activation = KernelSilu(kernel.swiglu)
+        get_logger().info(f"Using Triton {name} kernel from prime-kernels in {len(modules)} modules")
+
+
 def apply_quantization(model: nn.Module, config: ModelConfig) -> None:
     """Swap dense linear modules to the configured low-precision path.
 
@@ -980,6 +1011,23 @@ def setup_model(
         )
         get_logger().info("Using CuTe fused forward and backward LM-head kernels from prime-kernels")
 
+    if config.fused_lm_head_kernel == "cute_tvm_ffi":
+        import prime_kernels
+
+        kernel_name = "lm_head_cute_tvm_ffi"
+        if kernel_name not in prime_kernels.KERNELS:
+            raise RuntimeError(
+                f"fused_lm_head_kernel='cute_tvm_ffi' requires the {kernel_name!r} kernel in prime-kernels"
+            )
+        cute_kernel = prime_kernels.load(kernel_name)
+        lm_head_backward_epilogue_fn = log_first_callback_call(
+            cute_kernel.fused_backward_epilogue, "CuTe TVM-FFI LM-head backward epilogue executed"
+        )
+        lm_head_fused_update_fn = log_first_callback_call(
+            cute_kernel.fused_online_update, "CuTe TVM-FFI LM-head forward update executed"
+        )
+        get_logger().info("Using CuTe LM-head kernels through TVM-FFI from prime-kernels")
+
     if config.fused_lm_head_kernel == "triton_online_update":
         import prime_kernels
 
@@ -996,6 +1044,9 @@ def setup_model(
             triton_kernel.fused_online_update, "Triton LM-head forward update executed"
         )
         get_logger().info("Using Triton fused online LM-head update and backward epilogue from prime-kernels")
+
+    if config.triton_kernels:
+        apply_triton_kernels(model, config.triton_kernels)
 
     inject_prime_lm_head(
         model,

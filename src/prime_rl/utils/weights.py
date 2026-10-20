@@ -199,6 +199,111 @@ def gather_weights_parallel(model: nn.Module, dtype: torch.dtype = torch.bfloat1
     return partial
 
 
+def _validate_streaming_llama(model: nn.Module) -> nn.Module:
+    """Return the uncompiled Llama model after proving no HF key/value conversion applies."""
+    candidate = model
+    while hasattr(candidate, "_orig_mod"):
+        candidate = candidate._orig_mod
+
+    from prime_rl.trainer.models.llama.modeling_llama import LlamaPreTrainedModel
+
+    if not isinstance(candidate, LlamaPreTrainedModel):
+        raise ValueError("stream_gather_to_disk supports only PrimeRL's HF-layout Llama models")
+    if getattr(candidate, "_weight_conversions", None):
+        raise ValueError("stream_gather_to_disk does not support model-specific weight conversions")
+
+    from transformers.conversion_mapping import get_model_conversion_mapping
+
+    if get_model_conversion_mapping(candidate, add_legacy=False):
+        raise ValueError("stream_gather_to_disk does not support Transformers weight conversions")
+    if candidate.is_prime_state_dict({}):
+        raise ValueError("stream_gather_to_disk requires an HF-layout state dict")
+    return candidate
+
+
+def save_llama_state_dict_streaming(
+    model: nn.Module,
+    save_dir: Path,
+    max_shard_size_bytes: int = 5_000_000_000,
+    dtype: torch.dtype = torch.bfloat16,
+) -> None:
+    """Gather one-rank Llama weights and write bounded HF-compatible shards."""
+    world = get_world()
+    if world.world_size != 1:
+        raise ValueError("stream_gather_to_disk currently requires world_size=1")
+    if max_shard_size_bytes <= 0:
+        raise ValueError("max_shard_size_bytes must be positive")
+
+    _validate_streaming_llama(model)
+    state_dict = model.state_dict()
+    if any(".base_layer." in key or "lora_A" in key or "lora_B" in key for key in state_dict):
+        raise ValueError("stream_gather_to_disk does not support LoRA state dicts")
+
+    logger = get_logger()
+    keep_in_fp32 = getattr(model, "keep_in_fp32_for_weight_transfer", None)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    shard_items: dict[str, Tensor] = {}
+    shard_bytes = 0
+    shard_sizes: list[dict[str, int]] = []
+    total_size = 0
+    tmp_names: list[str] = []
+
+    def write_shard() -> None:
+        nonlocal shard_items, shard_bytes
+        if not shard_items:
+            return
+        tmp_name = f"tmp-stream-{len(tmp_names) + 1:05d}.safetensors"
+        save_file(shard_items, save_dir / tmp_name, metadata={"format": "pt"})
+        shard_sizes.append({name: tensor.nbytes for name, tensor in shard_items.items()})
+        tmp_names.append(tmp_name)
+        shard_items = {}
+        shard_bytes = 0
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning, module="torch.distributed")
+        warnings.filterwarnings("ignore", category=UserWarning, module="torch.distributed.*")
+        for key, value in state_dict.items():
+            if isinstance(value, DTensor):
+                target_dtype = resolve_wire_dtype(keep_in_fp32, key, dtype)
+                gathered = cast(DTensor, value.to(target_dtype)).full_tensor()
+            else:
+                gathered = value
+            name = resolve_fqn(model, key)
+            tensor_bytes = gathered.nbytes
+            if shard_items and shard_bytes + tensor_bytes > max_shard_size_bytes:
+                write_shard()
+            cpu_tensor = gathered.to("cpu")
+            del gathered
+            if cpu_tensor.nbytes != tensor_bytes:
+                raise ValueError(f"unexpected wire size for {key}: {cpu_tensor.nbytes} != {tensor_bytes}")
+            shard_items[name] = cpu_tensor.contiguous()
+            shard_bytes += tensor_bytes
+            total_size += tensor_bytes
+            del cpu_tensor
+    write_shard()
+    if not tmp_names:
+        raise ValueError("stream_gather_to_disk received an empty state dict")
+
+    num_shards = len(tmp_names)
+    weight_map: dict[str, str] = {}
+    for index, (tmp_name, sizes) in enumerate(zip(tmp_names, shard_sizes, strict=True), start=1):
+        if num_shards == 1:
+            final_name = SAFE_WEIGHTS_NAME
+        else:
+            final_name = SAFE_WEIGHTS_NAME.replace(
+                ".safetensors", f"-{index:05d}-of-{num_shards:05d}.safetensors"
+            )
+        weight_map.update({name: final_name for name in sizes})
+        (save_dir / tmp_name).rename(save_dir / final_name)
+
+    if num_shards > 1:
+        index_json = {"metadata": {"total_size": total_size}, "weight_map": weight_map}
+        with open(save_dir / SAFE_WEIGHTS_INDEX_NAME, "w", encoding="utf-8") as f:
+            f.write(json.dumps(index_json, indent=2, sort_keys=True) + "\n")
+    dist.barrier()
+    logger.debug(f"Streamed {len(weight_map)} Llama tensors across {num_shards} safetensors shards")
+
+
 def save_state_dict_parallel(
     state_dict: dict[str, Tensor], save_dir: Path, max_shard_size_bytes: int = 5_000_000_000
 ) -> None:

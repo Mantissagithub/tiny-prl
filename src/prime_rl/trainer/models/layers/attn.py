@@ -440,6 +440,7 @@ class FlashAttention(nn.Module):
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
         self.scaling = self.head_dim**-0.5
         self.is_causal = config.is_causal
+        self.apply_rotary = apply_rotary_pos_emb
 
         self.qkv_sizes = (
             config.num_attention_heads * self.head_dim,
@@ -520,7 +521,7 @@ class FlashAttention(nn.Module):
 
         if position_embeddings is not None:
             cos, sin = position_embeddings
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+            query_states, key_states = self.apply_rotary(query_states, key_states, cos, sin)
 
         # TODO: Can we optimize the rotary application instead of double transpose?
         query_states = query_states.transpose(1, 2)

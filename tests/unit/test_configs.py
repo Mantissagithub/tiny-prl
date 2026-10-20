@@ -203,6 +203,9 @@ def test_fused_lm_head_kernel_is_opt_in_and_requires_chunking():
     assert TrainerModelConfig.model_validate(
         {"fused_lm_head_kernel": "cute_fused_forward_backward"}
     ).fused_lm_head_kernel == "cute_fused_forward_backward"
+    assert TrainerModelConfig.model_validate({"fused_lm_head_kernel": "cute_tvm_ffi"}).fused_lm_head_kernel == (
+        "cute_tvm_ffi"
+    )
 
     with pytest.raises(ValidationError, match="requires fused_lm_head_token_chunk_size to be enabled"):
         TrainerModelConfig.model_validate(
@@ -220,6 +223,11 @@ def test_fused_lm_head_kernel_is_opt_in_and_requires_chunking():
                 "fused_lm_head_kernel": "cute_fused_forward_backward",
                 "fused_lm_head_token_chunk_size": "disabled",
             }
+        )
+
+    with pytest.raises(ValidationError, match="requires fused_lm_head_token_chunk_size to be enabled"):
+        TrainerModelConfig.model_validate(
+            {"fused_lm_head_kernel": "cute_tvm_ffi", "fused_lm_head_token_chunk_size": "disabled"}
         )
 
 
@@ -365,6 +373,18 @@ def test_optimizer_state_offload_keeps_legacy_default(config_cls):
     config = config_cls.model_validate({})
 
     assert config.model.offload == "optimizer"
+    assert config.optim.gpu_state_budget_bytes == 0
+
+    configured = config_cls.model_validate(
+        {
+            "model": {"offload": "optimizer_chunked"},
+            "optim": {"gpu_state_budget_bytes": 1024},
+        }
+    )
+    assert configured.optim.gpu_state_budget_bytes == 1024
+
+    with pytest.raises(ValidationError, match="requires optimizer_chunked offload"):
+        config_cls.model_validate({"optim": {"gpu_state_budget_bytes": 1024}})
 
 
 def test_moe_router_dtype_auto_resolves_per_trainer():

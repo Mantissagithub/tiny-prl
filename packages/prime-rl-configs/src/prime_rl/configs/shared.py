@@ -49,6 +49,8 @@ class FileSystemWeightBroadcastConfig(BaseWeightBroadcastConfig):
     type: Literal["filesystem"] = "filesystem"
     max_shard_size_bytes: int = Field(5_000_000_000, gt=0)
     """Target bytes per safetensors shard for full-weight filesystem broadcasts; a single tensor may exceed it."""
+    stream_gather_to_disk: bool = False
+    """Stream single-rank, unconverted Llama weights into bounded safetensors shards instead of gathering a full CPU state dict."""
 
 
 class InMemoryWeightBroadcastConfig(BaseWeightBroadcastConfig):

@@ -272,6 +272,12 @@ class SFTConfig(BaseConfig):
     clean: bool = False
     """Delete the run directory (``output_dir / run.name``) before starting training. Required to overwrite a run directory that contains artifacts from a previous run when not resuming."""
 
+    @model_validator(mode="after")
+    def gpu_optimizer_state_budget_requires_chunked_offload(self):
+        if self.optim.type == "adamw" and self.optim.gpu_state_budget_bytes and self.model.offload != "optimizer_chunked":
+            raise ValueError("AdamW GPU-resident state budget requires optimizer_chunked offload")
+        return self
+
     @property
     def run_dir(self) -> Path:
         assert self.run.dir is not None  # resolved at construction

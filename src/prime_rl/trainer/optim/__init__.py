@@ -55,8 +55,14 @@ def setup_optimizer(
     model: nn.Module | None = None,
     full_offload_dtype_policy: dict[int, tuple[torch.dtype, torch.dtype]] | None = None,
 ) -> tuple[OptimizerLike, GradientOffloadManager | None]:
-    cpu_offload = offload == "optimizer"
+    cpu_offload = offload in ("optimizer", "optimizer_chunked")
+    chunked_cpu_offload = offload == "optimizer_chunked"
     full_offload = offload == "full"
+    if chunked_cpu_offload:
+        if config.type != "adamw":
+            raise ValueError("Chunked optimizer-state offload only supports AdamW")
+        if parallel_dims.world_size != 1:
+            raise ValueError("Chunked optimizer-state offload currently requires world_size=1")
     if full_offload and config.type not in ("adamw", "sign_sgd"):
         raise ValueError("Full optimizer offload only supports AdamW and SignSGD")
     if full_offload and config.max_norm is not None:
@@ -92,8 +98,25 @@ def setup_optimizer(
         return optimizer, optimizer._gradient_manager
 
     if cpu_offload:
-        get_logger().info("Wrapping optimizer with CPUOffloadOptimizer for optimizer state CPU offloading")
-        return CPUOffloadOptimizer(optimizer), None
+        get_logger().info(
+            "Wrapping optimizer with bounded CPU state staging" if chunked_cpu_offload else "Wrapping optimizer with CPUOffloadOptimizer for optimizer state CPU offloading"
+        )
+        # Pinned CUDA host blocks are power-of-two rounded per allocation; use
+        # pageable FP32 state for the opt-in chunked path to avoid that overhead.
+        gpu_state_budget_bytes = config.gpu_state_budget_bytes if config.type == "adamw" else 0
+        offloaded_optimizer = CPUOffloadOptimizer(
+            optimizer,
+            pin_memory=not chunked_cpu_offload,
+            chunked=chunked_cpu_offload,
+            gpu_state_budget_bytes=gpu_state_budget_bytes,
+            parameter_names={id(param): name for name, param in named_params},
+        )
+        if gpu_state_budget_bytes:
+            get_logger().info(
+                f"Keeping {offloaded_optimizer.gpu_state_bytes} AdamW moment bytes on GPU for "
+                f"{offloaded_optimizer.gpu_state_parameter_names}"
+            )
+        return offloaded_optimizer, None
 
     return optimizer, None
 

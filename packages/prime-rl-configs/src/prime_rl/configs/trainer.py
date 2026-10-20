@@ -49,7 +49,7 @@ class ActivationOffloadingConfig(BaseConfig):
     """Max activations kept on GPU while their offload copies are in flight on the side stream. Higher values give more copy/compute overlap at the cost of GPU memory."""
 
 
-OffloadMode: TypeAlias = Literal["none", "optimizer", "full"]
+OffloadMode: TypeAlias = Literal["none", "optimizer", "optimizer_chunked", "full"]
 
 
 class CompileConfig(BaseConfig):
@@ -254,7 +254,7 @@ class ModelConfig(BaseModelConfig):
     """Activation offloading configuration. If None, activation offloading is disabled."""
 
     offload: OffloadMode = "optimizer"
-    """CPU offloading. ``optimizer`` keeps optimizer states (momentum, variance) in CPU RAM and weights on GPU. ``full`` keeps FP32 masters, optimizer states, and accumulated gradients in CPU RAM and runs each optimizer chunk on CPU as soon as its last gradient arrives, overlapped with backward; it supports AdamW and SignSGD only, disables gradient clipping, and rounds each gradient to BF16 once before the FP32 CPU update. ``none`` keeps everything on GPU."""
+    """CPU offloading. ``optimizer`` keeps optimizer states (momentum, variance) in CPU RAM and weights on GPU. ``optimizer_chunked`` keeps AdamW moments in CPU RAM and stages one parameter bucket at a time on GPU; it is currently limited to single-rank training. ``AdamWConfig.gpu_state_budget_bytes`` can keep a bounded subset of FP32 moments resident on GPU in this mode. ``full`` keeps FP32 masters, optimizer states, and accumulated gradients in CPU RAM and runs each optimizer chunk on CPU as soon as its last gradient arrives, overlapped with backward; it supports AdamW and SignSGD only, disables gradient clipping, and rounds each gradient to BF16 once before the FP32 CPU update. ``none`` keeps everything on GPU."""
 
     reshard_after_forward: bool = True
     """Reshard the model after each forward pass."""
@@ -307,9 +307,12 @@ class ModelConfig(BaseModelConfig):
     """Flattened token chunk size for the fused LM head. ``int >= 1`` sets the tokens per LM-head chunk explicitly; ``disabled`` uses the vanilla LM head. In SFT the fused head computes the summed cross-entropy and its gradients chunk by chunk, holding one chunk's full-vocab logits at a time."""
 
     fused_lm_head_kernel: Literal[
-        "torch", "cute_online_update", "cute_fused_forward_backward", "triton_online_update"
+        "torch", "cute_online_update", "cute_fused_forward_backward", "cute_tvm_ffi", "triton_online_update"
     ] = "torch"
-    """Online LM-head update backend. Registered CuTe and Triton options opt into their kernels and fail at model setup if unavailable; ``torch`` keeps the PyTorch implementation."""
+    """Online LM-head update backend. Registered CuTe, TVM-FFI, and Triton options opt into their kernels and fail at model setup if unavailable; ``torch`` keeps the PyTorch implementation."""
+
+    triton_kernels: list[Literal["rope", "rmsnorm", "swiglu"]] = []
+    """Opt-in Triton kernels from prime-kernels for decoder layers. Each listed kernel fails at model setup if unavailable; unlisted ops keep their PyTorch implementations."""
 
     @model_validator(mode="after")
     def vlm_cp_requires_ulysses(self):
@@ -430,6 +433,9 @@ class BaseOptimizerConfig(BaseConfig):
 
 class AdamWConfig(BaseOptimizerConfig):
     type: Literal["adamw"] = "adamw"
+
+    gpu_state_budget_bytes: int = Field(0, ge=0)
+    """Maximum FP32 AdamW moment bytes kept on GPU with ``optimizer_chunked`` offload."""
 
     betas1: float = Field(0.9, ge=0)
     """Adam first-moment (β1) decay."""
@@ -682,6 +688,18 @@ class TrainerConfig(BaseConfig):
     def full_optimizer_offload_requires_supported_optimizer(self):
         if self.model.offload == "full" and self.optim.type not in ("adamw", "sign_sgd"):
             raise ValueError("Full optimizer offload only supports AdamW and SignSGD")
+        return self
+
+    @model_validator(mode="after")
+    def chunked_optimizer_offload_requires_adamw(self):
+        if self.model.offload == "optimizer_chunked" and self.optim.type != "adamw":
+            raise ValueError("Chunked optimizer-state offload only supports AdamW")
+        return self
+
+    @model_validator(mode="after")
+    def gpu_optimizer_state_budget_requires_chunked_offload(self):
+        if self.optim.type == "adamw" and self.optim.gpu_state_budget_bytes and self.model.offload != "optimizer_chunked":
+            raise ValueError("AdamW GPU-resident state budget requires optimizer_chunked offload")
         return self
 
     @model_validator(mode="after")
