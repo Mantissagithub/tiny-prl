@@ -9,6 +9,7 @@ from prime_rl.configs.trainer import OffloadMode, OptimizerConfig
 from prime_rl.trainer.models.fusions import get_model_packed_parameters
 from prime_rl.trainer.optim.base import OffloadOptimizer as OffloadOptimizer
 from prime_rl.trainer.optim.base import OptimizerLike
+from prime_rl.trainer.optim.clip_adamw import TritonClipAdamW, validate_clip_adamw_parameters
 from prime_rl.trainer.optim.offload import (
     FullCPUOffloadOptimizer,
     GradientOffloadManager,
@@ -78,6 +79,34 @@ def setup_optimizer(
         optimizer_named_params, master_weights = _create_cpu_master_weights(
             model, named_params, dtype_policy=full_offload_dtype_policy
         )
+
+    if getattr(config, "fused_clip", False):
+        if config.type != "adamw":
+            raise ValueError("Fused gradient clipping only supports AdamW")
+        if offload != "none":
+            raise ValueError("Fused gradient clipping requires model.offload='none'")
+        if parallel_dims.world_size != 1:
+            raise ValueError("Fused gradient clipping currently requires world_size=1")
+        if config.max_norm is None:
+            raise ValueError("Fused gradient clipping requires optim.max_norm")
+        validate_clip_adamw_parameters(named_params)
+
+        import prime_kernels
+
+        reason = prime_kernels.unavailable_reason("triton_clip_adamw")
+        if reason is not None:
+            raise RuntimeError(f"optim.fused_clip requires triton_clip_adamw: {reason}")
+        kernel = prime_kernels.load("triton_clip_adamw")
+        trainable_params = [param for _, param in named_params if param.requires_grad]
+        optimizer = TritonClipAdamW(
+            trainable_params,
+            lr=config.lr,
+            weight_decay=config.weight_decay,
+            betas=(config.betas1, config.betas2),
+            plan_type=kernel.ClipAdamWPlan,
+        )
+        get_logger().info("Using Triton clipped AdamW for single-GPU FP32 parameters")
+        return optimizer, None
 
     optimizer = _create_optimizer(
         config,

@@ -89,6 +89,7 @@ def clip_grad_norm_(
     manager: "GradientOffloadManager | None",
     model: nn.Module,
     max_norm: float,
+    optimizer=None,
 ) -> Tensor:
     if manager is not None:
         grad_norm = manager.clip_grad_norm_(max_norm)
@@ -105,8 +106,13 @@ def clip_grad_norm_(
             norm = torch.nn.utils.get_total_norm([param.grad for param in parameters])
             norms.append(norm.full_tensor() if isinstance(norm, DTensor) else norm)
         grad_norm = torch.linalg.vector_norm(torch.stack(norms)) if norms else torch.tensor(0.0)
-        for parameters in mesh_parameters.values():
-            torch.nn.utils.clip_grads_with_norm_(parameters, max_norm, grad_norm)
+        set_clip_coef = getattr(optimizer, "set_clip_coef", None)
+        if set_clip_coef is not None:
+            clip_coef = torch.clamp(max_norm / (grad_norm + 1e-6), max=1.0)
+            set_clip_coef(clip_coef)
+        else:
+            for parameters in mesh_parameters.values():
+                torch.nn.utils.clip_grads_with_norm_(parameters, max_norm, grad_norm)
     return grad_norm.cuda() if grad_norm.device.type == "cpu" else grad_norm
 
 

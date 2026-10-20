@@ -90,6 +90,8 @@ TRAINER_ABBA = [
     ("Triton\nRMSNorm+RoPE", "rope_rmsnorm", "kept"),
     ("residual RMSNorm\npre-exact-DW", "residual_fusion", "slower"),
     ("residual RMSNorm\nexact DW", "residual_fusion_dw_exact", "slower"),
+    ("exact DW\n32-wide tile", "dw_tile32", "neutral"),
+    ("corrected RMSNorm32\n+ Triton RoPE", "corrected_vs_torch", "kept"),
 ]
 
 # (label, rl-abba tag, verdict) for SmolLM2-135M full-parameter full-RL A-B-B-As with Triton RMSNorm+RoPE.
@@ -134,6 +136,15 @@ def trainer_runs(root: Path, tag: str) -> tuple[list[float], list[float]]:
         summary = root / "tiny-kernel-20261020/fusion-profile/abba/summary.json"
     elif tag == "residual_fusion_dw_exact":
         summary = root / "tiny-kernel-20261020/fusion-profile/abba-dw-exact-r1/summary.json"
+    elif tag == "dw_tile32":
+        summary = root / "tiny-kernel-20261020/dw-tune/trainer-abba-r1/summary.json"
+    elif tag == "corrected_vs_torch":
+        data = load(root / "tiny-kernel-20261020/dw-tune/corrected-vs-torch/summary.json")
+        runs = data["run_medians_seconds"]
+        return (
+            [1000 * runs[name]["time/forward_backward"] for name in ("A1", "A2")],
+            [1000 * runs[name]["time/forward_backward"] for name in ("B1", "B2")],
+        )
     else:
         summary = root / "tiny-kernel-20261020/triton/trainer-abba" / tag / "summary.json"
     timing = load(summary)["timing"]
@@ -215,7 +226,7 @@ def main() -> None:
         wspace=0.16,
         left=0.055,
         right=0.985,
-        top=0.855,
+        top=0.83,
         bottom=0.04,
     )
 
@@ -233,7 +244,7 @@ def main() -> None:
     )
     heroes = [
         ("-12.6%", "Qwen3-0.6B LoRA RL wall time", "decode CUDA graphs (Exp 6): the only end-to-end gain"),
-        ("-15.6%", "135M full-RL trainer fwd/bwd", "Triton RMSNorm+RoPE (Exp 55); wall gain not attributable"),
+        ("-8.7%", "135M corrected trainer step", "fixed-data A-B-B-A; separate from historical full-RL results"),
         ("10 / 10", "135M full-parameter RL updates", "with checkpoint and fresh resume (Exp 48)"),
     ]
     for i, (value, label, note) in enumerate(heroes):
@@ -241,6 +252,17 @@ def main() -> None:
         fig.text(x, 0.9, value, fontsize=26, fontweight="bold", color=INK)
         fig.text(x + 0.095, 0.912, label, fontsize=10.5, color=INK, fontweight="bold")
         fig.text(x + 0.095, 0.895, note, fontsize=9, color=INK_2)
+
+    fig.text(
+        0.055,
+        0.868,
+        "EXP 65 · clip+AdamW component: 20.746 → 18.987 ms/update (−8.48%); full 212-tensor, 20 fresh-gradient and DTensor parity passed.\n"
+        "Actual 135M RL: 1,061 post-update tensors exact; tiny-model DCP step-1 and step-2 resume checks exact.\n"
+        "Experimental: no trainer-speed benchmark; single-value/repeated-gradient Triton mismatch remains. Separate CuTe run diverged at update 102/163.",
+        fontsize=8.2,
+        color=INK,
+        bbox={"boxstyle": "round,pad=0.35", "facecolor": "#f3f7fc", "edgecolor": FRONTIER, "linewidth": 0.8},
+    )
 
     # Panel A: Qwen LoRA end-to-end wall time, every run plus the measured retained-recipe frontier.
     ax = fig.add_subplot(grid[0, :])
@@ -321,12 +343,13 @@ def main() -> None:
         a, b = trainer_runs(root, tag)
         pairs(ax, x, a, b, verdict)
         text = f"{pct(a, b):+.1f}%" + ("\nfails parity:\nnot a real gain" if verdict == "invalid" else "")
+        offset = (-10, -4) if tag == "corrected_vs_torch" else (10, -4)
         ax.annotate(
             text,
             (x + 0.14, max(b)),
-            xytext=(10, -4),
+            xytext=offset,
             textcoords="offset points",
-            ha="left",
+            ha="right" if tag == "corrected_vs_torch" else "left",
             va="top",
             fontsize=8.5,
             color=INK,
@@ -357,6 +380,35 @@ def main() -> None:
                 ha="left",
                 va="center",
                 fontsize=7.5,
+                color=INK_2,
+                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
+            )
+        elif tag == "dw_tile32":
+            ax.annotate(
+                "32-wide tile: step +0.8%\n"
+                "Torch RMSNorm gradients: 212/212 bitwise",
+                xy=(x + 0.14, max(b)),
+                xytext=(6.2, 55),
+                textcoords="data",
+                ha="center",
+                va="center",
+                fontsize=7.5,
+                color=INK_2,
+                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
+            )
+        elif tag == "corrected_vs_torch":
+            ax.annotate(
+                "Current exact RMSNorm32 + Triton RoPE vs Torch:\n"
+                "fwd/bwd −9.4%; step −8.7%; both B runs beat both A runs.\n"
+                "Fixed-data trainer-only result; separate from historical Exp 55 full-RL −15.6%.",
+                xy=(x + 0.14, max(b)),
+                xytext=(6.4, 175),
+                textcoords="data",
+                ha="center",
+                va="center",
+                fontsize=7.3,
                 color=INK_2,
                 arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
                 bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},

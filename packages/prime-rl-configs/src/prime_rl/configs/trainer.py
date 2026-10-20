@@ -434,6 +434,9 @@ class BaseOptimizerConfig(BaseConfig):
 class AdamWConfig(BaseOptimizerConfig):
     type: Literal["adamw"] = "adamw"
 
+    fused_clip: bool = False
+    """Use the Triton clipped AdamW step for single-GPU FP32 parameters without optimizer offload."""
+
     gpu_state_budget_bytes: int = Field(0, ge=0)
     """Maximum FP32 AdamW moment bytes kept on GPU with ``optimizer_chunked`` offload."""
 
@@ -700,6 +703,17 @@ class TrainerConfig(BaseConfig):
     def gpu_optimizer_state_budget_requires_chunked_offload(self):
         if self.optim.type == "adamw" and self.optim.gpu_state_budget_bytes and self.model.offload != "optimizer_chunked":
             raise ValueError("AdamW GPU-resident state budget requires optimizer_chunked offload")
+        return self
+
+    @model_validator(mode="after")
+    def fused_clip_requires_supported_config(self):
+        if getattr(self.optim, "fused_clip", False):
+            if self.optim.max_norm is None:
+                raise ValueError("AdamW fused_clip requires optim.max_norm")
+            if self.model.offload != "none":
+                raise ValueError("AdamW fused_clip requires model.offload='none'")
+            if self.model.optimization_dtype != "float32" or self.model.reduce_dtype != "float32":
+                raise ValueError("AdamW fused_clip requires FP32 optimization_dtype and reduce_dtype")
         return self
 
     @model_validator(mode="after")

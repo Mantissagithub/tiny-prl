@@ -278,6 +278,17 @@ class SFTConfig(BaseConfig):
             raise ValueError("AdamW GPU-resident state budget requires optimizer_chunked offload")
         return self
 
+    @model_validator(mode="after")
+    def fused_clip_requires_supported_config(self):
+        if getattr(self.optim, "fused_clip", False):
+            if self.optim.max_norm is None:
+                raise ValueError("AdamW fused_clip requires optim.max_norm")
+            if self.model.offload != "none":
+                raise ValueError("AdamW fused_clip requires model.offload='none'")
+            if self.model.optimization_dtype != "float32" or self.model.reduce_dtype != "float32":
+                raise ValueError("AdamW fused_clip requires FP32 optimization_dtype and reduce_dtype")
+        return self
+
     @property
     def run_dir(self) -> Path:
         assert self.run.dir is not None  # resolved at construction

@@ -584,7 +584,7 @@ def train(config: TrainerConfig):
         # Optionally, clip the gradients
         grad_norm: torch.Tensor | None = None
         if config.optim.max_norm is not None:
-            grad_norm = clip_grad_norm_(gradient_manager, model, config.optim.max_norm)
+            grad_norm = clip_grad_norm_(gradient_manager, model, config.optim.max_norm, optimizer)
 
         # Update the model parameters
         optimizer.step()
