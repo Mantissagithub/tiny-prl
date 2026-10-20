@@ -49,12 +49,10 @@ Regenerate the single-image progress chart after recording results:
 
 ```bash
 MPLBACKEND=Agg uv run --isolated --no-project --python 3.12 --with matplotlib \
-  tools/plot_tiny_hillclimb.py \
-  outputs/tiny-opt-tokenizer-20261017 \
-  outputs/tiny-opt-tokenizer-20261017/hillclimb.png
+  tools/plot_tiny_hillclimb.py outputs examples/tiny/hillclimb.png
 ```
 
-The graph separates measured import memory, complete training trials and future experiments. Future gains are never drawn as measured points. Repository publication is authorized; experiment results remain scoped to the recorded configurations and hardware.
+The chart plots every guarded A-B-B-A run (hollow controls, filled candidates coloured by verdict), the end-to-end record line, the 135M trainer-only and full-RL kernel comparisons as separate panels, and full-parameter capability milestones. Trainer-step gains are never drawn as end-to-end gains. Repository publication is authorized; experiment results remain scoped to the recorded configurations and hardware.
 
 ## Experiment 2: disable activation offloading, retain checkpointing
 
@@ -536,7 +534,19 @@ Full-RL A-B-B-A (SmolLM2-135M full-parameter, 10 updates, no checkpoint, `triton
 
 ## Triton ablation round: complete (paused)
 
-The Triton kernel round (Experiments 49–55) is complete. Retained, opt-in only: `trainer.model.triton_kernels = ["rope", "rmsnorm"]`. Both kernels match PyTorch bitwise in the forward pass (RoPE also in the backward pass; RMSNorm gradients within tolerance), use pinned configs, and do not recompile across shapes. In real RL, warm trainer forward/backward was -15.6%; the end-to-end wall gain is not attributable (about 0.4% expected). Rejected: Triton SwiGLU (+7.6% from host overhead) and Inductor `torch.compile` (fails strict forward parity, mean logprob error about 0.06). Torch remains the default for every op. RL wall time on this host is dominated by inference batch waiting, so further trainer-kernel work has diminishing end-to-end returns. The next lever is the vLLM generation path. No runs are active; work is paused.
+The Triton kernel round (Experiments 49–55) is complete. Retained, opt-in only: `trainer.model.triton_kernels = ["rope", "rmsnorm"]`. Both kernels match PyTorch bitwise in the forward pass (RoPE also in the backward pass; RMSNorm gradients within tolerance), use pinned configs, and do not recompile across shapes. In real RL, warm trainer forward/backward was -15.6%; the end-to-end wall gain is not attributable (about 0.4% expected). Rejected: Triton SwiGLU (+7.6% from host overhead) and Inductor `torch.compile` (fails strict forward parity, mean logprob error about 0.06). Torch remains the default for every op. RL wall time on this host is dominated by inference batch waiting, so further trainer-kernel work has diminishing end-to-end returns. The Triton round remains complete; the active investigation has resumed on CPU-side training-client/tokenizer memory, with no new training-timing claim.
+
+## Experiment 56: lazy alphabet-sort import preserves tasks but pilot stops before an update
+
+The alphabet-sort taskset moved only `datasets.load_dataset` into `AlphabetSortTaskset.load()`. The isolated server-construction check showed `datasets` unloaded; the first 64 generated task records matched the baseline digest exactly (`3245d5f814c7f9978664b24071bc3bec6995555d2ead4bb232a0ee3d8cc3bdfc`). In that isolated observation, server PSS was 208,207 KiB versus 294,486 KiB for baseline, about 84.3 MiB lower. This single-process construction measurement is not a full-job host-memory comparison.
+
+The actual 360M, two-step, 2.25 GiB pilot kept the baseline task, reward, model, FP32 optimization and reduction math, stream64 broadcast, and FQN-fix source. The guard stopped it after 116.14 s below the unchanged 2 GiB host-availability floor: minimum available RAM 2,113,060,864 bytes, peak cgroup charge 6,023,938,048 bytes, and sampled GPU peak 4,022 MiB. It completed zero trainer updates and wrote no checkpoint; the guarded command returned exit status 1. A later systemd query reported the unit as not found and `Result=success` by default, which is not evidence that the run passed.
+
+The live env-server profile still showed `datasets` absent, but Torch had loaded 1,091 modules. The client path `TrainClient.build` → `renderers.base.load_tokenizer` → `_require_transformers` imported Transformers and Torch; the env-server reached 621,449 KiB PSS before returning from its wrapper. Thus the deferred dataset import preserves task generation but does not avoid the separate tokenizer import path or establish lower full-run memory. Evidence: `outputs/tiny-fulltrain-20261018/bounded-state-offload/mixed-state/real-rl/baseline10-serial-r1/pilot2-2p25-lazy-guard/result.json`, `journal.log`, `env-server-live.jsonl`; run `logs/attempt_1/{trainer,orchestrator,inference}.log`; and `outputs/tiny-fulltrain-20261018/environment-memory-20261020/lazy-datasets/{candidate-server-r1.json,candidate-digest-r1.json}`.
+
+## Experiment 57: local GPT-2 tokenizer adapter preserves renderer behavior without importing Torch
+
+Four fresh CPU-only processes compared baseline and candidate `TrainClient` behavior for SmolLM2-135M and 360M. Every compared semantic key matched, including encode/decode cases, chat-template text and IDs, renderer parse, the exact first 64 task records, and renderer prompt-ID hashes. For the 360M renderer, sampled PSS fell from 812,452 KiB to 202,780 KiB (595.38 MiB); loaded Torch modules fell from 1,091 to 0. The candidate still loaded Transformers utilities (210 modules versus 269 baseline) and 14 tokenizers modules; it uses the local adapter only for eligible standard GPT-2 snapshots, with the Qwen tokenizer path falling back unchanged. This validates the CPU renderer adapter's recorded behavior and isolated memory scope, not actual-RL host memory, runtime stability, or training speed. The prior actual env-server PSS sample (621,449 KiB) came from a different process scope and is not a direct comparison. A two-update full-stack candidate is prepared for review but has not been launched; the current primary work remains kernel profiling. Evidence: `outputs/tiny-fulltrain-20261018/environment-memory-20261020/train-tokenizer-parity-r2-comparison.json`, `train-parity-{baseline,candidate}-{135,360}-r2.json`, and source hashes in the corresponding candidate manifest.
 
 ## Reproducing the optional LM-head kernels
 
