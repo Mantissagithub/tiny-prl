@@ -69,6 +69,7 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
         )
         self.input_layernorm = RMSNorm(RMSNormConfig(hidden_size=config.hidden_size, eps=config.rms_norm_eps))
         self.post_attention_layernorm = RMSNorm(RMSNormConfig(hidden_size=config.hidden_size, eps=config.rms_norm_eps))
+        self.residual_rmsnorm_kernel_fn = None
 
     def forward(
         self,
@@ -86,11 +87,19 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
         )
-        hidden_states = residual + hidden_states
+        if self.residual_rmsnorm_kernel_fn is None:
+            hidden_states = residual + hidden_states
+            residual = hidden_states
+            hidden_states = self.post_attention_layernorm(hidden_states)
+        else:
+            hidden_states, residual = self.residual_rmsnorm_kernel_fn(
+                hidden_states,
+                residual,
+                self.post_attention_layernorm.weight,
+                self.post_attention_layernorm.variance_epsilon,
+            )
 
         # Fully Connected
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
         return hidden_states

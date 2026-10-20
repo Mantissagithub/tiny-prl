@@ -826,6 +826,14 @@ def apply_triton_kernels(model: nn.Module, kernels: list[str]) -> None:
             modules = [module for module in model.modules() if isinstance(module, RMSNorm)]
             for module in modules:
                 module.kernel_fn = kernel.rmsnorm
+        elif name == "residual_rmsnorm":
+            from prime_rl.trainer.models.llama.modeling_llama import LlamaDecoderLayer
+
+            modules = [module for module in model.modules() if isinstance(module, LlamaDecoderLayer)]
+            if not modules:
+                raise ValueError("triton_kernels='residual_rmsnorm' requires a Llama model")
+            for module in modules:
+                module.residual_rmsnorm_kernel_fn = kernel.residual_rmsnorm
         elif name == "swiglu":
             modules = [module for module in model.modules() if isinstance(module, FeedForward)]
             for module in modules:

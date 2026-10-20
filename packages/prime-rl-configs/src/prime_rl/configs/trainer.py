@@ -311,7 +311,7 @@ class ModelConfig(BaseModelConfig):
     ] = "torch"
     """Online LM-head update backend. Registered CuTe, TVM-FFI, and Triton options opt into their kernels and fail at model setup if unavailable; ``torch`` keeps the PyTorch implementation."""
 
-    triton_kernels: list[Literal["rope", "rmsnorm", "swiglu"]] = []
+    triton_kernels: list[Literal["rope", "rmsnorm", "residual_rmsnorm", "swiglu"]] = []
     """Opt-in Triton kernels from prime-kernels for decoder layers. Each listed kernel fails at model setup if unavailable; unlisted ops keep their PyTorch implementations."""
 
     @model_validator(mode="after")

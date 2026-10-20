@@ -88,6 +88,8 @@ TRAINER_ABBA = [
     ("torch.compile\n(Inductor)", "compile", "invalid"),
     ("Triton\nRMSNorm", "rmsnorm", "kept"),
     ("Triton\nRMSNorm+RoPE", "rope_rmsnorm", "kept"),
+    ("residual RMSNorm\npre-exact-DW", "residual_fusion", "slower"),
+    ("residual RMSNorm\nexact DW", "residual_fusion_dw_exact", "slower"),
 ]
 
 # (label, rl-abba tag, verdict) for SmolLM2-135M full-parameter full-RL A-B-B-As with Triton RMSNorm+RoPE.
@@ -128,7 +130,13 @@ def qwen_runs(root: Path, artifact: str, control: str, candidate: str) -> tuple[
 
 
 def trainer_runs(root: Path, tag: str) -> tuple[list[float], list[float]]:
-    timing = load(root / "tiny-kernel-20261020/triton/trainer-abba" / tag / "summary.json")["timing"]
+    if tag == "residual_fusion":
+        summary = root / "tiny-kernel-20261020/fusion-profile/abba/summary.json"
+    elif tag == "residual_fusion_dw_exact":
+        summary = root / "tiny-kernel-20261020/fusion-profile/abba-dw-exact-r1/summary.json"
+    else:
+        summary = root / "tiny-kernel-20261020/triton/trainer-abba" / tag / "summary.json"
+    timing = load(summary)["timing"]
     run = lambda name: 1000 * timing[f"{name} time/forward_backward median_warm"]  # noqa: E731
     return [run("A1"), run("A2")], [run("B1"), run("B2")]
 
@@ -324,6 +332,35 @@ def main() -> None:
             color=INK,
             fontweight="bold" if verdict == "kept" else "normal",
         )
+        if tag == "residual_fusion":
+            ax.annotate(
+                "Pre-exact-DW round: step +1.1%\n"
+                "Torch all-RMSNorm gradients were 210/212;\n"
+                "2 weight-gradient elements were pending",
+                xy=(x + 0.14, max(b)),
+                xytext=(3.05, 82),
+                textcoords="data",
+                ha="left",
+                va="center",
+                fontsize=7.5,
+                color=INK_2,
+                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
+            )
+        elif tag == "residual_fusion_dw_exact":
+            ax.annotate(
+                "Exact-DW round: step +3.1%\n"
+                "Torch all-RMSNorm gradients: 212/212 bitwise",
+                xy=(x + 0.14, max(b)),
+                xytext=(4.05, 125),
+                textcoords="data",
+                ha="left",
+                va="center",
+                fontsize=7.5,
+                color=INK_2,
+                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
+            )
     ax.set_xticks(range(len(TRAINER_ABBA)), [t[0] for t in TRAINER_ABBA])
     ax.set_xlim(-0.6, len(TRAINER_ABBA) - 0.4)
     ax.set_ylim(0, None)
