@@ -1001,3 +1001,15 @@ This proves the prototype protocol's correctness, without a transfer-time claim.
 Separate contiguous moment slots remove the strided-tail fallback. With the same versioned kernel and actual ten embedding slices, six samples per arm compared pageable transfers against a two-slot pipeline at each CPU copy-worker count. One worker was slower (263.544 to 272.751 ms); two workers improved 262.412 to 251.328 ms; four improved 262.750 to 226.618 ms (-13.75%). All paired final-state hashes matched exactly.
 
 The pipeline uses 256 MiB of pinned host staging and 256 MiB of GPU moment slots, while authoritative CPU moments remain pageable. The guard returned 0 in 99.55 seconds, sampled zero swap, peaked at 1,791 MiB GPU memory and retained at least 6.34 GB available RAM. This is an isolated transfer/update result pending a matched repeat and full-trainer integration; it is not an RL wall-time claim. Evidence: `outputs/qwen-fulltrain-20261022/slice-pipeline-r3/{result.json,guard/result.json,validate.py,trace/}`.
+
+## Experiment 110: the four-worker moment-pipeline gain repeats
+
+A fresh four-worker-only matched repeat retained the same kernel, ten slices, reset/state hashes and two-slot bounds. Six samples per arm gave outer-wall medians of 261.095 ms pageable versus 224.718 ms pipelined (-13.93%). All paired final-state hashes matched. The guard returned 0 in 35.69 seconds, sampled zero swap, peaked at 1,791 MiB GPU memory and retained at least 6.58 GB available host RAM. This confirms the isolated transfer/update gain, with full-trainer integration still pending.
+
+Evidence: `outputs/qwen-fulltrain-20261022/slice-pipeline-r4/{result.json,guard/result.json,validate.py,source-hashes.txt}`.
+
+## Experiment 111: five-bucket IPC shows a diagnostic reload-time reduction
+
+One live post-update SmolLM2-135M trainer and one persistent vLLM worker compared production per-tensor IPC against five-bucket IPC in A-B-B-A order. The same weights were used throughout; base checkpoint reset and complete parameter/output proofs happened outside timing. Timers included sender startup, live DTensor export/casting/packing, IPC, receiver reload and final completion acknowledgement. The two-sample medians were 308.042 ms per-tensor and 128.895 ms bucketed. All 182 parameter hashes, tokens/logprobs, tied aliases and storage independence checks passed for each trial.
+
+This is a diagnostic component result with only two samples per arm, pending warmups and a longer matched repeat; it does not establish an RL wall-time gain. The guard returned 0 in 26.08 seconds with a 5,138 MiB GPU peak and at least 4.97 GB available host RAM. An earlier harness attempt stopped before GPU work because it passed an RL config to the trainer-only parser; this revision resolves the direct trainer config during CPU preflight. Evidence: `outputs/tiny-kernel-20261022/ipc-bucket-timing-r2/{actual-r2/result.json,guard-r2/result.json,validate_timing.py,source-hashes.sha256}`.
