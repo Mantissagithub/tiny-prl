@@ -194,6 +194,8 @@ EXPERIMENTS = {
     96: (NUM, "validated"),
     97: (TRAIN, "kept"),
     98: (NUM, "validated"),
+    99: (NUM, "validated"),
+    100: (TRAIN, "component"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -216,6 +218,7 @@ CALLOUTS = {
     84: ("CuTe optimizer -1.84%\n(component)", (-55, 35)),
     86: ("CuTe: 120 updates exact", (-66, -75)),
     97: ("Qwen steps -9.5%\n(1 GiB GPU state)", (-35, 12)),
+    100: ("unfused CuTe -64%\n(component)", (-80, 100)),
 }
 
 MILESTONES = [
