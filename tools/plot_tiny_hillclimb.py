@@ -169,6 +169,7 @@ EXPERIMENTS = {
     71: (MEM, "validated"),
     72: (MEM, "component"),
     73: (TRAIN, "component"),
+    74: (TRAIN, "kept"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -183,6 +184,7 @@ CALLOUTS = {
     71: ("56.6 MB wire payload omitted;\nlive logprobs exact", (-85, -28)),
     72: ("streaming save -20.3%\n(component)", (-55, 100)),
     73: ("unit-clip gradient stores -14.0%\n(optimizer component)", (-95, 22)),
+    74: ("fused optimizer -2.34% trainer step\n(vs native)", (-75, 65)),
 }
 
 MILESTONES = [
