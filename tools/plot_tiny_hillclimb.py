@@ -177,6 +177,11 @@ EXPERIMENTS = {
     79: (NUM, "validated"),
     80: (NUM, "validated"),
     81: (TRAIN, "component"),
+    82: (TRAIN, "component"),
+    83: (E2E, "component"),
+    84: (TRAIN, "component"),
+    85: (MEM, "validated"),
+    86: (NUM, "validated"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -195,6 +200,7 @@ CALLOUTS = {
     75: ("2048 tile: no gain", (-45, -35)),
     77: ("vector loads/stores -0.74%\n(optimizer component)", (-35, -85)),
     79: ("vLLM CUDA IPC: exact tiny reload", (-80, 55)),
+    83: ("IPC reload -43.8%\n(receiver component)", (-40, 35)),
 }
 
 MILESTONES = [
