@@ -196,6 +196,11 @@ EXPERIMENTS = {
     98: (NUM, "validated"),
     99: (NUM, "validated"),
     100: (TRAIN, "component"),
+    101: (TRAIN, "component"),
+    102: (E2E, "none"),
+    103: (MEM, "rejected"),
+    104: (MEM, "rejected"),
+    105: (NUM, "validated"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -219,6 +224,7 @@ CALLOUTS = {
     86: ("CuTe: 120 updates exact", (-66, -75)),
     97: ("Qwen steps -9.5%\n(1 GiB GPU state)", (-35, 12)),
     100: ("unfused CuTe -64%\n(component)", (-80, 100)),
+    101: ("Qwen CuTe -2.8%\n(no-swap trainer prototype)", (-40, 35)),
 }
 
 MILESTONES = [

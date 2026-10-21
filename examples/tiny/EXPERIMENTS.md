@@ -945,3 +945,35 @@ Evidence: `outputs/tiny-kernel-20261020/rl-pipeline-audit/ipc-production-parity-
 On one 16,777,216-element FP32 slice, CuTe R4 matches native unfused AdamW bitwise across parameters, clipped gradients, both moments and step counter. In three ABBA/BAAB blocks with 12 samples per arm, all candidate samples beat all native samples. Median CPU wall time fell from 6.698472 to 2.413800 ms (-63.965%, 2.775×); CUDA-event median fell from 6.694384 to 2.409984 ms. The measured interval includes wrapper metadata work, allocation/copies, launch and synchronization; state reset is outside timing. The production offloader's 256 MiB aggregate moment transfer per slice is excluded, so this isolated component result does not establish a trainer speedup. Benchmarking in the full trainer remains pending.
 
 Evidence: `outputs/qwen-fulltrain-20261021/cute-sliced-adamw-r1/{probes/unfused-r4-slice-bench.json,guard-bench-r4/result.json,sources/bench_unfused_r4_slice.py}`.
+
+## Experiment 101: CuTe R4 lowers Qwen trainer-step time in a no-swap repeat
+
+A fresh four-arm Qwen3-0.6B full-training comparison used a 1 GiB GPU moment budget and no cgroup swap in any arm. The native medians for steps 2–4 were 1.100113 and 1.101685 seconds; CuTe R4 medians were 1.074073 and 1.066479 seconds. The mean of each pair is 1.100899 versus 1.070276 seconds (-2.782%), and both CuTe runs beat both native runs. All four step-5 state hashes matched across 1,271 parameter, gradient, buffer and optimizer-state entries: `161968699bf22a5529272f41ea51f90116dc38e3d053be284f6261dcaab19695`.
+
+This is a trainer-step component result on fake batch 1 and sequence 64, not an RL-loop result. An earlier run had swap in one arm and is superseded by this no-swap repeat. The prototype also exposed a local-version handling issue that was fixed in the subsequent kernel revision; this timing does not promote the prototype.
+
+Evidence: `outputs/qwen-fulltrain-20261022/cute-sliced-trainer-noswap-r1/validation.json` and the four arm state-hash and guard records. Maximum sampled GPU use was 7,221 MiB; minimum available RAM was 4.13 GB and swap remained zero.
+
+## Experiment 102: filesystem versus CUDA IPC does not establish an RL wall-time win
+
+In the validated four-arm, ten-update ABBA, mean launcher wall was 88.593 seconds for filesystem and 77.357 seconds for CUDA IPC; both IPC points were lower than both filesystem points. The work differed, however: filesystem arms processed 116 rollouts and 58 tasks each, while IPC arms processed 128/64 and 120/60. Token totals and positive-group estimates also varied, and trainer batch wait was about 9.80 seconds lower on average for IPC. The wall-time difference is therefore observational and is not attributed to transport.
+
+The measured broadcast component was 5.966 seconds per filesystem run and 5.295 seconds per IPC run, a modest reduction of about 0.67 seconds across ten updates. Keep the existing single RL win count unchanged. Evidence: `outputs/tiny-kernel-20261020/rl-pipeline-audit/ipc-production-abba-r1/artifacts/abba-analysis.json`, with per-arm protocol, metrics, resource and payload-hash evidence.
+
+## Experiment 103: pinned staging copies slow the measured transfer component
+
+On one 16,777,216-element FP32 moment slice, the pageable H2D, AdamW and D2H component sum was 32.329 ms. Staging pageable state through a 128 MiB pinned buffer added CPU copies in both directions; the measured component sum was 52.937 ms, about 63.7% slower. Both paths were bitwise equal across eight samples per arm. This rejects the tested serial pinned-staging path; no asynchronous overlap was measured.
+
+Evidence: `outputs/qwen-fulltrain-20261021/slice-transfer-audit-r1/{result.json,guard/result.json}`.
+
+## Experiment 104: the tested two-slot transfer pipeline is slower
+
+A two-slot prototype moved four 16M-element slices through pinned host and GPU moment slots. Across 12 samples per arm, full outer-wall medians were 112.340 ms for pageable transfers and 147.667 ms for the pipeline (+31.4%). All 12 paired final-state hashes matched bitwise, and storage stayed within the configured bounds. The timing includes transfers, kernel launches, waits, CPU copyback and the step increment.
+
+This result rejects this specific pipeline implementation. Its metadata and host-copy work may have serialized the path; the probe does not establish that all transfer-pipeline designs are slower. Evidence: `outputs/qwen-fulltrain-20261022/slice-pipeline-r1/{result.json,validate_reviewed.py}`.
+
+## Experiment 105: the single-slice CuTe revision passes versioned AdamW parity
+
+The no-store R3 probe passed 13 tensor shapes, with three updates per shape. Parameters, both moments, step counters, gradient bits and version checks had zero mismatches, including NaNs, infinities, signed zeros and subnormals. For a saved-tensor case, both native AdamW and the candidate advanced the parameter version and backward detected the intervening mutation.
+
+The guard returned 0 in 7.45 seconds with 1,171 MiB sampled GPU use. This validates the tested single-slice revision's update and version behavior; it is not a full trainer benchmark. Evidence: `outputs/qwen-fulltrain-20261022/cute-single-slice-r1/{probes/nostore-version-r3.json,guard-nostore-r3/result.json}`.
