@@ -108,6 +108,49 @@ def _can_step_parameter_in_slices(param: torch.Tensor, state: dict[str, torch.Te
     return True
 
 
+def _can_step_parameter_with_cute(
+    param: torch.Tensor,
+    group: dict,
+    state: dict[str, torch.Tensor],
+) -> bool:
+    if not _can_step_parameter_in_slices(param, state):
+        return False
+    if (
+        group["amsgrad"]
+        or group["maximize"]
+        or group["capturable"]
+        or group["differentiable"]
+        or group["fused"]
+        or state.get("max_exp_avg_sq") is not None
+    ):
+        return False
+    if group["foreach"] is not False and not (group["foreach"] is None and isinstance(param, DTensor)):
+        return False
+    if any(isinstance(group[key], torch.Tensor) for key in ("lr", "eps", "weight_decay")):
+        return False
+    if any(isinstance(beta, torch.Tensor) for beta in group["betas"]):
+        return False
+
+    grad = param.grad
+    local_param = param.to_local() if isinstance(param, DTensor) else param
+    local_grad = grad.to_local() if isinstance(grad, DTensor) else grad
+    moments = [state["exp_avg"], state["exp_avg_sq"]]
+    local_moments = [value.to_local() if isinstance(value, DTensor) else value for value in moments]
+    tensors = [local_param, local_grad, *local_moments]
+    return (
+        state["step"].dtype == torch.float32
+        and state["step"].numel() == 1
+        and all(tensor.shape == local_param.shape for tensor in tensors[1:])
+        and all(
+            tensor.dtype == torch.float32 and tensor.layout == torch.strided and tensor.is_contiguous()
+            for tensor in tensors
+        )
+        and local_param.data_ptr() % 16 == 0
+        and local_grad.data_ptr() % 16 == 0
+        and all(tensor.device.type == "cpu" for tensor in local_moments)
+    )
+
+
 class CPUOffloadOptimizer(OffloadOptimizer):
     """Wraps an optimizer to keep states on CPU, moving to GPU only for step().
 
@@ -123,12 +166,15 @@ class CPUOffloadOptimizer(OffloadOptimizer):
         chunked: bool = False,
         gpu_state_budget_bytes: int = 0,
         parameter_names: dict[int, str] | None = None,
+        cute_adamw_plan_type: type | None = None,
     ):
         self.optimizer = optimizer
         self.pin_memory = pin_memory
         self.chunked = chunked
         self.gpu_state_budget_bytes = gpu_state_budget_bytes
         self.parameter_names = parameter_names or {}
+        self._cute_adamw_plan_type = cute_adamw_plan_type
+        self._cute_adamw_plans = {}
         self._initialized = False
         self._cpu_buffers: dict[tuple[torch.Tensor, str], torch.Tensor] = {}
         self._state_chunks = self._build_state_chunks() if chunked else []
@@ -327,6 +373,10 @@ class CPUOffloadOptimizer(OffloadOptimizer):
                 param = active_chunk[0]
                 state = self.optimizer.state[param]
                 group = self._param_groups_by_id[id(param)]
+                if self._cute_adamw_plan_type is not None and _can_step_parameter_with_cute(param, group, state):
+                    with torch.no_grad():
+                        self._step_parameter_in_cute_slices(param, group, state)
+                    continue
                 if not group["differentiable"] and _can_step_parameter_in_slices(param, state):
                     with torch.no_grad():
                         _step_parameter_in_slices(param, group, state)
@@ -346,6 +396,52 @@ class CPUOffloadOptimizer(OffloadOptimizer):
                     param.grad = grad
         self._initialized = True
         return result
+
+    def _step_parameter_in_cute_slices(
+        self,
+        param: torch.Tensor,
+        group: dict,
+        state: dict[str, torch.Tensor],
+    ) -> None:
+        local_param = self._local_param(param)
+        grad = param.grad
+        local_grad = grad.to_local() if isinstance(grad, DTensor) else grad
+        avg = state["exp_avg"]
+        avg_sq = state["exp_avg_sq"]
+        local_avg = self._local_param(avg)
+        local_avg_sq = self._local_param(avg_sq)
+        tracked = [(tensor, tensor._version) for tensor in (param, avg, avg_sq) if isinstance(tensor, DTensor)]
+        param_flat, grad_flat = local_param.view(-1), local_grad.view(-1)
+        avg_flat, avg_sq_flat = local_avg.view(-1), local_avg_sq.view(-1)
+        for start in range(0, param_flat.numel(), STATE_CHUNK_TARGET_NUMEL):
+            end = min(start + STATE_CHUNK_TARGET_NUMEL, param_flat.numel())
+            param_slice, grad_slice = param_flat[start:end], grad_flat[start:end]
+            avg_cpu_slice, avg_sq_cpu_slice = avg_flat[start:end], avg_sq_flat[start:end]
+            avg_slice = avg_cpu_slice.to(device=local_param.device)
+            avg_sq_slice = avg_sq_cpu_slice.to(device=local_param.device)
+            key = (end - start, local_param.device.index)
+            plan = self._cute_adamw_plans.get(key)
+            if plan is None:
+                plan = self._cute_adamw_plan_type(param_slice)
+                self._cute_adamw_plans[key] = plan
+            plan.step_(
+                param_slice,
+                grad_slice,
+                avg_slice,
+                avg_sq_slice,
+                state["step"],
+                lr=group["lr"],
+                betas=group["betas"],
+                eps=group["eps"],
+                weight_decay=group["weight_decay"],
+            )
+            avg_cpu_slice.copy_(avg_slice)
+            avg_sq_cpu_slice.copy_(avg_sq_slice)
+            del avg_slice, avg_sq_slice
+        state["step"].add_(1)
+        for tensor, version in tracked:
+            if tensor._version == version:
+                torch.autograd.graph.increment_version(tensor)
 
     def zero_grad(self, set_to_none: bool = True):
         self.optimizer.zero_grad(set_to_none=set_to_none)

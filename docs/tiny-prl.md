@@ -82,6 +82,23 @@ profile does not configure inference or rollouts and does not establish RL
 quality, co-residency capacity, or longer context support. GPU and host-memory
 fit still depend on the target machine.
 
+The chunked optimizer also has an opt-in CuTe slice backend. Keep the default
+Torch backend unless the installed `prime-kernels` build reports
+`cute_sliced_adamw` available. For the profile above, enable it with:
+
+```bash
+uv run --no-sync rl @ examples/tiny/qwen3-full-trainer.toml \
+  --trainer.optim.chunked-adamw-backend cute
+```
+
+CuTe applies only to supported contiguous FP32 CUDA slices with CPU FP32
+moments and step state. Unsupported optimizer groups and unavailable kernel
+builds fall back to Torch. The registered kernel currently targets SM 8.9; on
+other compute capabilities the profile uses Torch. On the tested SM 8.9
+machine, the five-update prototype measured 2.88% lower warm step medians with
+zero swap and an identical 1,271-entry final state hash. This result is specific
+to this short fake-data profile and is not a general training-speed guarantee.
+
 ## Opt-in CUDA IPC weight updates
 
 Run the ten-update SmolLM2-135M full-parameter profile with:

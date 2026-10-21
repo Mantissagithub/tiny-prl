@@ -1,3 +1,5 @@
+from importlib.util import find_spec
+
 import torch
 import torch.distributed as dist
 from dion import Muon
@@ -133,12 +135,31 @@ def setup_optimizer(
         # Pinned CUDA host blocks are power-of-two rounded per allocation; use
         # pageable FP32 state for the opt-in chunked path to avoid that overhead.
         gpu_state_budget_bytes = config.gpu_state_budget_bytes if config.type == "adamw" else 0
+        cute_adamw_plan_type = None
+        if chunked_cpu_offload and config.type == "adamw" and config.chunked_adamw_backend == "cute":
+            reason = "prime-kernels is not installed"
+            if find_spec("prime_kernels") is not None:
+                import prime_kernels
+
+                if "cute_sliced_adamw" in prime_kernels.KERNELS:
+                    if prime_kernels.is_available("cute_sliced_adamw"):
+                        cute_adamw_plan_type = prime_kernels.load("cute_sliced_adamw").CuteUnfusedAdamWSlice
+                        reason = None
+                    else:
+                        reason = prime_kernels.unavailable_reason("cute_sliced_adamw")
+                else:
+                    reason = "cute_sliced_adamw is not registered in this prime-kernels install"
+            if cute_adamw_plan_type is None:
+                get_logger().warning(f"Falling back to Torch for chunked AdamW slices: {reason}")
+            else:
+                get_logger().info("Using CuTe for supported chunked FP32 AdamW slices; unsupported groups use Torch")
         offloaded_optimizer = CPUOffloadOptimizer(
             optimizer,
             pin_memory=not chunked_cpu_offload,
             chunked=chunked_cpu_offload,
             gpu_state_budget_bytes=gpu_state_budget_bytes,
             parameter_names={id(param): name for name, param in named_params},
+            cute_adamw_plan_type=cute_adamw_plan_type,
         )
         if gpu_state_budget_bytes:
             get_logger().info(

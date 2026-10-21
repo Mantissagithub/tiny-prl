@@ -434,6 +434,9 @@ class BaseOptimizerConfig(BaseConfig):
 class AdamWConfig(BaseOptimizerConfig):
     type: Literal["adamw"] = "adamw"
 
+    chunked_adamw_backend: Literal["torch", "cute"] = "torch"
+    """Kernel used for supported slices with ``optimizer_chunked`` offload."""
+
     fused_clip: bool = False
     """Use the Triton clipped AdamW step for single-GPU FP32 parameters without optimizer offload."""
 
@@ -703,6 +706,16 @@ class TrainerConfig(BaseConfig):
     def gpu_optimizer_state_budget_requires_chunked_offload(self):
         if self.optim.type == "adamw" and self.optim.gpu_state_budget_bytes and self.model.offload != "optimizer_chunked":
             raise ValueError("AdamW GPU-resident state budget requires optimizer_chunked offload")
+        return self
+
+    @model_validator(mode="after")
+    def chunked_adamw_backend_requires_chunked_offload(self):
+        if (
+            self.optim.type == "adamw"
+            and self.optim.chunked_adamw_backend != "torch"
+            and self.model.offload != "optimizer_chunked"
+        ):
+            raise ValueError("AdamW chunked backend requires optimizer_chunked offload")
         return self
 
     @model_validator(mode="after")

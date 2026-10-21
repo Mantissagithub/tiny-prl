@@ -374,17 +374,22 @@ def test_optimizer_state_offload_keeps_legacy_default(config_cls):
 
     assert config.model.offload == "optimizer"
     assert config.optim.gpu_state_budget_bytes == 0
+    assert config.optim.chunked_adamw_backend == "torch"
 
     configured = config_cls.model_validate(
         {
             "model": {"offload": "optimizer_chunked"},
-            "optim": {"gpu_state_budget_bytes": 1024},
+            "optim": {"gpu_state_budget_bytes": 1024, "chunked_adamw_backend": "cute"},
         }
     )
     assert configured.optim.gpu_state_budget_bytes == 1024
+    assert configured.optim.chunked_adamw_backend == "cute"
 
     with pytest.raises(ValidationError, match="requires optimizer_chunked offload"):
         config_cls.model_validate({"optim": {"gpu_state_budget_bytes": 1024}})
+
+    with pytest.raises(ValidationError, match="backend requires optimizer_chunked offload"):
+        config_cls.model_validate({"optim": {"chunked_adamw_backend": "cute"}})
 
 
 def test_moe_router_dtype_auto_resolves_per_trainer():

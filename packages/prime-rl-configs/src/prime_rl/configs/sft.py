@@ -279,6 +279,16 @@ class SFTConfig(BaseConfig):
         return self
 
     @model_validator(mode="after")
+    def chunked_adamw_backend_requires_chunked_offload(self):
+        if (
+            self.optim.type == "adamw"
+            and self.optim.chunked_adamw_backend != "torch"
+            and self.model.offload != "optimizer_chunked"
+        ):
+            raise ValueError("AdamW chunked backend requires optimizer_chunked offload")
+        return self
+
+    @model_validator(mode="after")
     def fused_clip_requires_supported_config(self):
         if getattr(self.optim, "fused_clip", False):
             if self.optim.max_norm is None:

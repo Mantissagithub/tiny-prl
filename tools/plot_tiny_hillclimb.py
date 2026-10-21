@@ -207,6 +207,8 @@ EXPERIMENTS = {
     109: (MEM, "component"),
     110: (MEM, "component"),
     111: (TRAIN, "component"),
+    112: (TRAIN, "component"),
+    113: (NUM, "validated"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -217,20 +219,12 @@ CALLOUTS = {
     55: ("RL fwd/bwd -15.6%", (-70, 15)),
     63: ("corrected kernels -9.4%", (-110, 45)),
     64: ("clip+AdamW -9.8% (component)", (44, 25)),
-    70: ("CuTe 0.45% slower\nthan Triton", (-33, 75)),
-    71: ("56.6 MB wire payload omitted;\nlive logprobs exact", (-121, -35)),
-    72: ("streaming save -20.3%\n(component)", (-110, 20)),
-    73: ("unit-clip gradient stores -14.0%\n(optimizer component)", (-88, 100)),
-    74: ("fused optimizer -2.34% trainer step\n(vs native)", (11, 150)),
-    75: ("2048 tile: no gain", (44, -30)),
-    77: ("vector loads/stores -0.74%\n(optimizer component)", (-33, -140)),
     79: ("vLLM CUDA IPC: exact tiny reload", (-77, 25)),
     83: ("IPC reload -43.8%\n(receiver component)", (-44, 35)),
-    84: ("CuTe optimizer -1.84%\n(component)", (-55, 35)),
-    86: ("CuTe: 120 updates exact", (-66, -75)),
+    86: ("CuTe: 120 updates exact", (10, 18)),
     97: ("Qwen steps -9.5%\n(1 GiB GPU state)", (-35, 12)),
     100: ("unfused CuTe -64%\n(component)", (-80, 100)),
-    101: ("Qwen CuTe -2.8%\n(no-swap trainer prototype)", (-40, 35)),
+    101: ("Qwen CuTe -2.8%\n(no-swap trainer prototype)", (-40, 55)),
 }
 
 MILESTONES = [

@@ -157,6 +157,10 @@ def test_chunked_gpu_state_budget_keeps_selected_fp32_moments_resident() -> None
 def test_chunked_oversized_cpu_state_matches_adamw_and_resumes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(state_offload_module, "STATE_CHUNK_TARGET_NUMEL", 4)
 
+    class UnexpectedCutePlan:
+        def __init__(self, param: torch.Tensor):
+            raise AssertionError("AMSGrad must stay on the Torch fallback")
+
     def make_parameters() -> list[torch.nn.Parameter]:
         small = torch.nn.Parameter(torch.tensor([0.2, -0.4], device="cuda"))
         large = torch.nn.Parameter(torch.linspace(-1, 1, 13, device="cuda"))
@@ -181,6 +185,7 @@ def test_chunked_oversized_cpu_state_matches_adamw_and_resumes(monkeypatch: pyte
         ),
         pin_memory=False,
         chunked=True,
+        cute_adamw_plan_type=UnexpectedCutePlan,
     )
 
     def assign_grads(params: list[torch.nn.Parameter], step: int) -> None:
