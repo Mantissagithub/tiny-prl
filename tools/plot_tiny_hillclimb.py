@@ -190,17 +190,19 @@ CALLOUTS = {
     21: ("stream writer -192 MiB", (0, -16)),
     48: ("135M full-param ckpt + resume", (-40, -16)),
     55: ("RL fwd/bwd -15.6%", (-70, 15)),
-    63: ("corrected kernels -9.4%", (-30, -17)),
-    64: ("clip+AdamW -9.8% (component)", (10, 15)),
-    70: ("CuTe 0.45% slower\nthan Triton", (-75, -25)),
-    71: ("56.6 MB wire payload omitted;\nlive logprobs exact", (-85, -28)),
-    72: ("streaming save -20.3%\n(component)", (-55, 100)),
-    73: ("unit-clip gradient stores -14.0%\n(optimizer component)", (-95, 22)),
-    74: ("fused optimizer -2.34% trainer step\n(vs native)", (-75, 65)),
-    75: ("2048 tile: no gain", (-45, -35)),
-    77: ("vector loads/stores -0.74%\n(optimizer component)", (-35, -85)),
-    79: ("vLLM CUDA IPC: exact tiny reload", (-80, 55)),
-    83: ("IPC reload -43.8%\n(receiver component)", (-40, 35)),
+    63: ("corrected kernels -9.4%", (-110, 45)),
+    64: ("clip+AdamW -9.8% (component)", (44, 25)),
+    70: ("CuTe 0.45% slower\nthan Triton", (-33, 75)),
+    71: ("56.6 MB wire payload omitted;\nlive logprobs exact", (-121, -35)),
+    72: ("streaming save -20.3%\n(component)", (-110, 20)),
+    73: ("unit-clip gradient stores -14.0%\n(optimizer component)", (-88, 100)),
+    74: ("fused optimizer -2.34% trainer step\n(vs native)", (11, 150)),
+    75: ("2048 tile: no gain", (44, -30)),
+    77: ("vector loads/stores -0.74%\n(optimizer component)", (-33, -140)),
+    79: ("vLLM CUDA IPC: exact tiny reload", (-77, 25)),
+    83: ("IPC reload -43.8%\n(receiver component)", (-44, 35)),
+    84: ("CuTe optimizer -1.84%\n(component)", (-55, 35)),
+    86: ("CuTe: 120 updates exact", (-66, -75)),
 }
 
 MILESTONES = [
@@ -349,7 +351,7 @@ def eyebrow(fig, x, y, text, mono, color=YELLOW, size=11):
     fig.text(
         x,
         y,
-        "  ".join(text.upper().split(" ")).replace("", " ")[1:-1],
+        "  ".join(text.upper().split(" ")),
         fontsize=size,
         color=color,
         fontfamily=mono,
@@ -414,7 +416,7 @@ def main() -> None:
     # Header.
     eyebrow(fig, 0.06, 0.957, "tiny-prl · hill climb · rtx 4060 laptop", mono)
     title_kw = {"fontsize": 44, "fontweight": "semibold", "fontfamily": sans}
-    lead = "One real win: "
+    lead = "One RL win: "
     accent = "12.6% off RL wall time"
     fig.text(0.06, 0.918, lead, color=INK, **title_kw)
     lead_w = text_width(fig, lead, **title_kw)
@@ -462,7 +464,7 @@ def main() -> None:
 
     # Panel A: Qwen LoRA end-to-end record.
     eyebrow(fig, 0.06, 0.757, "a · qwen3-0.6b lora · 10-update rl wall time", mono)
-    fig.text(0.06, 0.735, "Wall time only moved once", fontsize=22, color=INK, fontweight="semibold")
+    fig.text(0.06, 0.735, "Total RL wall time improved once", fontsize=22, color=INK, fontweight="semibold")
     ax = fig.add_axes([0.085, 0.555, 0.875, 0.165])
     style_axes(ax, mono)
     record = None
@@ -531,15 +533,13 @@ def main() -> None:
     fig.text(0.06, 0.468, "Kernels made the trainer faster ...", fontsize=22, color=INK, fontweight="semibold")
     fig.text(
         0.06,
-        0.443,
-        "RMSNorm + RoPE timings below. Fused optimizer: 1,061 states match native after 120 updates; trainer step +0.47%, no accepted gain.\n"
-        "CuTe parity: 12 cases, 20 fresh-gradient and 163 reused-gradient updates. 8M component vs Torch: Triton -8.0%, CuTe -7.6%.\n"
-        "CuTe trails Triton by 0.45%; no CuTe trainer run.",
-        fontsize=9.5,
+        0.451,
+        "fwd/bwd change vs Torch, A-B-B-A. Fixed-shape fake data first, then real RL batches. "
+        "The step is launch-bound: GPU 30% busy, 13k kernels per step.",
+        fontsize=11.5,
         color=INK_2,
-        linespacing=1.1,
     )
-    ax = fig.add_axes([0.31, 0.245, 0.65, 0.17])
+    ax = fig.add_axes([0.31, 0.255, 0.65, 0.18])
     ax.set_facecolor(BG)
     ax.axis("off")
     clip = 22
