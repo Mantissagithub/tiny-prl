@@ -163,6 +163,8 @@ EXPERIMENTS = {
     65: (NUM, "validated"),
     66: (E2E, "rejected"),
     67: (NUM, "none"),
+    68: (NUM, "validated"),
+    69: (TRAIN, "none"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -173,6 +175,7 @@ CALLOUTS = {
     55: ("RL fwd/bwd -15.6%", (-70, 15)),
     63: ("corrected kernels -9.4%", (-30, -17)),
     64: ("clip+AdamW -9.8% (component)", (10, 15)),
+    69: ("optimizer trainer step +0.47%\nno accepted gain", (-60, 25)),
 }
 
 MILESTONES = [
@@ -504,12 +507,14 @@ def main() -> None:
     fig.text(
         0.06,
         0.451,
-        "fwd/bwd change vs Torch, A-B-B-A. Fixed-shape fake data first, then real RL batches. "
-        "The step is launch-bound: GPU 30% busy, 13k kernels per step.",
-        fontsize=11.5,
+        "RMSNorm + RoPE fwd/bwd vs Torch, A-B-B-A. Production Triton optimizer mismatch resolved in this test: "
+        "all 1,061 tensors match native after 120 updates.\n"
+        "Optimizer trainer ABBA step +0.47%, no accepted gain. EXP65's -8.48% component predates the fix; retime pending. CuTe bias helper pending.",
+        fontsize=11,
         color=INK_2,
+        linespacing=1.2,
     )
-    ax = fig.add_axes([0.31, 0.255, 0.65, 0.18])
+    ax = fig.add_axes([0.31, 0.245, 0.65, 0.17])
     ax.set_facecolor(BG)
     ax.axis("off")
     clip = 22
