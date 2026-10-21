@@ -234,7 +234,15 @@ def save_llama_state_dict_streaming(
     if max_shard_size_bytes <= 0:
         raise ValueError("max_shard_size_bytes must be positive")
 
-    _validate_streaming_llama(model)
+    candidate = _validate_streaming_llama(model)
+    lm_head = getattr(candidate, "lm_head", None)
+    embeddings = getattr(getattr(candidate, "model", None), "embed_tokens", None)
+    omit_tied_lm_head = (
+        getattr(getattr(candidate, "config", None), "tie_word_embeddings", False)
+        and lm_head is not None
+        and embeddings is not None
+        and lm_head.weight is embeddings.weight
+    )
     state_dict = model.state_dict()
     if any(".base_layer." in key or "lora_A" in key or "lora_B" in key for key in state_dict):
         raise ValueError("stream_gather_to_disk does not support LoRA state dicts")
@@ -263,12 +271,14 @@ def save_llama_state_dict_streaming(
         warnings.filterwarnings("ignore", category=FutureWarning, module="torch.distributed")
         warnings.filterwarnings("ignore", category=UserWarning, module="torch.distributed.*")
         for key, value in state_dict.items():
+            name = resolve_fqn(model, key)
+            if omit_tied_lm_head and name == "lm_head.weight":
+                continue
             if isinstance(value, DTensor):
                 target_dtype = resolve_wire_dtype(keep_in_fp32, key, dtype)
                 gathered = cast(DTensor, value.to(target_dtype)).full_tensor()
             else:
                 gathered = value
-            name = resolve_fqn(model, key)
             tensor_bytes = gathered.nbytes
             if shard_items and shard_bytes + tensor_bytes > max_shard_size_bytes:
                 write_shard()

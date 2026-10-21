@@ -165,6 +165,8 @@ EXPERIMENTS = {
     67: (NUM, "none"),
     68: (NUM, "validated"),
     69: (TRAIN, "none"),
+    70: (TRAIN, "component"),
+    71: (MEM, "validated"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -175,7 +177,8 @@ CALLOUTS = {
     55: ("RL fwd/bwd -15.6%", (-70, 15)),
     63: ("corrected kernels -9.4%", (-30, -17)),
     64: ("clip+AdamW -9.8% (component)", (10, 15)),
-    69: ("optimizer trainer step +0.47%\nno accepted gain", (-60, 25)),
+    70: ("CuTe 0.45% slower\nthan Triton", (-75, -25)),
+    71: ("56.6 MB wire payload omitted;\nlive logprobs exact", (-85, -28)),
 }
 
 MILESTONES = [
@@ -506,13 +509,13 @@ def main() -> None:
     fig.text(0.06, 0.468, "Kernels made the trainer faster ...", fontsize=22, color=INK, fontweight="semibold")
     fig.text(
         0.06,
-        0.451,
-        "RMSNorm + RoPE fwd/bwd vs Torch, A-B-B-A. Production Triton optimizer mismatch resolved in this test: "
-        "all 1,061 tensors match native after 120 updates.\n"
-        "Optimizer trainer ABBA step +0.47%, no accepted gain. EXP65's -8.48% component predates the fix; retime pending. CuTe bias helper pending.",
-        fontsize=11,
+        0.443,
+        "RMSNorm + RoPE timings below. Fused optimizer: 1,061 states match native after 120 updates; trainer step +0.47%, no accepted gain.\n"
+        "CuTe parity: 12 cases, 20 fresh-gradient and 163 reused-gradient updates. 8M component vs Torch: Triton -8.0%, CuTe -7.6%.\n"
+        "CuTe trails Triton by 0.45%; no CuTe trainer run.",
+        fontsize=9.5,
         color=INK_2,
-        linespacing=1.2,
+        linespacing=1.1,
     )
     ax = fig.add_axes([0.31, 0.245, 0.65, 0.17])
     ax.set_facecolor(BG)
