@@ -977,3 +977,27 @@ This result rejects this specific pipeline implementation. Its metadata and host
 The no-store R3 probe passed 13 tensor shapes, with three updates per shape. Parameters, both moments, step counters, gradient bits and version checks had zero mismatches, including NaNs, infinities, signed zeros and subnormals. For a saved-tensor case, both native AdamW and the candidate advanced the parameter version and backward detected the intervening mutation.
 
 The guard returned 0 in 7.45 seconds with 1,171 MiB sampled GPU use. This validates the tested single-slice revision's update and version behavior; it is not a full trainer benchmark. Evidence: `outputs/qwen-fulltrain-20261022/cute-single-slice-r1/{probes/nostore-version-r3.json,guard-nostore-r3/result.json}`.
+
+## Experiment 106: versioned CuTe slices reduce Qwen trainer step time
+
+The versioned R5 CuTe prototype passed a five-update Qwen3-0.6B full-training A-B-B-A comparison with the tested 1 GiB GPU moment budget, FP32 settings, fake batch 1, sequence 64 and deterministic FA2. Averaging the two warm per-run medians gives 1.097535 seconds for Torch and 1.065921 seconds for CuTe (-2.880%). Both candidate medians beat both controls. All four final states matched the same 1,271-entry SHA-256 `161968699bf22a5529272f41ea51f90116dc38e3d053be284f6261dcaab19695`.
+
+All guards returned 0, with zero sampled cgroup swap, a 7,221 MiB GPU peak and at least 3.21 GB available host RAM. No checkpoint payloads were written. This is a trainer prototype measurement; production integration requires separate verification and it does not establish a new RL wall-time gain. Evidence: `outputs/qwen-fulltrain-20261022/cute-sliced-trainer-r1/{validation.json,protocol/,native-1/,cute-1/,cute-2/,native-2/}`.
+
+## Experiment 107: direct-scalar transfer pipeline still loses to pageable copies
+
+Using the versioned direct-scalar kernel removes the older wrapper's blocking metadata uploads. Over the actual embedding's ten slices, six samples per arm gave outer-wall medians of 262.621 ms for pageable transfers and 293.727 ms for the two-slot pinned pipeline (+11.84%). Final states matched bitwise and staging remained bounded. CUDA traces showed cross-stream overlap, but synchronous host staging and copyback still gated progress. The strided tail also fell back to extra copies.
+
+Evidence: `outputs/qwen-fulltrain-20261022/slice-pipeline-r2/{result.json,guard/result.json,trace/}`. This rejects the tested implementation, not asynchronous transfer generally.
+
+## Experiment 108: five-bucket live IPC preserves complete weight and output parity
+
+Packing the existing 272 tensors into five acknowledged buckets retained the same 269,030,016-byte BF16 wire and a maximum 64,000,000-byte slab. After a real deterministic full-parameter trainer update, all 182 vLLM parameter hashes and deterministic tokens/logprobs matched filesystem loading exactly. Reset output, tied aliases and independent receiver storage also passed. The guarded run returned 0 in 24.53 seconds with a 5,138 MiB sampled GPU peak.
+
+This proves the prototype protocol's correctness, without a transfer-time claim. Evidence: `outputs/tiny-kernel-20261022/ipc-bucket-prototype-r2/{actual-r2/result.json,guard-r2/result.json}`.
+
+## Experiment 109: parallel host copies improve the bounded moment pipeline
+
+Separate contiguous moment slots remove the strided-tail fallback. With the same versioned kernel and actual ten embedding slices, six samples per arm compared pageable transfers against a two-slot pipeline at each CPU copy-worker count. One worker was slower (263.544 to 272.751 ms); two workers improved 262.412 to 251.328 ms; four improved 262.750 to 226.618 ms (-13.75%). All paired final-state hashes matched exactly.
+
+The pipeline uses 256 MiB of pinned host staging and 256 MiB of GPU moment slots, while authoritative CPU moments remain pageable. The guard returned 0 in 99.55 seconds, sampled zero swap, peaked at 1,791 MiB GPU memory and retained at least 6.34 GB available RAM. This is an isolated transfer/update result pending a matched repeat and full-trainer integration; it is not an RL wall-time claim. Evidence: `outputs/qwen-fulltrain-20261022/slice-pipeline-r3/{result.json,guard/result.json,validate.py,trace/}`.
