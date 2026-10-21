@@ -53,6 +53,7 @@ class WeightSender(ABC):
     @final
     def broadcast(self, model: nn.Module, step: int) -> None:
         """Broadcast policy v{step} to the inference pool."""
+        self._validate_model(model)
         start_time = time.perf_counter()
         step_dir = self.step_dir(step)
         if self.world.is_master:
@@ -69,6 +70,9 @@ class WeightSender(ABC):
             (step_dir / FINISHED_MARKER).touch()
             self._clean(step)
             self.logger.debug(f"Broadcasted weights for step {step} in {time.perf_counter() - start_time:.2f}s")
+
+    def _validate_model(self, model: nn.Module) -> None:
+        """Validate transport-specific constraints before publishing a version."""
 
     def step_dir(self, step: int) -> Path:
         return get_step_path(get_broadcast_dir(self.output_dir), step)

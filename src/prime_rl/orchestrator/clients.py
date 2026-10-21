@@ -179,9 +179,10 @@ class AdminPlane:
         self,
         weight_dir: Path | None,
         *,
-        transport: Literal["filesystem", "nccl", "nixl"],
+        transport: Literal["filesystem", "nccl", "nixl", "cuda_ipc"],
         step: int = 0,
         on_paused: Callable[[], None] | None = None,
+        ipc_endpoint: dict[str, str] | None = None,
     ) -> None:
         """Update every inference engine through its configured weight transport."""
         weight_dir_posix = weight_dir.as_posix() if weight_dir is not None else None
@@ -195,7 +196,12 @@ class AdminPlane:
                     _admin_post(
                         admin_client,
                         "/update_weights",
-                        json={"weight_dir": weight_dir_posix},
+                        json={
+                            "weight_dir": weight_dir_posix,
+                            "transport": transport,
+                            "step": step,
+                            "ipc_endpoint": ipc_endpoint,
+                        },
                         timeout_s=UPDATE_WEIGHTS_TIMEOUT_S,
                     )
                     for admin_client in self.clients

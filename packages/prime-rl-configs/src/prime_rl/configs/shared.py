@@ -53,6 +53,10 @@ class FileSystemWeightBroadcastConfig(BaseWeightBroadcastConfig):
     """Stream single-rank, unconverted Llama weights into bounded safetensors shards instead of gathering a full CPU state dict."""
 
 
+class CUDAIPCWeightBroadcastConfig(BaseWeightBroadcastConfig):
+    type: Literal["cuda_ipc"] = "cuda_ipc"
+
+
 class InMemoryWeightBroadcastConfig(BaseWeightBroadcastConfig):
     host: str = "localhost"
     """Weight transfer host."""
@@ -85,7 +89,10 @@ class NIXLWeightBroadcastConfig(InMemoryWeightBroadcastConfig):
 
 
 WeightBroadcastConfig: TypeAlias = Annotated[
-    FileSystemWeightBroadcastConfig | NCCLWeightBroadcastConfig | NIXLWeightBroadcastConfig,
+    FileSystemWeightBroadcastConfig
+    | NCCLWeightBroadcastConfig
+    | NIXLWeightBroadcastConfig
+    | CUDAIPCWeightBroadcastConfig,
     Field(discriminator="type"),
 ]
 """Weight transfer from trainer to inference. ``rl`` copies its ``[weight_broadcast]`` to the trainer and orchestrator."""

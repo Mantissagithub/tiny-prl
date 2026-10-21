@@ -35,6 +35,10 @@ def setup_weight_sender(
         from prime_rl.transports.weights.nixl import NIXLWeightSender
 
         return NIXLWeightSender(output_dir, config, parallel_dims)
+    elif config.type == "cuda_ipc":
+        from prime_rl.transports.weights.cuda_ipc import CUDAIPCWeightSender
+
+        return CUDAIPCWeightSender(output_dir, config)
     else:
         raise ValueError(f"Invalid weight broadcast type: {config.type}")
 
@@ -57,5 +61,9 @@ def setup_weight_receiver(
         from prime_rl.transports.weights.nixl import NIXLWeightReceiver
 
         return NIXLWeightReceiver(broadcast_dir, config, admin_plane, model_name)
+    elif config.type == "cuda_ipc":
+        from prime_rl.transports.weights.cuda_ipc import CUDAIPCWeightReceiver
+
+        return CUDAIPCWeightReceiver(broadcast_dir, config, admin_plane, model_name)
     else:
         raise ValueError(f"Invalid weight broadcast type: {config.type}")

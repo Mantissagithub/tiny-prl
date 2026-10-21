@@ -736,6 +736,60 @@ def test_filesystem_weight_broadcast_shard_size_validation():
         FileSystemWeightBroadcastConfig.model_validate({"max_shard_size_bytes": -1})
 
 
+def test_cuda_ipc_weight_broadcast_scope():
+    config_data = {
+        "trainer": {},
+        "orchestrator": {},
+        "inference": {"vllm": {"tensor_parallel_size": 1}},
+        "weight_broadcast": {"type": "cuda_ipc"},
+        "deployment": {
+            "type": "single_node",
+            "gpus_per_node": 1,
+            "num_train_gpus": 1,
+            "num_infer_gpus": 1,
+            "share_train_infer_gpu": True,
+        },
+    }
+    config = RLConfig.model_validate(deepcopy(config_data))
+    assert config.weight_broadcast.type == "cuda_ipc"
+    assert config.trainer.weight_broadcast.type == "cuda_ipc"
+    assert config.orchestrator.weight_broadcast.type == "cuda_ipc"
+    assert config.inference is not None
+    assert config.inference.weight_broadcast.type == "cuda_ipc"
+
+    invalid_configs = [
+        (
+            {"deployment": {"type": "multi_node", "num_train_nodes": 1, "num_infer_nodes": 1, "gpus_per_node": 1}},
+            "single-node",
+        ),
+        (
+            {"deployment": {"share_train_infer_gpu": False, "gpus_per_node": 2}},
+            "share one physical GPU",
+        ),
+        ({"inference": {"vllm": {"tensor_parallel_size": 2}}}, "one inference worker"),
+        ({"inference": {"vllm": {"quantization": "fp8_per_block"}}}, "unquantized inference"),
+        ({"inference": {"vllm": {"api_server_count": 2}}}, "exactly one inference API server"),
+        (
+            {"orchestrator": {"model": {"client": {"dynamo": {"enabled": True}}}}},
+            "does not support Dynamo",
+        ),
+        ({"trainer": {"model": {"lora": {"rank": 8}}}}, "requires weight_broadcast.type = 'filesystem'"),
+        ({"inference": None}, "requires an inference configuration"),
+    ]
+    for overrides, message in invalid_configs:
+        candidate = deepcopy(config_data)
+        for section, values in overrides.items():
+            if values is None:
+                candidate[section] = None
+            elif section == "deployment" and values.get("type") == "multi_node":
+                candidate[section] = values
+                candidate["slurm"] = {}
+            else:
+                candidate.setdefault(section, {}).update(values)
+        with pytest.raises(ValidationError, match=message):
+            RLConfig.model_validate(candidate)
+
+
 def test_shared_single_gpu_full_and_lora_configs_are_validated():
     config_data = {
         "trainer": {"model": {"lora": {"rank": 8}}},

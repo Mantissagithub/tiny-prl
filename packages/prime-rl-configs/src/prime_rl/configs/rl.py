@@ -114,7 +114,7 @@ class SingleNodeDeploymentConfig(BaseDeploymentConfig):
     type: Literal["single_node"] = "single_node"
 
     share_train_infer_gpu: bool = False
-    """Run the trainer and inference server concurrently on the same sole GPU. Requires LoRA and filesystem weight broadcast."""
+    """Run trainer and inference concurrently on one GPU. Use filesystem for LoRA or CUDA IPC for full-parameter updates."""
 
     num_train_gpus: int = 1
     """GPUs allocated to the trainer."""
@@ -453,6 +453,24 @@ class RLConfig(BaseConfig):
                 "PEFT-shaped directory on disk (LoRAModel.from_local_checkpoint) - in-memory transports "
                 "have no disk artifact to load from."
             )
+        if self.weight_broadcast.type == "cuda_ipc":
+            if self.inference is None:
+                raise ValueError("cuda_ipc requires an inference configuration")
+            if self.deployment.type != "single_node":
+                raise ValueError("cuda_ipc requires a single-node deployment")
+            if not self.deployment.share_train_infer_gpu or self.deployment.gpus_per_node != 1:
+                raise ValueError("cuda_ipc requires trainer and inference to share one physical GPU")
+            if (self.deployment.num_train_gpus, self.deployment.num_infer_gpus) != (1, 1):
+                raise ValueError("cuda_ipc requires one trainer GPU and one inference GPU")
+            if (self.inference.vllm.tensor_parallel_size, self.inference.vllm.data_parallel_size) != (1, 1):
+                raise ValueError("cuda_ipc requires one inference worker (TP=1 and DP=1)")
+            if self.inference.vllm.enable_lora or self.inference.vllm.quantization is not None:
+                raise ValueError("cuda_ipc requires full-parameter, unquantized inference without LoRA")
+            if self.inference.vllm.api_server_count != 1:
+                raise ValueError("cuda_ipc requires exactly one inference API server")
+            dynamo = self.orchestrator.model.client.dynamo
+            if dynamo is not None and dynamo.enabled:
+                raise ValueError("cuda_ipc does not support Dynamo inference clients")
         self.trainer.weight_broadcast = self.weight_broadcast.model_copy()
         self.orchestrator.weight_broadcast = self.weight_broadcast.model_copy()
         if self.inference is not None:
@@ -508,8 +526,10 @@ class RLConfig(BaseConfig):
             return self
         if self.slurm is not None:
             raise ValueError("deployment.share_train_infer_gpu is supported only for local runs, not SLURM.")
-        if self.weight_broadcast.type != "filesystem":
-            raise ValueError("deployment.share_train_infer_gpu requires weight_broadcast.type = 'filesystem'.")
+        if self.weight_broadcast.type not in ("filesystem", "cuda_ipc"):
+            raise ValueError(
+                "deployment.share_train_infer_gpu requires weight_broadcast.type = 'filesystem' or 'cuda_ipc'."
+            )
         if self.inference is None:
             raise ValueError("deployment.share_train_infer_gpu requires an inference configuration.")
         if (self.inference.vllm.tensor_parallel_size, self.inference.vllm.data_parallel_size) != (1, 1):
@@ -638,7 +658,7 @@ class RLConfig(BaseConfig):
                 dp = self.inference.vllm.data_parallel_size
                 if self.inference.vllm.api_server_count < dp and not self.inference.vllm.enable_lora:
                     self.inference.vllm.api_server_count = dp
-                if self.weight_broadcast.type != "filesystem":
+                if self.weight_broadcast.type in ("nccl", "nixl"):
                     # Every inference GPU joins the in-memory transfer group, so size it after the DP fill.
                     world_size = dp * self.inference.vllm.tensor_parallel_size
                     self.trainer.weight_broadcast.inference_world_size = world_size

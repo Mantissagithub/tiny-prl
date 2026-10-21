@@ -186,7 +186,7 @@ class VllmConfig(BaseConfig):
 
 
 class WeightBroadcastConfig(BaseConfig):
-    type: Literal["nccl", "filesystem", "nixl"] = "filesystem"
+    type: Literal["nccl", "filesystem", "nixl", "cuda_ipc"] = "filesystem"
     """Weight broadcast transport."""
 
 

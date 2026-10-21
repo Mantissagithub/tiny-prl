@@ -1,0 +1,100 @@
+max_steps = 10
+seq_len = 512
+output_dir = "outputs"
+
+[run]
+name = "smollm2-full-ipc"
+
+[model]
+name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+
+[trainer.model]
+compile = "None"
+seq_len = 512
+optimization_dtype = "float32"
+reduce_dtype = "float32"
+offload = "none"
+ac_offloading = "None"
+fused_lm_head_token_chunk_size = 128
+fused_lm_head_kernel = "torch"
+triton_kernels = ["rope", "rmsnorm"]
+
+[trainer.model.ac]
+mode = "full"
+freq = 1
+
+[trainer.env_vars]
+PYTORCH_ALLOC_CONF = "expandable_segments:False"
+PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:False"
+
+[trainer.optim]
+lr = 1e-5
+
+[trainer.loss]
+type = "ipo"
+
+[monitors.file]
+
+[weight_broadcast]
+type = "cuda_ipc"
+timeout = 120
+
+[deployment]
+type = "single_node"
+gpus_per_node = 1
+num_train_gpus = 1
+num_infer_gpus = 1
+share_train_infer_gpu = true
+
+[orchestrator]
+batch_size = 4
+
+[orchestrator.concurrency]
+max_inflight = 4
+
+[orchestrator.train]
+group_size = 2
+
+[orchestrator.train.select]
+seed = 0
+
+[orchestrator.train.sampling]
+max_completion_tokens = 64
+
+[[orchestrator.train.source]]
+name = "alphabet-sort"
+serve.pool.type = "elastic"
+serve.pool.max_workers = 1
+env.taskset.id = "alphabet-sort"
+env.taskset.min_turns = 1
+env.taskset.max_turns = 1
+env.taskset.min_names_per_turn = 2
+env.taskset.max_names_per_turn = 2
+env.taskset.task.power_per_turn = false
+env.agent.harness.id = "null"
+env.agent.runtime.type = "subprocess"
+
+[orchestrator.renderer]
+name = "default"
+
+[inference]
+router = "None"
+
+[inference.env_vars]
+PYTORCH_ALLOC_CONF = "expandable_segments:False"
+PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:False"
+
+[inference.vllm]
+gpu_memory_utilization = 0.25
+max_model_len = 512
+max_num_seqs = 2
+max_num_batched_tokens = 512
+enforce_eager = false
+
+[inference.vllm.compilation_config]
+mode = "NONE"
+cudagraph_mode = "FULL_DECODE_ONLY"
+cudagraph_capture_sizes = [1, 2]
+
+[inference.vllm.kernel_config]
+enable_jit_warmup = false

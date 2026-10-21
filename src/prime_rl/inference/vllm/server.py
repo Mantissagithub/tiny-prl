@@ -37,6 +37,7 @@ WORKER_EXTENSION_CLS = {
     "nccl": "prime_rl.inference.vllm.worker.nccl.NCCLWeightUpdateWorker",
     "filesystem": "prime_rl.inference.vllm.worker.filesystem.FileSystemWeightUpdateWorker",
     "nixl": "prime_rl.inference.vllm.worker.nixl.NIXLWeightUpdateWorker",
+    "cuda_ipc": "prime_rl.inference.vllm.worker.cuda_ipc.CUDAIPCWeightUpdateWorker",
 }
 
 
@@ -56,7 +57,10 @@ async def resume(request: Request):
 @router.post("/update_weights")
 async def update_weights(request: Request):
     data = await request.json()
-    await engine_client(request).collective_rpc("update_weights_from_path", args=(data.get("weight_dir"),))
+    if data.get("transport") == "cuda_ipc":
+        await engine_client(request).collective_rpc("update_weights_from_connection", args=(data["ipc_endpoint"],))
+    else:
+        await engine_client(request).collective_rpc("update_weights_from_path", args=(data.get("weight_dir"),))
     return {"status": "ok"}
 
 

@@ -81,3 +81,63 @@ parameter, gradient, buffer and optimizer-state records. This short fake-data
 profile does not configure inference or rollouts and does not establish RL
 quality, co-residency capacity, or longer context support. GPU and host-memory
 fit still depend on the target machine.
+
+## Opt-in CUDA IPC weight updates
+
+Run the ten-update SmolLM2-135M full-parameter profile with:
+
+```bash
+uv run --no-sync rl @ examples/tiny/smollm2-full-ipc.toml --no-dashboard
+```
+
+For full-parameter RL runs on a single shared GPU, set `weight_broadcast.type`
+to `cuda_ipc` and `weight_broadcast.timeout` to `120`. Configure a single-node
+deployment with one GPU, one trainer GPU, one inference GPU, and
+`share_train_infer_gpu = true`:
+
+```toml
+[weight_broadcast]
+type = "cuda_ipc"
+timeout = 120
+
+[deployment]
+type = "single_node"
+gpus_per_node = 1
+num_train_gpus = 1
+num_infer_gpus = 1
+share_train_infer_gpu = true
+```
+
+Set both allocator variables in the trainer and inference component configs. The
+RL entrypoint otherwise supplies allocator defaults to child processes:
+
+```toml
+[trainer.env_vars]
+PYTORCH_ALLOC_CONF = "expandable_segments:False"
+PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:False"
+
+[inference.env_vars]
+PYTORCH_ALLOC_CONF = "expandable_segments:False"
+PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:False"
+```
+
+CUDA IPC supports HF-layout Llama models with an identity-tied output head, an
+FP32 trainer, and a BF16 vLLM model. Use one inference worker (TP=1, DP=1) and
+one API server. LoRA, quantized inference, Dynamo clients, multi-GPU, and
+multi-node deployments are unsupported. Startup checks reject incompatible
+models and allocator settings.
+
+The sender streams tensors through a fixed 64 MB CUDA slab and waits for an
+acknowledgement before reusing it. vLLM defers fused projection loading, so the
+receiver snapshots each tensor before passing it to the layerwise loader. This
+keeps buffered Q/K/V and gate/up tensors intact without a full-model wire
+buffer; snapshots add transient GPU memory while a layer is assembled.
+
+Production parity matched all 182 unique vLLM parameter hashes and deterministic
+token IDs and logprobs against a filesystem update. The run also preserved the
+tied embedding and proved the model does not retain IPC staging storage. A
+guarded SmolLM2-135M RL smoke completed ten actual updates, applied final
+policy v10, and returned HTTP 200 for all 11 update requests. The IPC weight
+transfer sent no checkpoint payload to disk. These checks establish correctness
+for this small run, not RL quality or an end-to-end speedup; measure performance
+on the target workload.
