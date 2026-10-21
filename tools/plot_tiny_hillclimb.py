@@ -486,7 +486,7 @@ def main() -> None:
 
     # Panel A: Qwen LoRA end-to-end record.
     eyebrow(fig, 0.06, 0.757, "a · qwen3-0.6b lora · 10-update rl wall time", mono)
-    fig.text(0.06, 0.735, "Total RL wall time improved once", fontsize=22, color=INK, fontweight="semibold")
+    fig.text(0.06, 0.735, "Verified RL wall-time gain: 12.6%", fontsize=22, color=INK, fontweight="semibold")
     ax = fig.add_axes([0.085, 0.555, 0.875, 0.165])
     style_axes(ax, mono)
     record = None
