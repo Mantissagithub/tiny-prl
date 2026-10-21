@@ -4,8 +4,108 @@ from collections.abc import Sequence
 import torch
 from torch.distributed.tensor import DTensor
 from torch.optim import AdamW, Optimizer
+from torch.optim.adamw import adamw as functional_adamw
 
 from prime_rl.trainer.optim.base import OffloadOptimizer
+
+STATE_CHUNK_TARGET_NUMEL = 16 * 1024**2
+
+
+def _step_parameter_in_slices(
+    param: torch.Tensor,
+    group: dict,
+    state: dict[str, torch.Tensor],
+) -> None:
+    local_param = param.to_local() if isinstance(param, DTensor) else param
+    grad = param.grad
+    local_grad = grad.to_local() if isinstance(grad, DTensor) else grad
+    exp_avg = state["exp_avg"]
+    exp_avg_sq = state["exp_avg_sq"]
+    max_exp_avg_sq = state.get("max_exp_avg_sq")
+    local_exp_avg = exp_avg.to_local() if isinstance(exp_avg, DTensor) else exp_avg
+    local_exp_avg_sq = exp_avg_sq.to_local() if isinstance(exp_avg_sq, DTensor) else exp_avg_sq
+    local_max_exp_avg_sq = max_exp_avg_sq.to_local() if isinstance(max_exp_avg_sq, DTensor) else max_exp_avg_sq
+    tracked_wrappers = []
+    for tensor in (param, exp_avg, exp_avg_sq, max_exp_avg_sq):
+        if isinstance(tensor, DTensor):
+            tracked_wrappers.append((tensor, tensor._version))
+
+    param_flat = local_param.view(-1)
+    grad_flat = local_grad.view(-1)
+    avg_flat = local_exp_avg.view(-1)
+    avg_sq_flat = local_exp_avg_sq.view(-1)
+    max_avg_sq_flat = local_max_exp_avg_sq.view(-1) if local_max_exp_avg_sq is not None else None
+    foreach = group["foreach"]
+    if foreach is None and isinstance(param, DTensor):
+        foreach = False
+
+    for start in range(0, param_flat.numel(), STATE_CHUNK_TARGET_NUMEL):
+        end = min(start + STATE_CHUNK_TARGET_NUMEL, param_flat.numel())
+        avg_cpu_slice = avg_flat[start:end]
+        avg_sq_cpu_slice = avg_sq_flat[start:end]
+        avg_slice = avg_cpu_slice.to(device=local_param.device)
+        avg_sq_slice = avg_sq_cpu_slice.to(device=local_param.device)
+        max_avg_sq_cpu_slice = max_avg_sq_flat[start:end] if max_avg_sq_flat is not None else None
+        max_avg_sq_slice = (
+            max_avg_sq_cpu_slice.to(device=local_param.device) if max_avg_sq_cpu_slice is not None else None
+        )
+        functional_adamw(
+            params=[param_flat[start:end]],
+            grads=[grad_flat[start:end]],
+            exp_avgs=[avg_slice],
+            exp_avg_sqs=[avg_sq_slice],
+            max_exp_avg_sqs=[max_avg_sq_slice] if max_avg_sq_slice is not None else [],
+            state_steps=[state["step"].detach().clone()],
+            foreach=foreach,
+            capturable=group["capturable"],
+            differentiable=group["differentiable"],
+            fused=group["fused"],
+            has_complex=torch.is_complex(local_param),
+            amsgrad=group["amsgrad"],
+            beta1=group["betas"][0],
+            beta2=group["betas"][1],
+            lr=group["lr"],
+            weight_decay=group["weight_decay"],
+            eps=group["eps"],
+            maximize=group["maximize"],
+        )
+        avg_cpu_slice.copy_(avg_slice)
+        avg_sq_cpu_slice.copy_(avg_sq_slice)
+        if max_avg_sq_cpu_slice is not None:
+            max_avg_sq_cpu_slice.copy_(max_avg_sq_slice)
+        del avg_slice, avg_sq_slice, max_avg_sq_slice
+
+    state["step"].add_(1)
+    for tensor, before in tracked_wrappers:
+        if tensor._version == before:
+            torch.autograd.graph.increment_version(tensor)
+
+
+def _can_step_parameter_in_slices(param: torch.Tensor, state: dict[str, torch.Tensor]) -> bool:
+    grad = param.grad
+    if grad is None:
+        return False
+    local_param = param.to_local() if isinstance(param, DTensor) else param
+    local_grad = grad.to_local() if isinstance(grad, DTensor) else grad
+    if (
+        local_param.numel() <= STATE_CHUNK_TARGET_NUMEL
+        or local_param.device.type != "cuda"
+        or local_grad.device != local_param.device
+        or local_param.layout != torch.strided
+        or local_grad.layout != torch.strided
+        or not local_param.is_contiguous()
+        or not local_grad.is_contiguous()
+        or state["step"].device.type != "cpu"
+    ):
+        return False
+    for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+        value = state.get(key)
+        if value is None:
+            continue
+        local_value = value.to_local() if isinstance(value, DTensor) else value
+        if local_value.device.type != "cpu" or local_value.layout != torch.strided or not local_value.is_contiguous():
+            return False
+    return True
 
 
 class CPUOffloadOptimizer(OffloadOptimizer):
@@ -86,7 +186,6 @@ class CPUOffloadOptimizer(OffloadOptimizer):
         return total
 
     def _build_state_chunks(self) -> list[list[torch.Tensor]]:
-        target_numel = 16 * 1024**2
         chunks: list[list[torch.Tensor]] = []
         chunk: list[torch.Tensor] = []
         chunk_numel = 0
@@ -96,13 +195,13 @@ class CPUOffloadOptimizer(OffloadOptimizer):
                 if id(param) in seen:
                     continue
                 seen.add(id(param))
-                if chunk and chunk_numel + param.numel() > target_numel:
+                if chunk and chunk_numel + param.numel() > STATE_CHUNK_TARGET_NUMEL:
                     chunks.append(chunk)
                     chunk = []
                     chunk_numel = 0
                 chunk.append(param)
                 chunk_numel += param.numel()
-                if param.numel() >= target_numel:
+                if param.numel() >= STATE_CHUNK_TARGET_NUMEL:
                     chunks.append(chunk)
                     chunk = []
                     chunk_numel = 0
@@ -223,12 +322,20 @@ class CPUOffloadOptimizer(OffloadOptimizer):
             active_chunk = [param for param in chunk if param.grad is not None]
             if not active_chunk:
                 continue
+            self._initialize_cpu_state(active_chunk)
+            if len(active_chunk) == 1:
+                param = active_chunk[0]
+                state = self.optimizer.state[param]
+                group = self._param_groups_by_id[id(param)]
+                if not group["differentiable"] and _can_step_parameter_in_slices(param, state):
+                    with torch.no_grad():
+                        _step_parameter_in_slices(param, group, state)
+                    continue
             chunk_ids = {id(param) for param in active_chunk}
             hidden_grads = [(param, param.grad) for param in all_params if id(param) not in chunk_ids]
             try:
                 for param, _ in hidden_grads:
                     param.grad = None
-                self._initialize_cpu_state(active_chunk)
                 try:
                     self._move_states("cuda", active_chunk)
                     result = self.optimizer.step()

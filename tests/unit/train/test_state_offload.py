@@ -4,6 +4,7 @@ import pytest
 import torch
 from torch.optim import Optimizer
 
+import prime_rl.trainer.optim.state_offload as state_offload_module
 from prime_rl.trainer.optim.state_offload import CPUOffloadOptimizer
 
 pytestmark = [pytest.mark.gpu]
@@ -151,3 +152,88 @@ def test_chunked_gpu_state_budget_keeps_selected_fp32_moments_resident() -> None
     state_for_first = mixed_state["state"][0]
     assert state_for_first["exp_avg"].device.type == "cuda"
     assert state_for_first["exp_avg_sq"].device.type == "cuda"
+
+
+def test_chunked_oversized_cpu_state_matches_adamw_and_resumes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state_offload_module, "STATE_CHUNK_TARGET_NUMEL", 4)
+
+    def make_parameters() -> list[torch.nn.Parameter]:
+        small = torch.nn.Parameter(torch.tensor([0.2, -0.4], device="cuda"))
+        large = torch.nn.Parameter(torch.linspace(-1, 1, 13, device="cuda"))
+        return [small, large]
+
+    reference_params = make_parameters()
+    reference = torch.optim.AdamW(
+        reference_params,
+        lr=2e-3,
+        weight_decay=0.03,
+        amsgrad=True,
+        foreach=None,
+    )
+    offloaded_params = make_parameters()
+    offloaded = CPUOffloadOptimizer(
+        torch.optim.AdamW(
+            offloaded_params,
+            lr=2e-3,
+            weight_decay=0.03,
+            amsgrad=True,
+            foreach=None,
+        ),
+        pin_memory=False,
+        chunked=True,
+    )
+
+    def assign_grads(params: list[torch.nn.Parameter], step: int) -> None:
+        params[0].grad = torch.full_like(params[0], 0.1 * step)
+        params[1].grad = None if step == 2 else torch.linspace(-0.3, 0.2, 13, device="cuda") * step
+
+    def assert_equal(
+        candidate_params: list[torch.nn.Parameter] = offloaded_params,
+        candidate_optimizer: CPUOffloadOptimizer = offloaded,
+    ) -> None:
+        for reference_param, candidate_param in zip(reference_params, candidate_params):
+            assert torch.equal(reference_param, candidate_param)
+        for reference_param, candidate_param in zip(reference_params, candidate_params):
+            reference_state = reference.state[reference_param]
+            offloaded_state = candidate_optimizer.state[candidate_param]
+            assert reference_state.keys() == offloaded_state.keys()
+            for key, reference_value in reference_state.items():
+                offloaded_value = offloaded_state[key]
+                if isinstance(reference_value, torch.Tensor):
+                    assert torch.equal(reference_value.cpu(), offloaded_value.cpu()), key
+                else:
+                    assert reference_value == offloaded_value
+
+    large_state_tensor = None
+    for step in range(1, 4):
+        assign_grads(reference_params, step)
+        assign_grads(offloaded_params, step)
+        reference.step()
+        offloaded.step()
+        reference.zero_grad(set_to_none=True)
+        offloaded.zero_grad(set_to_none=True)
+        assert_equal()
+        if step == 1:
+            large_state_tensor = offloaded.state[offloaded_params[1]]["exp_avg"]
+        if step >= 2:
+            assert offloaded.state[offloaded_params[1]]["exp_avg"] is large_state_tensor
+
+    saved = offloaded.state_dict()
+    resumed_params = [torch.nn.Parameter(param.detach().clone()) for param in offloaded_params]
+    resumed = CPUOffloadOptimizer(
+        torch.optim.AdamW(
+            resumed_params,
+            lr=2e-3,
+            weight_decay=0.03,
+            amsgrad=True,
+            foreach=None,
+        ),
+        pin_memory=False,
+        chunked=True,
+    )
+    resumed.load_state_dict(saved)
+    assign_grads(reference_params, 4)
+    assign_grads(resumed_params, 4)
+    reference.step()
+    resumed.step()
+    assert_equal(resumed_params, resumed)

@@ -185,6 +185,11 @@ EXPERIMENTS = {
     87: (TRAIN, "none"),
     88: (MEM, "stop"),
     89: (TRAIN, "none"),
+    90: (NUM, "validated"),
+    91: (TRAIN, "stop"),
+    92: (MEM, "validated"),
+    93: (TRAIN, "rejected"),
+    94: (MEM, "validated"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -213,7 +218,7 @@ MILESTONES = [
     ("135M", "checkpoint + fresh resume", True),
     ("360M", "10 full-param updates", True),
     ("360M", "checkpoint save (host RAM)", False),
-    ("Qwen3-0.6B", "FP32 state > 8 GiB", False),
+    ("Qwen3-0.6B", "3 full updates · seq 64", True),
 ]
 
 
