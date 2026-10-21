@@ -16,9 +16,9 @@ group from the environment and writes output to `trainer.log`. This mode has no
 torchrun per-rank logs.
 The tiny profile runs its environment server inline with one worker, avoiding a
 separate broker process while keeping the task's network protocol unchanged.
-The run uses the opt-in `deployment.share_train_infer_gpu` setting with one logical
-trainer GPU and one logical inference GPU mapped to that device. LoRA and
-filesystem weight broadcast are required. vLLM is bounded to a 512-token model
+This recipe uses LoRA and filesystem weight broadcast. It uses the opt-in
+`deployment.share_train_infer_gpu` setting with one logical trainer GPU and one
+logical inference GPU mapped to that device. vLLM is bounded to a 512-token model
 length, two sequences, a 512-token scheduler budget, and 25% GPU memory
 utilization. Torch compilation stays disabled. vLLM captures full CUDA graphs
 for decode batches of one and two sequences; prefill runs without CUDA graphs.
@@ -68,3 +68,16 @@ smoke test succeeds. Record total run time and peak whole-GPU memory while both
 processes are resident; the trainer's peak-memory metric alone does not include
 vLLM's allocation. Fit and performance must be measured on the target machine;
 the recipe alone is not a runtime guarantee.
+
+## Trainer-only full-parameter capacity profile
+
+[`examples/tiny/qwen3-full-trainer.toml`](../examples/tiny/qwen3-full-trainer.toml)
+configures five full-parameter Qwen3-0.6B trainer updates with fake batch size 1,
+sequence length 64, full activation checkpointing, FP32 optimization/reduction,
+and chunked AdamW with a 1 GiB GPU moment budget. Equivalent trainer settings
+completed four guarded five-update comparisons, which found 9.5% lower warm
+step medians at 1 GiB than 512 MiB, with identical hashes for all 1,271 final
+parameter, gradient, buffer and optimizer-state records. This short fake-data
+profile does not configure inference or rollouts and does not establish RL
+quality, co-residency capacity, or longer context support. GPU and host-memory
+fit still depend on the target machine.

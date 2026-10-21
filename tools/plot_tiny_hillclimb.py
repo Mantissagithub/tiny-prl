@@ -190,6 +190,9 @@ EXPERIMENTS = {
     92: (MEM, "validated"),
     93: (TRAIN, "rejected"),
     94: (MEM, "validated"),
+    95: (TRAIN, "none"),
+    96: (NUM, "validated"),
+    97: (TRAIN, "kept"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -211,6 +214,7 @@ CALLOUTS = {
     83: ("IPC reload -43.8%\n(receiver component)", (-44, 35)),
     84: ("CuTe optimizer -1.84%\n(component)", (-55, 35)),
     86: ("CuTe: 120 updates exact", (-66, -75)),
+    97: ("Qwen steps -9.5%\n(1 GiB GPU state)", (-35, 12)),
 }
 
 MILESTONES = [
@@ -218,7 +222,7 @@ MILESTONES = [
     ("135M", "checkpoint + fresh resume", True),
     ("360M", "10 full-param updates", True),
     ("360M", "checkpoint save (host RAM)", False),
-    ("Qwen3-0.6B", "3 full updates · seq 64", True),
+    ("Qwen3-0.6B", "5 full updates · seq 64", True),
 ]
 
 

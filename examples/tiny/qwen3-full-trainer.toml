@@ -1,0 +1,38 @@
+# Trainer-only capacity profile; this does not configure inference or rollouts.
+max_steps = 5
+
+[model]
+name = "Qwen/Qwen3-0.6B"
+attn = "flash_attention_2"
+seq_len = 64
+compile = "None"
+optimization_dtype = "float32"
+reduce_dtype = "float32"
+offload = "optimizer_chunked"
+ac_offloading = "None"
+fused_lm_head_token_chunk_size = 128
+fused_lm_head_kernel = "torch"
+lora = "None"
+
+[model.ac]
+mode = "full"
+freq = 1
+
+[data]
+num_workers = 0
+
+[data.fake]
+batch_size = 1
+generate_samples = false
+
+[optim]
+type = "adamw"
+lr = 1e-5
+weight_decay = 0.0
+max_norm = 1.0
+gpu_state_budget_bytes = 1073741824
+
+[loss]
+type = "ipo"
+
+[monitors.file]
