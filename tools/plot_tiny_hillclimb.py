@@ -167,6 +167,7 @@ EXPERIMENTS = {
     69: (TRAIN, "none"),
     70: (TRAIN, "component"),
     71: (MEM, "validated"),
+    72: (MEM, "component"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -179,6 +180,7 @@ CALLOUTS = {
     64: ("clip+AdamW -9.8% (component)", (10, 15)),
     70: ("CuTe 0.45% slower\nthan Triton", (-75, -25)),
     71: ("56.6 MB wire payload omitted;\nlive logprobs exact", (-85, -28)),
+    72: ("streaming save -20.3%\n(component)", (-55, 100)),
 }
 
 MILESTONES = [
