@@ -48,7 +48,8 @@ Run only one GPU workload at a time in a systemd user service with `MemoryMax=7G
 Regenerate the single-image progress chart after recording results:
 
 ```bash
-MPLBACKEND=Agg uv run --isolated --no-project --python 3.12 --with matplotlib \
+TINY_PRL_FONT_DIR=<dir with Lexend and IBM Plex Mono .ttf> MPLBACKEND=Agg \
+  uv run --isolated --no-project --python 3.12 --with matplotlib \
   tools/plot_tiny_hillclimb.py outputs examples/tiny/hillclimb.png
 ```
 

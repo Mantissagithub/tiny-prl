@@ -1,44 +1,28 @@
 #!/usr/bin/env python3
-"""Plot the tiny-prl hill climb: every measured run, the retained frontier, and what never reached wall time."""
+"""Plot the tiny-prl hill climb as one slide: every measured run, the end-to-end record, and what never reached wall time."""
 
 import json
+import os
 import statistics
 import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
+import numpy as np
+from matplotlib import font_manager
+from matplotlib.patches import Rectangle
 
-SURFACE, INK, INK_2, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8984", "#e6e5e0"
-FRONTIER = "#2a78d6"
-VERDICT = {
-    "kept": ("#0ca30c", "faster, kept"),
-    "slower": ("#d03b3b", "slower, rejected"),
-    "neutral": ("#8a8984", "no measurable change"),
-    "invalid": ("#ec835a", "fails strict parity (invalid)"),
-}
+BG, INK, INK_2, DIM, FAINT, RULE = "#ffffff", "#141414", "#4a4844", "#9b988f", "#d6d4cd", "#ecebe6"
+YELLOW, MINT, CORAL, SKY, LILAC = "#2a78d6", "#178a52", "#d64545", "#0e7c86", "#6250d6"
+VERDICT = {"kept": MINT, "slower": CORAL, "neutral": DIM, "invalid": LILAC}
 
 # (label, artifact, control arm, candidate arm, verdict, note) for Qwen3-0.6B LoRA 10-update RL A-B-B-As.
 QWEN_ABBA = [
+    ("inline\nenv", "tiny-opt-tokenizer-20261017/pool-comparison.json", "pool-control", "single-worker", "neutral", ""),
+    ("4 infer\nseqs", "tiny-opt-tokenizer-20261017/rollout-comparison.json", "seqs2", "seqs4", "slower", ""),
+    ("decode\nCUDA graphs", "tiny-opt-tokenizer-20261017/graph-comparison.json", "eager", "decode-graph", "kept", ""),
     (
-        "Exp 4\ninline env",
-        "tiny-opt-tokenizer-20261017/pool-comparison.json",
-        "pool-control",
-        "single-worker",
-        "neutral",
-        "",
-    ),
-    ("Exp 5\n4 inference seqs", "tiny-opt-tokenizer-20261017/rollout-comparison.json", "seqs2", "seqs4", "slower", ""),
-    (
-        "Exp 6\ndecode CUDA graphs",
-        "tiny-opt-tokenizer-20261017/graph-comparison.json",
-        "eager",
-        "decode-graph",
-        "kept",
-        "",
-    ),
-    (
-        "Exp 9\nactivation offload off",
+        "act. offload\noff",
         "tiny-opt-tokenizer-20261017/activation-retest-comparison.json",
         "activation-offload-on",
         "activation-offload-off",
@@ -46,33 +30,26 @@ QWEN_ABBA = [
         "",
     ),
     (
-        "Exp 10\nKV budget .25",
+        "KV budget\n.25",
         "tiny-opt-tokenizer-20261017/kv-comparison.json",
         "kv-budget-35",
         "kv-budget-25",
         "neutral",
-        "kept for\n-762 MiB GPU",
+        "kept: -762 MiB GPU",
     ),
+    ("AC\noff", "tiny-opt-tokenizer-20261017/ac-comparison.json", "checkpoint-full", "checkpoint-off", "neutral", ""),
     (
-        "Exp 11\nAC off",
-        "tiny-opt-tokenizer-20261017/ac-comparison.json",
-        "checkpoint-full",
-        "checkpoint-off",
-        "neutral",
-        "",
-    ),
-    (
-        "Exp 12\nrollout cap 4",
+        "rollout\ncap 4",
         "tiny-opt-tokenizer-20261017/queue-comparison.json",
         "queue-adaptive",
         "queue-cap4",
         "neutral",
         "",
     ),
-    ("Exp 14\nCuTe head", "tiny-kernel-20261018/comparison/summary.json", "a", "b", "neutral", ""),
-    ("Exp 18\nTriton head", "tiny-kernel-20261018/triton-integration/abba-summary.json", "a", "b", "neutral", ""),
+    ("CuTe\nhead", "tiny-kernel-20261018/comparison/summary.json", "a", "b", "neutral", ""),
+    ("Triton\nhead", "tiny-kernel-20261018/triton-integration/abba-summary.json", "a", "b", "neutral", ""),
     (
-        "Exp 20\nCuTe fused head",
+        "CuTe fused\nhead",
         "tiny-kernel-20261018/cute-fused-integration/real-abba-20261019/analysis.json",
         "A",
         "B",
@@ -80,33 +57,130 @@ QWEN_ABBA = [
         "",
     ),
 ]
+QWEN_EXP = [4, 5, 6, 9, 10, 11, 12, 14, 18, 20]
 
-# (label, trainer-abba tag, verdict) for SmolLM2-135M full-parameter trainer-only A-B-B-As on fixed fake data.
-TRAINER_ABBA = [
-    ("Triton\nRoPE", "rope", "neutral"),
-    ("Triton\nSwiGLU", "swiglu", "slower"),
-    ("torch.compile\n(Inductor)", "compile", "invalid"),
-    ("Triton\nRMSNorm", "rmsnorm", "kept"),
-    ("Triton\nRMSNorm+RoPE", "rope_rmsnorm", "kept"),
-    ("residual RMSNorm\npre-exact-DW", "residual_fusion", "slower"),
-    ("residual RMSNorm\nexact DW", "residual_fusion_dw_exact", "slower"),
-    ("exact DW\n32-wide tile", "dw_tile32", "neutral"),
-    ("corrected RMSNorm32\n+ Triton RoPE", "corrected_vs_torch", "kept"),
+# (label, source, tag, verdict): SmolLM2-135M full-parameter trainer fwd/bwd A-B-B-As.
+TRAINER_ABBA_DIR = "tiny-kernel-20261020/triton/trainer-abba"
+TRITON_BOARD = [
+    ("RoPE · exp 50", "fake", f"{TRAINER_ABBA_DIR}/rope", "neutral"),
+    ("SwiGLU · exp 50", "fake", f"{TRAINER_ABBA_DIR}/swiglu", "slower"),
+    ("torch.compile · exp 53", "fake", f"{TRAINER_ABBA_DIR}/compile", "invalid"),
+    ("RMSNorm · exp 52", "fake", f"{TRAINER_ABBA_DIR}/rmsnorm", "kept"),
+    ("RMSNorm + RoPE · exp 52", "fake", f"{TRAINER_ABBA_DIR}/rope_rmsnorm", "kept"),
+    ("+ residual fusion · exp 60", "fake", "tiny-kernel-20261020/fusion-profile/abba-dw-exact-r1", "slower"),
+    ("exact-dW tile 32 · exp 61", "fake", "tiny-kernel-20261020/dw-tune/trainer-abba-r1", "neutral"),
+    ("corrected RMSNorm + RoPE · exp 63", "fake", "tiny-kernel-20261020/dw-tune/corrected-vs-torch", "kept"),
+    ("autotuned · exp 52", "rl", "triton", "slower"),
+    ("shape-stable · exp 54", "rl", "tritonfix", "neutral"),
+    ("pinned · exp 55", "rl", "pinned", "kept"),
 ]
+FIXED_SHAPE_ROWS = 8
+BOARD_NOTE = {
+    "invalid": "fails strict parity: not a gain",
+    "triton": "re-autotunes every RL batch shape",
+    "tiny-kernel-20261020/fusion-profile/abba-dw-exact-r1": "vs pinned Triton, not Torch",
+    "tiny-kernel-20261020/dw-tune/trainer-abba-r1": "vs tile 128, not Torch",
+    "tritonfix": "start-up autotune; runs disagree",
+}
 
-# (label, rl-abba tag, verdict) for SmolLM2-135M full-parameter full-RL A-B-B-As with Triton RMSNorm+RoPE.
-RL_ABBA = [
-    ("autotuned\n(recompiles)", "triton", "slower"),
-    ("shape-stable\n(start-up tune)", "tritonfix", "slower"),
-    ("pinned\nconfigs", "pinned", "kept"),
-]
+# Every ledger experiment: (lane, outcome). Outcomes summarize each EXPERIMENTS.md entry's own verdict.
+LANES = ["end-to-end RL", "trainer + kernels", "memory + capacity", "numerics + checkpoints"]
+E2E, TRAIN, MEM, NUM = range(4)
+OUTCOMES = {
+    "kept": ("o", MINT, "kept: measured gain"),
+    "component": ("o", YELLOW, "component-only win"),
+    "rejected": ("o", CORAL, "rejected / regression"),
+    "parity": ("X", LILAC, "fails strict parity"),
+    "stop": ("^", "#c98500", "safe stop / blocked"),
+    "validated": ("s", SKY, "validated pass"),
+    "none": ("o", DIM, "diagnostic / no claim"),
+}
+EXPERIMENTS = {
+    1: (MEM, "kept"),
+    2: (MEM, "stop"),
+    3: (MEM, "none"),
+    4: (E2E, "none"),
+    5: (E2E, "rejected"),
+    6: (E2E, "kept"),
+    7: (NUM, "parity"),
+    8: (NUM, "parity"),
+    9: (E2E, "none"),
+    10: (E2E, "none"),
+    11: (E2E, "none"),
+    12: (E2E, "none"),
+    13: (TRAIN, "none"),
+    14: (E2E, "none"),
+    15: (TRAIN, "component"),
+    16: (NUM, "parity"),
+    17: (TRAIN, "component"),
+    18: (TRAIN, "component"),
+    19: (MEM, "validated"),
+    20: (E2E, "none"),
+    21: (MEM, "kept"),
+    22: (MEM, "rejected"),
+    23: (TRAIN, "component"),
+    24: (MEM, "none"),
+    25: (MEM, "none"),
+    26: (NUM, "validated"),
+    27: (MEM, "stop"),
+    28: (MEM, "rejected"),
+    29: (MEM, "stop"),
+    30: (MEM, "stop"),
+    31: (MEM, "none"),
+    32: (MEM, "none"),
+    33: (MEM, "none"),
+    34: (MEM, "validated"),
+    35: (NUM, "parity"),
+    36: (MEM, "stop"),
+    37: (NUM, "validated"),
+    38: (NUM, "validated"),
+    39: (NUM, "validated"),
+    40: (TRAIN, "component"),
+    41: (MEM, "stop"),
+    42: (MEM, "stop"),
+    43: (NUM, "parity"),
+    44: (TRAIN, "none"),
+    45: (MEM, "stop"),
+    46: (MEM, "stop"),
+    47: (NUM, "validated"),
+    48: (MEM, "validated"),
+    49: (TRAIN, "none"),
+    50: (TRAIN, "rejected"),
+    51: (TRAIN, "none"),
+    52: (TRAIN, "rejected"),
+    53: (NUM, "parity"),
+    54: (TRAIN, "rejected"),
+    55: (TRAIN, "kept"),
+    56: (MEM, "stop"),
+    57: (MEM, "component"),
+    58: (NUM, "parity"),
+    59: (TRAIN, "rejected"),
+    60: (NUM, "validated"),
+    61: (TRAIN, "none"),
+    62: (NUM, "validated"),
+    63: (TRAIN, "kept"),
+    64: (TRAIN, "component"),
+    65: (NUM, "validated"),
+    66: (E2E, "rejected"),
+    67: (NUM, "none"),
+}
+# Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
+CALLOUTS = {
+    1: ("import RSS -29%", (18, -16)),
+    6: ("decode graphs -12.6% wall", (0, 15)),
+    21: ("stream writer -192 MiB", (0, -16)),
+    48: ("135M full-param ckpt + resume", (-40, -16)),
+    55: ("RL fwd/bwd -15.6%", (-70, 15)),
+    63: ("corrected kernels -9.4%", (-30, -17)),
+    64: ("clip+AdamW -9.8% (component)", (10, 15)),
+}
 
 MILESTONES = [
-    ("135M full-param", "10 updates", True),
-    ("135M full-param", "checkpoint + fresh resume", True),
-    ("360M full-param", "10 updates", True),
-    ("360M full-param", "checkpoint save: host-RAM floor", False),
-    ("Qwen3-0.6B full-param", "FP32 state exceeds 8 GiB", False),
+    ("135M", "10 full-param updates", True),
+    ("135M", "checkpoint + fresh resume", True),
+    ("360M", "10 full-param updates", True),
+    ("360M", "checkpoint save (host RAM)", False),
+    ("Qwen3-0.6B", "FP32 state > 8 GiB", False),
 ]
 
 
@@ -125,31 +199,9 @@ def qwen_runs(root: Path, artifact: str, control: str, candidate: str) -> tuple[
         key = lambda r: r["source"]  # noqa: E731
     else:
         key = lambda r: r["arm"].split("-")[-1][0].lower()  # noqa: E731
-    return (
-        [r["elapsed_seconds"] for r in rows if key(r) == control],
-        [r["elapsed_seconds"] for r in rows if key(r) == candidate],
-    )
-
-
-def trainer_runs(root: Path, tag: str) -> tuple[list[float], list[float]]:
-    if tag == "residual_fusion":
-        summary = root / "tiny-kernel-20261020/fusion-profile/abba/summary.json"
-    elif tag == "residual_fusion_dw_exact":
-        summary = root / "tiny-kernel-20261020/fusion-profile/abba-dw-exact-r1/summary.json"
-    elif tag == "dw_tile32":
-        summary = root / "tiny-kernel-20261020/dw-tune/trainer-abba-r1/summary.json"
-    elif tag == "corrected_vs_torch":
-        data = load(root / "tiny-kernel-20261020/dw-tune/corrected-vs-torch/summary.json")
-        runs = data["run_medians_seconds"]
-        return (
-            [1000 * runs[name]["time/forward_backward"] for name in ("A1", "A2")],
-            [1000 * runs[name]["time/forward_backward"] for name in ("B1", "B2")],
-        )
-    else:
-        summary = root / "tiny-kernel-20261020/triton/trainer-abba" / tag / "summary.json"
-    timing = load(summary)["timing"]
-    run = lambda name: 1000 * timing[f"{name} time/forward_backward median_warm"]  # noqa: E731
-    return [run("A1"), run("A2")], [run("B1"), run("B2")]
+    return [r["elapsed_seconds"] for r in rows if key(r) == control], [
+        r["elapsed_seconds"] for r in rows if key(r) == candidate
+    ]
 
 
 def rl_runs(root: Path, tag: str) -> dict[str, dict[str, float]]:
@@ -162,382 +214,445 @@ def rl_runs(root: Path, tag: str) -> dict[str, dict[str, float]]:
             if record.get("producer") == "trainer":
                 rows.setdefault(record["step"], {}).update(record)
         fb = [rows[s]["time/forward_backward"] for s in sorted(rows)]
-        wall = load(base / tag / name / "guard/result.json")["elapsed_seconds"]
-        runs[name] = {"fb_ms": 1000 * statistics.median(fb[2:]), "wall_s": wall}
+        runs[name] = {
+            "fb": statistics.median(fb[2:]),
+            "wall": load(base / tag / name / "guard/result.json")["elapsed_seconds"],
+        }
     return runs
 
 
-def renderer_runs(root: Path) -> dict[str, tuple[float, float]]:
-    data = load(root / "tiny-fulltrain-20261018/environment-memory-20261020/train-tokenizer-parity-r2-comparison.json")
-    return {
-        model: (
-            data[model]["baseline_renderer_memory"]["pss_kib"] / 1024,
-            data[model]["candidate_renderer_memory"]["pss_kib"] / 1024,
-        )
-        for model in ("135", "360")
-    }
-
-
-def style(ax, title: str, ylabel: str) -> None:
-    ax.set_facecolor(SURFACE)
-    ax.set_title(title, loc="left", fontsize=11, color=INK, fontweight="bold", pad=10)
-    ax.set_ylabel(ylabel, color=INK_2, fontsize=9)
-    ax.grid(axis="y", color=GRID, linewidth=0.8)
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_color(MUTED)
-    ax.tick_params(colors=INK_2, labelsize=8)
-
-
-def pairs(ax, x: float, control: list[float], candidate: list[float], verdict: str) -> None:
-    color = VERDICT[verdict][0]
-    ax.scatter([x - 0.14] * len(control), control, s=46, facecolors=SURFACE, edgecolors=MUTED, linewidths=1.6, zorder=3)
-    marker = "X" if verdict == "invalid" else "o"
-    ax.scatter(
-        [x + 0.14] * len(candidate),
-        candidate,
-        s=58,
-        color=color,
-        marker=marker,
-        edgecolors=SURFACE,
-        linewidths=1.2,
-        zorder=4,
-    )
+def board_effect(root: Path, source: str, tag: str) -> tuple[float, bool]:
+    if source == "fake":
+        summary = load(root / tag / "summary.json")
+        if "comparisons" in summary:
+            fb = summary["comparisons"]["time/forward_backward"]
+            return fb["B_vs_A_percent"], fb["both_B_runs_faster_than_both_A_runs"]
+        timing = summary["timing"]
+        return timing["time/forward_backward B_vs_A_pct"], timing["time/forward_backward both_B_beat_both_A"]
+    runs = rl_runs(root, tag)
+    a, b = [runs["A1"]["fb"], runs["A2"]["fb"]], [runs["B1"]["fb"], runs["B2"]["fb"]]
+    return 100 * (statistics.mean(b) / statistics.mean(a) - 1), max(b) < min(a)
 
 
 def pct(control: list[float], candidate: list[float]) -> float:
     return 100 * (statistics.mean(candidate) / statistics.mean(control) - 1)
 
 
+def register_fonts() -> tuple[str, str]:
+    font_dir = Path(os.environ.get("TINY_PRL_FONT_DIR", ""))
+    if font_dir.is_dir():
+        for path in list(font_dir.glob("*.ttf")) + list(font_dir.glob("*.otf")):
+            font_manager.fontManager.addfont(str(path))
+    names = {font.name for font in font_manager.fontManager.ttflist}
+    sans = "Lexend" if "Lexend" in names else "DejaVu Sans"
+    mono = "IBM Plex Mono" if "IBM Plex Mono" in names else "DejaVu Sans Mono"
+    return sans, mono
+
+
+class Sketch:
+    """Thin card and box strokes; optional wobble for a hand-drawn look, deterministic per call order."""
+
+    def __init__(self, seed: int = 7):
+        self.rng = np.random.default_rng(seed)
+
+    def line(self, ax, x0, y0, x1, y1, color, width=1.0, wobble=0.0, transform=None, passes=1, zorder=5):
+        t = np.linspace(0, 1, 24)
+        for _ in range(passes):
+            jx, jy = self.rng.normal(0, wobble, 2)
+            bow = self.rng.normal(0, wobble * 1.5) * np.sin(np.pi * t)
+            xs = x0 + (x1 - x0) * t + jx + bow * (y1 - y0 != 0)
+            ys = y0 + (y1 - y0) * t + jy + bow * (y1 - y0 == 0)
+            ax.plot(
+                xs,
+                ys,
+                color=color,
+                linewidth=width,
+                solid_capstyle="round",
+                transform=transform or ax.transAxes,
+                zorder=zorder,
+                alpha=0.95,
+            )
+
+    def box(self, ax, x, y, w, h, color, width=1.4, transform=None, zorder=5):
+        for (a, b), (c, d) in [
+            ((x, y), (x + w, y)),
+            ((x + w, y), (x + w, y + h)),
+            ((x + w, y + h), (x, y + h)),
+            ((x, y + h), (x, y)),
+        ]:
+            self.line(ax, a, b, c, d, color, width, transform=transform, zorder=zorder)
+
+
+def text_width(fig, text, **kw) -> float:
+    artist = fig.text(0, 0, text, **kw)
+    fig.canvas.draw()
+    width = artist.get_window_extent().width / fig.bbox.width
+    artist.remove()
+    return width
+
+
+def style_axes(ax, mono: str) -> None:
+    ax.set_facecolor(BG)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(FAINT)
+    ax.tick_params(colors=DIM, labelsize=10, length=0, pad=8)
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_fontfamily(mono)
+    ax.grid(axis="y", color=RULE, linewidth=0.9)
+    ax.set_axisbelow(True)
+
+
+def mark(fig, x, y, ok, size, color, **kw):
+    fig.text(
+        x,
+        y,
+        "\u2713" if ok else "\u2717",
+        fontsize=size,
+        color=color,
+        fontfamily="DejaVu Sans",
+        fontweight="bold",
+        **kw,
+    )
+
+
+def eyebrow(fig, x, y, text, mono, color=YELLOW, size=11):
+    fig.text(
+        x,
+        y,
+        "  ".join(text.upper().split(" ")).replace("", " ")[1:-1],
+        fontsize=size,
+        color=color,
+        fontfamily=mono,
+        fontweight="medium",
+    )
+
+
+def draw_index(fig, sans: str, mono: str) -> None:
+    eyebrow(fig, 0.06, 0.92, f"e · every experiment · 1-{max(EXPERIMENTS)}", mono)
+    fig.text(0.06, 0.82, "The whole climb, one marker per ledger entry", fontsize=22, color=INK, fontweight="semibold")
+    ax = fig.add_axes([0.2, 0.3, 0.76, 0.44])
+    style_axes(ax, mono)
+    ax.grid(axis="x", color=RULE, linewidth=0.9)
+    for number, (lane, outcome) in EXPERIMENTS.items():
+        marker, color, _ = OUTCOMES[outcome]
+        size = 90 if outcome in ("kept", "component") else 55
+        ax.scatter(number, lane, marker=marker, s=size, color=color, edgecolors=BG, linewidths=0.8, zorder=3)
+    for number, (text, offset) in CALLOUTS.items():
+        lane = EXPERIMENTS[number][0]
+        ax.annotate(
+            text,
+            (number, lane),
+            xytext=offset,
+            textcoords="offset points",
+            ha="center",
+            fontsize=8.5,
+            fontfamily=mono,
+            color=INK,
+            bbox={"boxstyle": "round,pad=0.15", "facecolor": BG, "edgecolor": "none"},
+            zorder=5,
+        )
+    ax.set_yticks(range(len(LANES)), LANES)
+    ax.set_ylim(len(LANES) - 0.45, -0.6)
+    ax.set_xticks(range(0, max(EXPERIMENTS) + 1, 5))
+    ax.set_xlim(0, max(EXPERIMENTS) + 1)
+    ax.set_xlabel("experiment number (chronological)", color=DIM, fontsize=10, fontfamily=mono)
+    for label in ax.get_yticklabels():
+        label.set_fontfamily(sans)
+        label.set_color(INK)
+        label.set_fontsize(11)
+    for i, (marker, color, label) in enumerate(OUTCOMES.values()):
+        x = 0.05 + i * 0.137
+        fig.add_artist(
+            plt.Line2D(
+                [x], [0.12], marker=marker, markersize=8, color=color, linestyle="", transform=fig.transSubfigure
+            )
+        )
+        fig.text(x + 0.01, 0.12, label, fontsize=9.5, color=INK_2, fontfamily=mono, va="center")
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         raise SystemExit("usage: plot_tiny_hillclimb.py OUTPUTS_DIR OUTPUT.png")
     root, output = Path(sys.argv[1]), Path(sys.argv[2])
-    plt.rcParams.update({"font.family": "DejaVu Sans", "axes.unicode_minus": False})
+    sans, mono = register_fonts()
+    plt.rcParams.update({"font.family": sans, "axes.unicode_minus": False})
+    sketch = Sketch()
 
-    fig = plt.figure(figsize=(17, 16.5), facecolor=SURFACE)
-    grid = fig.add_gridspec(
-        5,
-        2,
-        height_ratios=[1.25, 1.0, 1.0, 0.32, 0.72],
-        hspace=0.62,
-        wspace=0.16,
-        left=0.055,
-        right=0.985,
-        top=0.83,
-        bottom=0.04,
-    )
+    outer = plt.figure(figsize=(16, 27.5), facecolor=BG)
+    fig, index_fig = outer.subfigures(2, 1, height_ratios=[22, 5.5], facecolor=BG)
 
-    # Header: the honest bottom line as hero numbers.
+    # Header.
+    eyebrow(fig, 0.06, 0.957, "tiny-prl · hill climb · rtx 4060 laptop", mono)
+    title_kw = {"fontsize": 44, "fontweight": "semibold", "fontfamily": sans}
+    lead = "One real win: "
+    accent = "12.6% off RL wall time"
+    fig.text(0.06, 0.918, lead, color=INK, **title_kw)
+    lead_w = text_width(fig, lead, **title_kw)
+    fig.text(0.06 + lead_w, 0.918, accent, color=YELLOW, **title_kw)
     fig.text(
-        0.055, 0.965, "tiny-prl hill climb on an RTX 4060 Laptop (8 GiB)", fontsize=20, fontweight="bold", color=INK
-    )
-    fig.text(
-        0.055,
-        0.945,
-        "Every point is one guarded run. Hollow gray = control arm, filled = candidate arm "
-        "(A-B-B-A order). A candidate is kept only if both its runs beat both controls and it passes strict parity.",
-        fontsize=10,
+        0.06,
+        0.889,
+        "Every dot is one guarded run under a 2 GiB RAM floor. A change is kept only if both of its "
+        "runs beat both controls (A-B-B-A) and it passes strict parity.",
+        fontsize=13,
         color=INK_2,
+        fontfamily=sans,
     )
-    heroes = [
-        ("-12.6%", "Qwen3-0.6B LoRA RL wall time", "decode CUDA graphs (Exp 6): the only end-to-end gain"),
-        ("-8.7%", "135M corrected trainer step", "fixed-data A-B-B-A; separate from historical full-RL results"),
-        ("10 / 10", "135M full-parameter RL updates", "with checkpoint and fresh resume (Exp 48)"),
+
+    # Hero cards.
+    cards = [
+        ("-12.6%", MINT, "Qwen3-0.6B LoRA · RL wall time", "decode CUDA graphs", "exp 6 · only e2e win"),
+        ("-15.6%", SKY, "SmolLM2-135M · RL trainer fwd/bwd", "Triton RMSNorm+RoPE", "exp 55 · wall: no claim"),
+        ("10/10", YELLOW, "SmolLM2-135M · full-parameter RL", "ckpt + fresh resume", "exp 48 · beyond LoRA"),
     ]
-    for i, (value, label, note) in enumerate(heroes):
-        x = 0.055 + i * 0.315
-        fig.text(x, 0.9, value, fontsize=26, fontweight="bold", color=INK)
-        fig.text(x + 0.095, 0.912, label, fontsize=10.5, color=INK, fontweight="bold")
-        fig.text(x + 0.095, 0.895, note, fontsize=9, color=INK_2)
+    hero = fig.add_axes([0.06, 0.79, 0.88, 0.085], zorder=2)
+    hero.axis("off")
+    for i, (value, color, label, source, verdict) in enumerate(cards):
+        x = i / 3 + 0.005
+        sketch.box(hero, x, 0.04, 1 / 3 - 0.025, 0.92, FAINT if i else color, width=1.3, transform=hero.transAxes)
+        hero.text(
+            x + 0.016,
+            0.38,
+            value,
+            fontsize=34,
+            fontweight="semibold",
+            color=color,
+            va="center",
+            transform=hero.transAxes,
+        )
+        hero.text(
+            x + 0.016, 0.8, label, fontsize=10.5, color=INK, fontweight="medium", va="center", transform=hero.transAxes
+        )
+        hero.text(
+            x + 0.148, 0.5, source, fontsize=9, color=INK_2, fontfamily=mono, va="center", transform=hero.transAxes
+        )
+        hero.text(
+            x + 0.148, 0.26, verdict, fontsize=9, color=color, fontfamily=mono, va="center", transform=hero.transAxes
+        )
 
-    fig.text(
-        0.055,
-        0.868,
-        "EXP 65 · clip+AdamW component: 20.746 → 18.987 ms/update (−8.48%); full 212-tensor, 20 fresh-gradient and DTensor parity passed.\n"
-        "Actual 135M RL: 1,061 post-update tensors exact; tiny-model DCP step-1 and step-2 resume checks exact.\n"
-        "Experimental: no trainer-speed benchmark; single-value/repeated-gradient Triton mismatch remains. Separate CuTe run diverged at update 102/163.",
-        fontsize=8.2,
-        color=INK,
-        bbox={"boxstyle": "round,pad=0.35", "facecolor": "#f3f7fc", "edgecolor": FRONTIER, "linewidth": 0.8},
-    )
-
-    # Panel A: Qwen LoRA end-to-end wall time, every run plus the measured retained-recipe frontier.
-    ax = fig.add_subplot(grid[0, :])
-    style(ax, "A  Qwen3-0.6B LoRA - 10-update RL wall time per run (lower is better)", "wall time (s)")
+    # Panel A: Qwen LoRA end-to-end record.
+    eyebrow(fig, 0.06, 0.757, "a · qwen3-0.6b lora · 10-update rl wall time", mono)
+    fig.text(0.06, 0.735, "Wall time only moved once", fontsize=22, color=INK, fontweight="semibold")
+    ax = fig.add_axes([0.085, 0.555, 0.875, 0.165])
+    style_axes(ax, mono)
     record = None
     for x, (label, artifact, control, candidate, verdict, note) in enumerate(QWEN_ABBA):
         a, b = qwen_runs(root, artifact, control, candidate)
-        pairs(ax, x, a, b, verdict)
+        ax.scatter([x - 0.13] * len(a), a, s=60, facecolors=BG, edgecolors=DIM, linewidths=1.6, zorder=3)
+        ax.scatter([x + 0.13] * len(b), b, s=70, color=VERDICT[verdict], edgecolors=BG, linewidths=1.2, zorder=4)
         if verdict == "kept":
             record = (x, statistics.mean(a), statistics.mean(b))
-        change = pct(a, b)
         ax.annotate(
-            f"{change:+.1f}%",
-            (x + 0.14, max(b)),
-            xytext=(0, 9),
+            f"{pct(a, b):+.1f}%",
+            (x + 0.13, max(b)),
+            xytext=(-30 if verdict == "kept" else 0, 12),
             textcoords="offset points",
             ha="center",
-            fontsize=8.5,
-            color=INK,
-            fontweight="bold" if verdict == "kept" else "normal",
-            zorder=5,
-            bbox={"boxstyle": "round,pad=0.15", "facecolor": SURFACE, "edgecolor": "none"},
+            fontsize=10,
+            fontfamily=mono,
+            color=VERDICT[verdict] if verdict != "neutral" else INK_2,
+            fontweight="medium",
+            zorder=6,
+            bbox={"boxstyle": "round,pad=0.15", "facecolor": BG, "edgecolor": "none"},
         )
         if note:
             ax.annotate(
                 note,
                 (x, min(a + b)),
-                xytext=(0, -26),
+                xytext=(0, -22),
                 textcoords="offset points",
                 ha="center",
-                fontsize=7.5,
-                color=INK_2,
+                fontsize=8.5,
+                fontfamily=mono,
+                color=DIM,
             )
     x0, before, after = record
     end = len(QWEN_ABBA) - 0.5
-    ax.plot([-0.5, x0 + 0.14, x0 + 0.14], [before, before, after], color=FRONTIER, linewidth=2, zorder=2)
-    ax.plot([x0 + 0.14, end], [after, after], color=FRONTIER, linewidth=2, linestyle=(0, (4, 3)), zorder=2)
+    ax.plot([-0.5, x0 + 0.13, x0 + 0.13], [before, before, after], color=YELLOW, linewidth=2.4, zorder=2)
+    ax.plot([x0 + 0.13, end], [after, after], color=YELLOW, linewidth=1.6, linestyle=(0, (5, 4)), zorder=2, alpha=0.8)
     ax.annotate(
-        f"record {before:.1f} s -> {after:.1f} s\ndecode CUDA graphs: the only\nattributable end-to-end win",
-        (x0 + 0.14, after),
-        xytext=(-150, -30),
+        f"record  {before:.1f} s  ->  {after:.1f} s",
+        (x0 + 0.13, (before + after) / 2),
+        xytext=(14, 0),
         textcoords="offset points",
-        fontsize=8.5,
-        color=INK,
-        arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 1},
+        fontsize=11,
+        fontfamily=mono,
+        color=YELLOW,
+        va="center",
     )
-    ax.text(
-        end - 0.05,
-        after - 1.2,
-        "record holds; later controls drift with host load",
-        ha="right",
-        va="top",
-        fontsize=8,
-        color=FRONTIER,
-    )
-    ax.axvspan(6.5, len(QWEN_ABBA) - 0.5, color="#f1f0ec", zorder=0)
+    ax.axvspan(6.5, end, color="#f6f5f1", zorder=0)
     ax.text(
         8,
-        ax.get_ylim()[1],
-        "LM-head kernels: component wins (17-40%)\ndid not reach wall time",
+        113.5,
+        "LM-head kernels: 17-40% faster in isolation,\nnone moved wall time",
         ha="center",
         va="top",
-        fontsize=8.5,
+        fontsize=9.5,
+        fontfamily=mono,
         color=INK_2,
     )
-    ax.set_xticks(range(len(QWEN_ABBA)), [q[0] for q in QWEN_ABBA])
+    ax.set_xticks(range(len(QWEN_ABBA)), [f"exp {e}\n{q[0]}" for e, q in zip(QWEN_EXP, QWEN_ABBA)], linespacing=1.4)
     ax.set_xlim(-0.6, len(QWEN_ABBA) - 0.4)
+    ax.set_ylim(83, 117)
+    ax.set_ylabel("seconds", color=DIM, fontsize=10, fontfamily=mono)
 
-    # Panel B: 135M trainer-only, fixed fake data.
-    ax = fig.add_subplot(grid[1, :])
-    style(
-        ax,
-        "B  SmolLM2-135M full-parameter trainer, fixed-shape fake data - warm fwd/bwd per run "
-        "(launch-bound: GPU 30% busy, 13k kernels/step)",
-        "fwd/bwd (ms)",
-    )
-    for x, (label, tag, verdict) in enumerate(TRAINER_ABBA):
-        a, b = trainer_runs(root, tag)
-        pairs(ax, x, a, b, verdict)
-        text = f"{pct(a, b):+.1f}%" + ("\nfails parity:\nnot a real gain" if verdict == "invalid" else "")
-        offset = (-10, -4) if tag == "corrected_vs_torch" else (10, -4)
-        ax.annotate(
-            text,
-            (x + 0.14, max(b)),
-            xytext=offset,
-            textcoords="offset points",
-            ha="right" if tag == "corrected_vs_torch" else "left",
-            va="top",
-            fontsize=8.5,
-            color=INK,
-            fontweight="bold" if verdict == "kept" else "normal",
-        )
-        if tag == "residual_fusion":
-            ax.annotate(
-                "Pre-exact-DW round: step +1.1%\n"
-                "Torch all-RMSNorm gradients were 210/212;\n"
-                "2 weight-gradient elements were pending",
-                xy=(x + 0.14, max(b)),
-                xytext=(3.05, 82),
-                textcoords="data",
-                ha="left",
-                va="center",
-                fontsize=7.5,
-                color=INK_2,
-                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
-                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
-            )
-        elif tag == "residual_fusion_dw_exact":
-            ax.annotate(
-                "Exact-DW round: step +3.1%\n"
-                "Torch all-RMSNorm gradients: 212/212 bitwise",
-                xy=(x + 0.14, max(b)),
-                xytext=(4.05, 125),
-                textcoords="data",
-                ha="left",
-                va="center",
-                fontsize=7.5,
-                color=INK_2,
-                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
-                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
-            )
-        elif tag == "dw_tile32":
-            ax.annotate(
-                "32-wide tile: step +0.8%\n"
-                "Torch RMSNorm gradients: 212/212 bitwise",
-                xy=(x + 0.14, max(b)),
-                xytext=(6.2, 55),
-                textcoords="data",
-                ha="center",
-                va="center",
-                fontsize=7.5,
-                color=INK_2,
-                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
-                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
-            )
-        elif tag == "corrected_vs_torch":
-            ax.annotate(
-                "Current exact RMSNorm32 + Triton RoPE vs Torch:\n"
-                "fwd/bwd −9.4%; step −8.7%; both B runs beat both A runs.\n"
-                "Fixed-data trainer-only result; separate from historical Exp 55 full-RL −15.6%.",
-                xy=(x + 0.14, max(b)),
-                xytext=(6.4, 175),
-                textcoords="data",
-                ha="center",
-                va="center",
-                fontsize=7.3,
-                color=INK_2,
-                arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.9},
-                bbox={"boxstyle": "round,pad=0.25", "facecolor": SURFACE, "edgecolor": GRID},
-            )
-    ax.set_xticks(range(len(TRAINER_ABBA)), [t[0] for t in TRAINER_ABBA])
-    ax.set_xlim(-0.6, len(TRAINER_ABBA) - 0.4)
-    ax.set_ylim(0, None)
-
-    # Panel C: 135M full RL, small multiples: the trainer gain vs the wall time it fails to move.
-    for col, (key, title, unit) in enumerate(
-        [
-            ("fb_ms", "C1  135M full-RL - trainer warm fwd/bwd (Triton RMSNorm+RoPE)", "fwd/bwd (ms)"),
-            ("wall_s", "C2  135M full-RL - 10-update wall time (same runs)", "wall time (s)"),
-        ]
-    ):
-        ax = fig.add_subplot(grid[2, col])
-        style(ax, title, unit)
-        for x, (label, tag, verdict) in enumerate(RL_ABBA):
-            runs = rl_runs(root, tag)
-            a = [runs["A1"][key], runs["A2"][key]]
-            b = [runs["B1"][key], runs["B2"][key]]
-            shown = verdict if key == "fb_ms" else ("neutral" if verdict == "kept" else verdict)
-            pairs(ax, x, a, b, shown)
-            ax.annotate(
-                f"{pct(a, b):+.1f}%",
-                (x + 0.14, max(b)),
-                xytext=(10, -4),
-                textcoords="offset points",
-                va="top",
-                fontsize=8.5,
-                color=INK,
-            )
-        ax.set_xticks(range(len(RL_ABBA)), [r[0] for r in RL_ABBA])
-        ax.set_xlim(-0.6, len(RL_ABBA) - 0.4)
-        if key == "fb_ms":
-            ax.set_yscale("log")
-            ax.set_yticks([150, 200, 300, 500, 1000, 2000, 3000], ["150", "200", "300", "500", "1000", "2000", "3000"])
-            ax.minorticks_off()
-        if key == "wall_s":
-            ax.text(
-                0.99,
-                0.96,
-                "pinned: both candidates faster, but about 3.3 s of wall\ndifference vs at most "
-                "about 0.35 s of trainer saving:\ninference-wait variance, not attributable",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=8,
-                color=INK_2,
-            )
-
-    # Panel D: capability milestones (status, always icon + label).
-    ax = fig.add_subplot(grid[3, :])
-    ax.axis("off")
-    ax.set_title(
-        "D  Full-parameter training capability (beyond LoRA)", loc="left", fontsize=11, color=INK, fontweight="bold"
-    )
-    for i, (model, step, ok) in enumerate(MILESTONES):
-        x = i / len(MILESTONES)
-        color = VERDICT["kept"][0] if ok else VERDICT["slower"][0]
-        ax.text(x, 0.55, "✓" if ok else "✗", fontsize=18, color=color, fontweight="bold", va="center")
-        ax.text(x + 0.03, 0.62, model, fontsize=9.5, color=INK, fontweight="bold", va="center")
-        ax.text(x + 0.03, 0.3, step, fontsize=8.5, color=INK_2, va="center")
-
-    # Panel E: isolated CPU renderer setup PSS; this does not measure a full RL process tree.
-    ax = fig.add_subplot(grid[4, :])
-    style(ax, "E  Train-tokenizer renderer setup PSS, isolated CPU processes (lower is better)", "PSS (MiB)")
-    renderer = renderer_runs(root)
-    positions = [0, 1]
-    for x, model in zip(positions, ("135", "360")):
-        baseline, candidate = renderer[model]
-        ax.bar(x - 0.16, baseline, width=0.28, color=MUTED, label="baseline" if x == 0 else None, zorder=3)
-        ax.bar(x + 0.16, candidate, width=0.28, color=FRONTIER, label="candidate" if x == 0 else None, zorder=3)
-        ax.annotate(f"{baseline:.0f}", (x - 0.16, baseline), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=8, color=INK_2)
-        ax.annotate(f"{candidate:.0f}", (x + 0.16, candidate), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=8, color=INK_2)
-    ax.set_xticks(positions, ["SmolLM2-135M\n−594 MiB", "SmolLM2-360M\n−595 MiB"])
-    ax.set_xlim(-0.7, 2.8)
-    ax.set_ylim(0, 940)
-    ax.text(
-        0.54,
-        0.78,
-        "4/4 semantic parity; 64 tasks, one-turn config; no Torch.\n"
-        "Exp 56 full-RL: 0/2 updates; stopped at 116 s on\n"
-        "the 2 GiB RAM floor. Isolated setup only; whole-run\n"
-        "memory and speed impact remain unmeasured.",
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=8,
+    # Panel B: the Triton push as a diverging verdict board.
+    eyebrow(fig, 0.06, 0.49, "b · triton push · smollm2-135m full-parameter trainer", mono)
+    fig.text(0.06, 0.468, "Kernels made the trainer faster ...", fontsize=22, color=INK, fontweight="semibold")
+    fig.text(
+        0.06,
+        0.451,
+        "fwd/bwd change vs Torch, A-B-B-A. Fixed-shape fake data first, then real RL batches. "
+        "The step is launch-bound: GPU 30% busy, 13k kernels per step.",
+        fontsize=11.5,
         color=INK_2,
     )
-    ax.legend(loc="upper right", ncol=2, frameon=False, fontsize=8, labelcolor=INK_2)
-
-    handles = [
-        Line2D(
-            [],
-            [],
-            marker="o",
-            linestyle="",
-            markerfacecolor=SURFACE,
-            markeredgecolor=MUTED,
-            markersize=8,
-            markeredgewidth=1.6,
-            label="control run",
+    ax = fig.add_axes([0.31, 0.255, 0.65, 0.18])
+    ax.set_facecolor(BG)
+    ax.axis("off")
+    clip = 22
+    rows = len(TRITON_BOARD)
+    for i, (label, source, tag, verdict) in enumerate(TRITON_BOARD):
+        y = rows - 1 - i
+        value, both = board_effect(root, source, tag)
+        color = VERDICT[verdict]
+        shown = max(-clip * 2.4, min(value, clip))
+        ax.add_patch(Rectangle((0, y - 0.3), shown, 0.6, facecolor=color, edgecolor="none", alpha=0.85, zorder=3))
+        side = 1 if value > 0 else -1
+        tail = f"{value:+.1f}%" + (" ->" if value > clip else "")
+        ax.text(
+            shown + side * 1.2,
+            y,
+            tail,
+            ha="left" if side > 0 else "right",
+            va="center",
+            fontsize=11,
+            fontfamily=mono,
+            color=color if verdict != "neutral" else INK_2,
+            fontweight="medium",
         )
+        note = BOARD_NOTE.get(tag) or BOARD_NOTE.get(verdict, "")
+        if note:
+            ax.text(
+                -1.5 if value > 0 else 1.5,
+                y,
+                note,
+                ha="right" if value > 0 else "left",
+                va="center",
+                fontsize=9,
+                fontfamily=mono,
+                color=DIM,
+            )
+        fy = 0.255 + 0.18 * (y + 0.6) / (rows + 0.4)
+        word = {"kept": "kept", "slower": "rejected", "neutral": "no claim", "invalid": "invalid"}[verdict]
+        if verdict == "neutral":
+            fig.text(0.06, fy, "\u2013", fontsize=11, color=color, fontfamily=mono, va="center")
+        else:
+            mark(fig, 0.06, fy, verdict == "kept", 11, color, va="center")
+        fig.text(0.078, fy, word, fontsize=10, color=color, fontfamily=mono, va="center")
+        fig.text(0.295, fy, label, ha="right", va="center", fontsize=11.5, color=INK)
+        if i == FIXED_SHAPE_ROWS - 1:
+            ax.plot([-clip * 2.6, clip + 14], [y - 0.62, y - 0.62], color=FAINT, linewidth=1, linestyle=(0, (2, 3)))
+    ax.text(-clip * 2.55, rows - 0.35, "fixed-shape fake data", fontsize=9, fontfamily=mono, color=DIM, va="bottom")
+    ax.text(
+        -clip * 2.55,
+        rows - FIXED_SHAPE_ROWS - 0.62,
+        "real RL batches (RMSNorm + RoPE)",
+        fontsize=9,
+        fontfamily=mono,
+        color=DIM,
+        va="bottom",
+    )
+    ax.axvline(0, color=INK_2, linewidth=1.2, zorder=5)
+    ax.set_xlim(-clip * 2.6, clip + 14)
+    ax.set_ylim(-0.6, rows - 0.2)
+
+    # Panel C: the same RL runs, wall time.
+    eyebrow(fig, 0.06, 0.212, "c · same rl runs · 10-update wall time", mono)
+    fig.text(0.06, 0.19, "... but RL wall time is inference-bound", fontsize=22, color=INK, fontweight="semibold")
+    ax = fig.add_axes([0.085, 0.09, 0.5, 0.085])
+    style_axes(ax, mono)
+    for x, (label, tag) in enumerate([("autotuned", "triton"), ("shape-stable", "tritonfix"), ("pinned", "pinned")]):
+        runs = rl_runs(root, tag)
+        a, b = [runs["A1"]["wall"], runs["A2"]["wall"]], [runs["B1"]["wall"], runs["B2"]["wall"]]
+        color = CORAL if pct(a, b) > 5 else DIM
+        ax.scatter([x - 0.13] * 2, a, s=60, facecolors=BG, edgecolors=DIM, linewidths=1.6, zorder=3)
+        ax.scatter([x + 0.13] * 2, b, s=70, color=color, edgecolors=BG, linewidths=1.2, zorder=4)
+        ax.annotate(
+            f"{pct(a, b):+.1f}%",
+            (x + 0.13, max(b)),
+            xytext=(12, 0),
+            textcoords="offset points",
+            va="center",
+            fontsize=10,
+            fontfamily=mono,
+            color=color if color != DIM else INK_2,
+        )
+    ax.set_xticks(range(3), ["autotuned", "shape-stable", "pinned"])
+    ax.set_xlim(-0.5, 2.6)
+    ax.set_ylabel("seconds", color=DIM, fontsize=10, fontfamily=mono)
+    fig.text(
+        0.62,
+        0.17,
+        "Pinned kernels saved about 0.35 s of trainer time\nper run. Both candidate runs were "
+        "3.3 s faster,\nbut that tracks inference-wait variance\n(33-41 s per run), so no end-to-end claim.",
+        fontsize=11,
+        color=INK_2,
+        va="top",
+        linespacing=1.5,
+    )
+
+    # Panel D: capability chips.
+    eyebrow(fig, 0.06, 0.05, "d · full-parameter training beyond lora", mono)
+    for i, (model, step, ok) in enumerate(MILESTONES):
+        x, y = 0.06 + i * 0.178, 0.03
+        color = MINT if ok else CORAL
+        mark(fig, x, y, ok, 12, color)
+        fig.text(x + 0.018, y, model, fontsize=11, color=color, fontfamily=mono, fontweight="medium")
+        fig.text(x + 0.018, y - 0.01, step, fontsize=9, color=INK_2, fontfamily=mono)
+
+    # Legend and footer.
+    legend = [
+        (BG, DIM, "control run"),
+        (MINT, BG, "kept"),
+        (CORAL, BG, "rejected"),
+        (DIM, BG, "no claim"),
+        (LILAC, BG, "fails parity"),
     ]
-    for verdict, (color, label) in VERDICT.items():
-        handles.append(
-            Line2D(
-                [],
-                [],
-                marker="X" if verdict == "invalid" else "o",
-                linestyle="",
-                color=color,
+    for i, (face, edge, label) in enumerate(legend):
+        lx = 0.42 + i * 0.09
+        fig.add_artist(
+            plt.Line2D(
+                [lx],
+                [0.741],
+                marker="o",
                 markersize=8,
-                label=label,
+                markerfacecolor=face,
+                markeredgecolor=edge,
+                markeredgewidth=1.6,
+                linestyle="",
+                transform=fig.transSubfigure,
             )
         )
-    handles.append(Line2D([], [], color=FRONTIER, linewidth=2, label="end-to-end record"))
-    fig.legend(
-        handles=handles,
-        loc="upper right",
-        bbox_to_anchor=(0.985, 0.985),
-        ncol=3,
-        frameon=False,
-        fontsize=8.5,
-        labelcolor=INK_2,
+        fig.text(lx + 0.01, 0.741, label, fontsize=10, color=INK_2, fontfamily=mono, va="center")
+    fig.add_artist(plt.Line2D([0.42, 0.45], [0.727, 0.727], color=YELLOW, linewidth=2.4, transform=fig.transSubfigure))
+    fig.text(
+        0.46,
+        0.727,
+        "end-to-end record (dashed: holds; later controls drift with host load)",
+        fontsize=10,
+        color=INK_2,
+        fontfamily=mono,
+        va="center",
     )
-    fig.savefig(output, dpi=150, facecolor=SURFACE)
+    draw_index(index_fig, sans, mono)
+    eyebrow(index_fig, 0.06, 0.025, "pradheep · oct 2026", mono, color=DIM, size=9.5)
+    index_fig.text(
+        0.94, 0.025, "evidence: examples/tiny/EXPERIMENTS.md", fontsize=9.5, color=DIM, fontfamily=mono, ha="right"
+    )
+    outer.savefig(output, dpi=120, facecolor=BG)
 
 
 if __name__ == "__main__":
