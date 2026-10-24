@@ -1,5 +1,23 @@
 # Tiny single-GPU RL baseline
 
+## Workspace layout
+
+The training fork and kernel fork are separate repositories on `main`:
+
+```text
+tiny-prl/
+  prime-rl/       # Mantissagithub/tiny-prl
+  prime-kernels/  # Mantissagithub/prime-kernels
+```
+
+Run the commands below from `prime-rl/`. Each repository's `origin` points to
+the personal fork; `upstream` points to the corresponding Prime Intellect
+repository. Develop kernels in the sibling checkout, then update the pinned
+`deps/prime-kernels` submodule after testing the kernel commit. The submodule
+remains the reproducible kernel source dependency for the training repository.
+
+## Baseline
+
 [`examples/tiny/rl.toml`](../examples/tiny/rl.toml) is a small starting run for
 Qwen3-0.6B with LoRA on one 8 GiB GPU. It uses the deterministic, seeded
 `alphabet-sort` taskset with one turn and two names, a 64-token completion
