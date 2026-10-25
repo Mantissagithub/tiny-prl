@@ -1161,3 +1161,36 @@ The Experiment 126 SmolLM2-135M CUDA IPC profile ran as a ten-update A-B-B-A: st
 | A2 stock | 0.00172 (0.228) | 2.105 ms | 104 | 70.2 s |
 
 The inference/trainer mismatch KL stayed within the stock range. CUDA IPC updates weights in place every step, so stale weights would have raised it. Losses were finite in every run. Inter-token latency fell 17–19%, and both candidate runs beat both controls. Wall time did not improve. As Experiment 126 predicts, decode is a few seconds of these short-completion runs, and the candidate arms also processed more requests, so the wall comparison is observational only. The decode gain matters for longer generations. All guards returned 0 with zero swap. Evidence: `outputs/rollout-overhead-20261025/mk-abba-r1/{A1,B1,B2,A2}.toml,guard-*/result.json,*-gpu.csv,output/`.
+
+## Experiment 130: R6 improves standalone decode over R5 with L2 prefetch
+
+Claude's R6 combines adaptive attention chunk counts, four-position pipelined attention loads and batched GEMV row loads. Fast attention arithmetic stays disabled. In the final standalone A-B-B-A, both candidate runs beat both R5-prefetch controls in all 14 cells (batch 1/2, contexts 32–8000). Mean speedups range from 1.043× to 1.271×. This is graph-replayed kernel step time, not vLLM inter-token latency or RL wall time. All four guards returned 0 with no swap and at least 8.61 GiB available host RAM. The recorded clock files include setup and teardown; the old harness lacks per-repeat timestamps, so they cannot establish continuously fixed clocks during every measurement.
+
+The R6 native comparison remains approximate: vLLM-layout top-token agreement is 98.11%, with every mismatch at a native top-two margin of at most 0.125. It is not bit-exact parity. Current source and binary hashes are recorded, but the historical binaries lack a captured build-time source digest; the package is rebuilt from the recorded source before its integration measurements.
+
+Two corrections to the earlier estimates: measured streaming bandwidth is 247.8–250.2 GB/s, replacing the unmeasured 288 GB/s reference in Experiment 127. R6's marginal attention estimate is 76–86% of this bandwidth, with adaptive chunking confounding the subtraction. The partial-attention buffer is about 144 KiB per layer written and read at maximum splitting, rather than 3.5 MB per layer. Final compiler logs show B1 at 252 registers and B2/B3 at 255 without spills; only B4 spills 64 bytes. Evidence: `outputs/megakernel-20261025/decode-megakernel-r6/` and `r6-evidence-audit-r1/{audit.md,audit.json}`.
+
+## Experiment 131: rebuilt R6 improves five of six actual-vLLM decode cases
+
+The R6 source (`454d5529eb754f27f546e6e7278c303e0b91bf299c4fa29b0962f387a0955cfc`) was rebuilt through the package loader with a separate cache key. An actual-vLLM A-B-B-A compares it with an unchanged R5 package exported from `17c7c32`. Each arm uses identical prompt IDs, 64 generated tokens, two warmups and three measured repetitions per shape, FULL_DECODE_ONLY graphs, and batch 1/2. Worker-side source identities verify which package is loaded. Clocks are sampled at 200 ms and joined to measured intervals; samples are sparse and do not establish cycle-by-cycle clock stability.
+
+| Context | Batch | R5 mean ITL | R6 mean ITL | Change | Both candidates beat both controls |
+|---:|---:|---:|---:|---:|---|
+| 32 | 1 | 1.565 ms | 1.394 ms | −10.90% | yes |
+| 32 | 2 | 1.589 ms | 1.481 ms | −6.80% | yes |
+| 2048 | 1 | 1.784 ms | 1.801 ms | +0.96% | no |
+| 2048 | 2 | 2.045 ms | 2.020 ms | −1.21% | yes |
+| 8000 | 1 | 2.431 ms | 2.359 ms | −2.96% | yes |
+| 8000 | 2 | 3.276 ms | 3.168 ms | −3.31% | yes |
+
+These are scheduler-inclusive decode inter-token latencies. The standalone improvement does not carry through equally to every shape; the batch-one 2048-token regression is retained explicitly for profiling. No new RL wall-time gain is claimed.
+
+A same-worker numerical diagnostic runs R5, R6 and native vLLM on identical inputs, restoring each layer's current KV slots before each call and using native output to advance generation. Across 18 decode batches (26 request-steps, contexts 32/2048/8000), all logits are finite. Maximum R5–R6 logit difference is 0.5; each kernel's maximum difference from native is 0.75. One native tie differs for both kernels; at another step R6 matches native while R5 differs. This small diagnostic supports approximate numerical behavior, not exhaustive equivalence or a replacement for RL mismatch-KL checks. Evidence: `outputs/megakernel-20261025/vllm-r6-validation-r1/{comparison.json,parity.json,guard-*/result.json}` and `r6-package-smoke-r1/`.
+
+## Experiment 132: unpacking fewer attention vectors worsens compiler spills
+
+An isolated R7 prototype defers unpacking K/V vectors while preserving R6's four-position softmax grouping and per-element arithmetic order. Its bounded CPU-only nvcc build succeeded, but B3 introduces 16-byte spills and B4 increases to 72-byte stores and 76-byte loads, versus R6's zero and 64/64 respectively. B1 saves only one register. The candidate is rejected at this resource screen; no GPU timing or speedup is claimed. Production R6 is unchanged. Evidence: `outputs/megakernel-20261025/decode-megakernel-r7-unpack-r1/`.
+
+## Experiment 133: higher RL concurrency remains an inconsistent wall-time result
+
+The existing twelve-run experiment compares `max_inflight` ceilings 4 and 8 in three A-B-B-A blocks, with otherwise matching recipes and ten trainer updates per arm. All guards returned 0. Both candidates beat both controls by full guarded process wall in only one of three blocks. The pooled full-wall mean is 7.42% lower at ceiling 8, but that mean is not a verified wall-time win. Orchestrator log intervals and summed trainer step times are separate metrics; their pooled changes are −12.43% and −13.53% respectively. These differ from the handoff's −4.2%/−10.2% estimates, so the raw-log calculations are retained with explicit metric definitions. No fixed startup/shutdown deductions are applied. Evidence: `outputs/rollout-overhead-20261025/inflight-abba-r1/` and `outputs/megakernel-20261025/r6-evidence-audit-r1/inflight-analysis.{md,json}`.
