@@ -1109,3 +1109,17 @@ Over 16-step repeats, R4 runs at 1.467, 1.656, 1.912, 2.420 and 3.434 ms/step at
 ## Experiment 125: HF eager's remaining reductions are reproducible, but attention is shape-dependent
 
 The same FPRev-style probing reproduced the rest of the native batch-one decode path. The tied LM head (CUTLASS WMMA) is bitwise equal to one FP32 accumulator chained in place through all 36 k16 MMA steps: 0 mismatches of 2,949,120 real and 2,359,296 stress elements. RMSNorm's FP32 mean of squares is reproduced exactly: 128 threads own two vec4 groups, combine their lanes ((a0+a1)+a2)+a3, and finish with a halves tree. Softmax's exp-sum (lane l sums e[l + kW] with W = min(next_pow2(S), 32), xor butterfly, true division) is exact for S ≤ 1024; the S = 1025 kernel is not reproduced. The two attention matmuls do not follow one rule. Across 214 probed S values, cuBLAS switches between contiguous-chunk, strided and mixed `gemvx` layouts with 1–16 lanes and differing trees, and some S values use a WMMA chain. A per-S emulator matches all 214 probed cases, but an exact kernel for arbitrary S would need a lookup table tied to this cuBLAS build. Evidence: `outputs/megakernel-20261025/gemv-order-r1/{README.md,lmhead/,attn/rules_table.txt,attn/probe_attn_sweep.json}`.
+
+## Experiment 126: an instrumented RL run shows startup, shutdown and per-rollout subprocesses dominate
+
+One guarded ten-update SmolLM2-135M full-parameter run used the CUDA IPC profile of Experiment 102 unchanged. GPU utilization and system CPU were sampled every 200 ms alongside the run's own metrics and logs. Wall time was 86.8 s:
+
+- **Startup, 34.4 s.** vLLM was ready 26 s after launch. The trainer starts only after that and needed about 8 s more before the first rollout.
+- **Rollout and training loop, 35.0–35.9 s.**
+- **Shutdown, 17.4 s after the last rollout.** The vLLM API server finished shutting down 12 s after the final step, and the env server about 2 s after that.
+
+During the loop, GPU utilization averaged 18.4% and was zero in 63% of samples; CPU averaged 17% of 24 cores. Nothing was saturated; the loop is a chain of waits.
+
+Each rollout averaged 1.33 s: 0.86 s of harness time, 0.18 s waiting on the model and 0.29 s of setup. The setup mean includes the first rollout's one-time script environment build. The `null` harness launches a fresh Python chat-program subprocess per rollout. With 116 rollouts at four in flight, this per-rollout cost sets the loop length. Across all 96 completed vLLM requests, the totals were 6.60 s decode, 2.00 s prefill and 1.56 s queueing.
+
+A decode megakernel can therefore save about 1–2 s per run in this profile, and kernel work is not the lever here. The candidates, by expected size, are: more rollouts in flight to overlap harness time, faster shutdown, overlapping trainer initialization with vLLM startup, and a cheaper per-rollout harness. The guard returned 0 in 86.6 s with a 5,384 MiB GPU peak and at least 4.17 GB available RAM. Evidence: `outputs/rollout-overhead-20261025/rl-instrumented-r1/{run.toml,wall.json,gpu-util.csv,cpu-stat.txt,guard/result.json,output/}`.

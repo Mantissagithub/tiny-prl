@@ -221,6 +221,7 @@ EXPERIMENTS = {
     123: (NUM, "validated"),
     124: (NUM, "parity"),
     125: (NUM, "validated"),
+    126: (E2E, "none"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
