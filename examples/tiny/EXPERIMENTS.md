@@ -1194,3 +1194,20 @@ An isolated R7 prototype defers unpacking K/V vectors while preserving R6's four
 ## Experiment 133: higher RL concurrency remains an inconsistent wall-time result
 
 The existing twelve-run experiment compares `max_inflight` ceilings 4 and 8 in three A-B-B-A blocks, with otherwise matching recipes and ten trainer updates per arm. All guards returned 0. Both candidates beat both controls by full guarded process wall in only one of three blocks. The pooled full-wall mean is 7.42% lower at ceiling 8, but that mean is not a verified wall-time win. Orchestrator log intervals and summed trainer step times are separate metrics; their pooled changes are −12.43% and −13.53% respectively. These differ from the handoff's −4.2%/−10.2% estimates, so the raw-log calculations are retained with explicit metric definitions. No fixed startup/shutdown deductions are applied. Evidence: `outputs/rollout-overhead-20261025/inflight-abba-r1/` and `outputs/megakernel-20261025/r6-evidence-audit-r1/inflight-analysis.{md,json}`.
+
+## Experiment 134: integrated R6 completes real RL updates and reduces decode latency
+
+R6 ships in `prime-kernels` commit `47ed669` and is pinned by `deps/prime-kernels`. After a successful ten-update R6 smoke run, the same SmolLM2-135M full-parameter CUDA IPC recipe ran as an R5/R6 A-B-B-A, ten updates per arm. Controls import the unchanged R5 package exported from `17c7c32`; candidates import the pinned R6 submodule. Numerical settings and the task recipe are unchanged. Every worker logged the decode backend install, every run finished ten finite-loss updates, and all guards returned 0 with zero cgroup swap. Minimum available host RAM was 4.10 GiB and peak GPU memory was 5260 MiB.
+
+| Arm | Kernel | Full process wall | Sampled decode ITL | Sampled requests | Sampled generated tokens | Mean mismatch KL | Max mismatch KL |
+|---|---|---:|---:|---:|---:|---:|---:|
+| A1 | R5 | 66.93 s | 1.756 ms | 112 | 3740 | 0.00132 | 0.0647 |
+| B1 | R6 | 71.35 s | 1.627 ms | 116 | 3497 | 0.00145 | 0.1562 |
+| B2 | R6 | 67.50 s | 1.639 ms | 112 | 3701 | 0.00154 | 0.0730 |
+| A2 | R5 | 69.39 s | 1.761 ms | 108 | 3592 | 0.00118 | 0.0419 |
+
+R6's observed decode ITL is 7.14% lower and both candidates beat both controls on that metric. Mean mismatch KL is close to the controls, though B1's maximum is higher than either current control; the maximum remains below the earlier stock maximum of 0.228 in Experiment 129. This is a smoke and integration comparison, not a statistical quality evaluation.
+
+Full guarded process wall is 1.86% higher on average and fails the both-beat-both check. Async rollout work differs across arms, and B1 includes a package rebuild after the source path changed from the sibling checkout to the pinned submodule (library mtime falls inside B1 startup). No compilation time is subtracted, and no new RL wall-time win is claimed. Inference counters are periodically sampled before shutdown rather than complete shutdown totals. The graph's existing SmolLM2 wall-time panel now includes Experiments 129 and 134 as neutral observational measurements; the separate Qwen LoRA panel retains its own workload's history.
+
+Evidence: `outputs/megakernel-20261025/r6-rl-abba-r1/{comparison.json,A1.toml,B1.toml,B2.toml,A2.toml,guard-*/result.json,output/}`, plus `r6-rl-smoke-r1/`. The smoke run completed in 74.16 s, mean mismatch KL 0.00153, with zero cgroup swap and 5260 MiB GPU peak.

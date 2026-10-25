@@ -225,6 +225,11 @@ EXPERIMENTS = {
     127: (NUM, "validated"),
     128: (E2E, "component"),
     129: (E2E, "none"),
+    130: (TRAIN, "component"),
+    131: (E2E, "component"),
+    132: (MEM, "rejected"),
+    133: (E2E, "none"),
+    134: (E2E, "none"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -243,6 +248,7 @@ CALLOUTS = {
     101: ("Qwen CuTe -2.8%\n(no-swap trainer prototype)", (-40, 55)),
     123: ("cuBLAS GEMV order exact", (-75, 20)),
     128: ("decode megakernel\n-9..-21% ITL in vLLM", (-95, 48)),
+    131: ("R6 vLLM: 5/6 cells faster\nshort −6.8–10.9%; 2048/B1 +1%", (-35, -38)),
 }
 
 MILESTONES = [
@@ -289,6 +295,31 @@ def rl_runs(root: Path, tag: str) -> dict[str, dict[str, float]]:
             "wall": load(base / tag / name / "guard/result.json")["elapsed_seconds"],
         }
     return runs
+
+
+def guarded_wall_runs(root: Path, directory: str) -> tuple[list[float], list[float]]:
+    base = root / directory
+    arms = {}
+    for name in ("A1", "B1", "B2", "A2"):
+        result = load(base / f"guard-{name}" / "result.json")
+        if result["returncode"] != 0 or result["stop_reason"] is not None:
+            raise ValueError(f"{directory}/guard-{name} did not complete cleanly")
+        arms[name] = result["elapsed_seconds"]
+    return [arms["A1"], arms["A2"]], [arms["B1"], arms["B2"]]
+
+
+def guarded_request_counts(root: Path, directory: str, output_prefix: str) -> dict[str, int]:
+    counts = {}
+    for name in ("A1", "A2", "B1", "B2"):
+        metrics = root / directory / "output" / f"{output_prefix}{name}" / "monitors/file/metrics.jsonl"
+        records = [json.loads(line) for line in metrics.read_text().splitlines()]
+        samples = [
+            record["inference/server0.0/request_success_total"]
+            for record in records
+            if "inference/server0.0/request_success_total" in record
+        ]
+        counts[name] = int(max(samples))
+    return counts
 
 
 def board_effect(root: Path, source: str, tag: str) -> tuple[float, bool]:
@@ -644,10 +675,22 @@ def main() -> None:
     fig.text(0.06, 0.19, "... but RL wall time is inference-bound", fontsize=22, color=INK, fontweight="semibold")
     ax = fig.add_axes([0.085, 0.09, 0.5, 0.085])
     style_axes(ax, mono)
-    for x, (label, tag) in enumerate([("autotuned", "triton"), ("shape-stable", "tritonfix"), ("pinned", "pinned")]):
-        runs = rl_runs(root, tag)
-        a, b = [runs["A1"]["wall"], runs["A2"]["wall"]], [runs["B1"]["wall"], runs["B2"]["wall"]]
-        color = CORAL if pct(a, b) > 5 else DIM
+    series = [
+        ("autotuned", "triton", "trainer"),
+        ("shape-stable", "tritonfix", "trainer"),
+        ("pinned", "pinned", "trainer"),
+        ("Exp 129\nstock→R5", "rollout-overhead-20261025/mk-abba-r1", "wall", "mk-abba-"),
+        ("Exp 134\nR5→R6", "megakernel-20261025/r6-rl-abba-r1", "wall", "r6-rl-"),
+    ]
+    for x, entry in enumerate(series):
+        label, tag, kind = entry[:3]
+        if kind == "trainer":
+            runs = rl_runs(root, tag)
+            a, b = [runs["A1"]["wall"], runs["A2"]["wall"]], [runs["B1"]["wall"], runs["B2"]["wall"]]
+            color = CORAL if pct(a, b) > 5 else DIM
+        else:
+            a, b = guarded_wall_runs(root, tag)
+            color = DIM
         ax.scatter([x - 0.13] * 2, a, s=60, facecolors=BG, edgecolors=DIM, linewidths=1.6, zorder=3)
         ax.scatter([x + 0.13] * 2, b, s=70, color=color, edgecolors=BG, linewidths=1.2, zorder=4)
         ax.annotate(
@@ -660,14 +703,18 @@ def main() -> None:
             fontfamily=mono,
             color=color if color != DIM else INK_2,
         )
-    ax.set_xticks(range(3), ["autotuned", "shape-stable", "pinned"])
-    ax.set_xlim(-0.5, 2.6)
+    ax.set_xticks(range(len(series)), [entry[0] for entry in series])
+    ax.set_xlim(-0.5, len(series) - 0.4)
     ax.set_ylabel("seconds", color=DIM, fontsize=10, fontfamily=mono)
+    exp129_counts = guarded_request_counts(root, series[3][1], series[3][3])
+    exp134_counts = guarded_request_counts(root, series[4][1], series[4][3])
     fig.text(
         0.62,
         0.17,
-        "Pinned kernels saved about 0.35 s of trainer time\nper run. Both candidate runs were "
-        "3.3 s faster,\nbut that tracks inference-wait variance\n(33-41 s per run), so no end-to-end claim.",
+        "Pinned trainer: -0.35 s/run; RL wall varied\nwith inference wait (33-41 s). Exp 129 requests\n"
+        f"A {exp129_counts['A1']}/{exp129_counts['A2']}, B {exp129_counts['B1']}/{exp129_counts['B2']}; "
+        f"Exp 134 R5/R6 A {exp134_counts['A1']}/{exp134_counts['A2']}, B {exp134_counts['B1']}/{exp134_counts['B2']}.\n"
+        "Unequal work: wall deltas are observational.",
         fontsize=11,
         color=INK_2,
         va="top",
