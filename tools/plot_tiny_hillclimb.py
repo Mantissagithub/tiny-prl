@@ -324,6 +324,89 @@ def guarded_request_counts(root: Path, directory: str, output_prefix: str) -> di
     return counts
 
 
+def r5_r6_rl_runs(root: Path) -> dict[str, dict[str, float]]:
+    directory = "megakernel-20261025/r6-rl-abba-r1"
+    comparison = load(root / directory / "comparison.json")
+    runs = comparison["arms"]
+    for name in ("A1", "B1", "B2", "A2"):
+        guard = load(root / directory / f"guard-{name}" / "result.json")
+        if guard["returncode"] != 0 or guard["stop_reason"] is not None:
+            raise ValueError(f"{directory}/guard-{name} did not complete cleanly")
+        if guard["elapsed_seconds"] != runs[name]["wall_seconds"]:
+            raise ValueError(f"{directory}/guard-{name} wall does not match comparison.json")
+    return runs
+
+
+def draw_r5_r6_rl_panel(fig, root: Path, mono: str) -> None:
+    runs = r5_r6_rl_runs(root)
+    controls = [runs[name]["wall_seconds"] for name in ("A1", "A2")]
+    candidates = [runs[name]["wall_seconds"] for name in ("B1", "B2")]
+    control_mean = statistics.mean(controls)
+    candidate_mean = statistics.mean(candidates)
+    change = pct(controls, candidates)
+
+    eyebrow(fig, 0.06, 0.88, "f · smollm2-135m · full-parameter rl · 10-update wall", mono)
+    fig.text(
+        0.06,
+        0.77,
+        "R6 decode was faster; full-run wall was not a verified win",
+        fontsize=22,
+        color=INK,
+        fontweight="semibold",
+    )
+    ax = fig.add_axes([0.085, 0.16, 0.49, 0.52])
+    style_axes(ax, mono)
+    arm_points = [
+        ("A1", -0.10, runs["A1"]["wall_seconds"], (-18, -14)),
+        ("A2", 0.10, runs["A2"]["wall_seconds"], (18, 10)),
+        ("B1", 0.90, runs["B1"]["wall_seconds"], (18, 10)),
+        ("B2", 1.10, runs["B2"]["wall_seconds"], (-18, -14)),
+    ]
+    ax.scatter([-0.10, 0.10], controls, s=72, facecolors=BG, edgecolors=DIM, linewidths=1.6, zorder=3)
+    ax.scatter([0.90, 1.10], candidates, s=76, color=DIM, edgecolors=BG, linewidths=1.2, zorder=3)
+    for arm, x, wall, offset in arm_points:
+        ax.annotate(
+            f"{arm} {wall:.2f}s",
+            (x, wall),
+            xytext=offset,
+            textcoords="offset points",
+            ha="left" if offset[0] > 0 else "right",
+            va="center",
+            fontsize=8.5,
+            fontfamily=mono,
+            color=INK_2,
+            bbox={"boxstyle": "round,pad=0.12", "facecolor": BG, "edgecolor": "none"},
+            zorder=4,
+        )
+    ax.hlines(control_mean, -0.25, 0.25, color=INK_2, linewidth=2.0, zorder=4)
+    ax.hlines(candidate_mean, 0.75, 1.25, color=INK_2, linewidth=2.0, zorder=4)
+    ax.set_xticks([0, 1], ["R5 · A1/A2", "R6 · B1/B2"])
+    ax.set_xlim(-0.55, 1.55)
+    ax.set_ylim(65, 73.5)
+    ax.set_ylabel("full process seconds", color=DIM, fontsize=10, fontfamily=mono)
+
+    itl_control = statistics.mean(runs[name]["sampled_decode_itl_ms"] for name in ("A1", "A2"))
+    itl_candidate = statistics.mean(runs[name]["sampled_decode_itl_ms"] for name in ("B1", "B2"))
+    itl_change = 100 * (itl_candidate / itl_control - 1)
+    fig.text(
+        0.63,
+        0.68,
+        f"Full-process means R5 {control_mean:.2f}s; R6 {candidate_mean:.2f}s ({change:+.2f}%).\n"
+        "No verified wall-time win.\n"
+        f"Sampled decode ITL: {itl_control:.3f} -> {itl_candidate:.3f} ms ({itl_change:+.1f}%).\n"
+        f"Sampled requests R5 A1/A2 {runs['A1']['sampled_requests']:.0f}/{runs['A2']['sampled_requests']:.0f}; "
+        f"R6 B1/B2 {runs['B1']['sampled_requests']:.0f}/{runs['B2']['sampled_requests']:.0f}.\n"
+        f"Sampled generated tokens R5 {runs['A1']['sampled_generated_tokens']:.0f}/{runs['A2']['sampled_generated_tokens']:.0f}; "
+        f"R6 {runs['B1']['sampled_generated_tokens']:.0f}/{runs['B2']['sampled_generated_tokens']:.0f}.\n"
+        "B1 includes its first-load package build; elapsed time includes it.\n"
+        "Sampled work differs, so full-wall change is observational.",
+        fontsize=11,
+        color=INK_2,
+        va="top",
+        linespacing=1.5,
+    )
+
+
 def board_effect(root: Path, source: str, tag: str) -> tuple[float, bool]:
     if source == "fake":
         summary = load(root / tag / "summary.json")
@@ -483,8 +566,8 @@ def main() -> None:
     plt.rcParams.update({"font.family": sans, "axes.unicode_minus": False})
     sketch = Sketch()
 
-    outer = plt.figure(figsize=(16, 27.5), facecolor=BG)
-    fig, index_fig = outer.subfigures(2, 1, height_ratios=[22, 5.5], facecolor=BG)
+    outer = plt.figure(figsize=(16, 33), facecolor=BG)
+    fig, index_fig, rl_fig = outer.subfigures(3, 1, height_ratios=[22, 5.5, 5.5], facecolor=BG)
 
     # Header.
     eyebrow(fig, 0.06, 0.957, "tiny-prl · hill climb · rtx 4060 laptop", mono)
@@ -497,8 +580,8 @@ def main() -> None:
     fig.text(
         0.06,
         0.889,
-        "Every dot is one guarded run under a 2 GiB RAM floor. A change is kept only if both of its "
-        "runs beat both controls (A-B-B-A) and it passes strict parity.",
+        "Every dot is one guarded run under a 2 GiB RAM floor. A verified wall-time win needs matched work, "
+        "both candidates beating both controls, and numerical checks.",
         fontsize=13,
         color=INK_2,
         fontfamily=sans,
@@ -771,6 +854,7 @@ def main() -> None:
     index_fig.text(
         0.94, 0.025, "evidence: examples/tiny/EXPERIMENTS.md", fontsize=9.5, color=DIM, fontfamily=mono, ha="right"
     )
+    draw_r5_r6_rl_panel(rl_fig, root, mono)
     outer.savefig(output, dpi=120, facecolor=BG)
 
 
