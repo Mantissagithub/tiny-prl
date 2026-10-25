@@ -241,6 +241,8 @@ CALLOUTS = {
     97: ("Qwen steps -9.5%\n(1 GiB GPU state)", (-35, 12)),
     100: ("unfused CuTe -64%\n(component)", (-80, 100)),
     101: ("Qwen CuTe -2.8%\n(no-swap trainer prototype)", (-40, 55)),
+    123: ("cuBLAS GEMV order exact", (-75, 20)),
+    128: ("decode megakernel\n-9..-21% ITL in vLLM", (-95, 48)),
 }
 
 MILESTONES = [
