@@ -176,3 +176,29 @@ policy v10, and returned HTTP 200 for all 11 update requests. The IPC weight
 transfer sent no checkpoint payload to disk. These checks establish correctness
 for this small run, not RL quality or an end-to-end speedup; measure performance
 on the target workload.
+
+## Opt-in decode megakernel
+
+On SM 8.9, SmolLM2-135M can decode through one cooperative CUDA launch per step
+instead of vLLM's layer stack:
+
+```toml
+[inference]
+decode_megakernel = true
+```
+
+The worker routes only pure decode batches of one to four requests on a
+SmolLM2-135M-shaped Llama with the FLASH_ATTN backend, TP=1, PP=1 and no LoRA.
+Prefill, mixed batches, larger batches and other models run stock vLLM. vLLM's
+LM head, logits processing and sampler are unchanged. The kernel is the
+`decode_megakernel` package in `prime-kernels`; it compiles with `nvcc` on first
+use into `~/.cache/prime_kernels/decode_megakernel/`. If it is unavailable, the
+flag leaves vLLM unchanged. The engine must import the pinned
+`deps/prime-kernels` checkout, for example through `PYTHONPATH`.
+
+Outputs are not bit-identical to stock vLLM; sampled-token logprobs differ by
+about as much as stock vLLM differs across batch compositions. On the tested
+laptop, decode inter-token latency was 9–21% lower at inputs of 128–7000 tokens.
+In ten-update RL runs, inference/trainer mismatch KL stayed within the stock
+range. Short-completion RL runs spend little time in decode, so wall time does
+not improve there; the gain applies to long generations.

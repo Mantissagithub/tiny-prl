@@ -33,6 +33,11 @@ def apply_shared_vllm_patches():
     # Set by `server()` when the LoRA target modules include no expert layers.
     if os.environ.get("PRIME_NO_MOE_LORA") == "1":
         monkey_patch_no_moe_lora()
+    # Set by `setup_vllm_env()` from `inference.decode_megakernel`.
+    if os.environ.get("PRIME_DECODE_MEGAKERNEL") == "1":
+        from prime_rl.inference.vllm.decode_backend import monkey_patch_decode_backend
+
+        monkey_patch_decode_backend()
     monkey_patch_deepseek_v4_c128_boundary()
     monkey_patch_deepseek_v4_attn_sink_loading()
 

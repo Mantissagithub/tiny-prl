@@ -1123,3 +1123,41 @@ During the loop, GPU utilization averaged 18.4% and was zero in 63% of samples; 
 Each rollout averaged 1.33 s: 0.86 s of harness time, 0.18 s waiting on the model and 0.29 s of setup. The setup mean includes the first rollout's one-time script environment build. The `null` harness launches a fresh Python chat-program subprocess per rollout. With 116 rollouts at four in flight, this per-rollout cost sets the loop length. Across all 96 completed vLLM requests, the totals were 6.60 s decode, 2.00 s prefill and 1.56 s queueing.
 
 A decode megakernel can therefore save about 1–2 s per run in this profile, and kernel work is not the lever here. The candidates, by expected size, are: more rollouts in flight to overlap harness time, faster shutdown, overlapping trainer initialization with vLLM startup, and a cheaper per-rollout harness. The guard returned 0 in 86.6 s with a 5,384 MiB GPU peak and at least 4.17 GB available RAM. Evidence: `outputs/rollout-overhead-20261025/rl-instrumented-r1/{run.toml,wall.json,gpu-util.csv,cpu-stat.txt,guard/result.json,output/}`.
+
+## Experiment 127: a paged batched decode megakernel reaches native noise for B 1–4 up to 8000 tokens
+
+R5 computes a complete SmolLM2-135M decode step in one SM89 cooperative launch (24 CTAs × 256 threads, five barriers per layer), for one to four requests with independent positions. It reads K/V through vLLM's paged FLASH_ATTN layout: per-layer `[blocks, 3, 16, 128]`, K in elements 0–63 and V in 64–127, through the block table, with slot mapping and padded slots skipped. Each GEMV warp loads its weight row once for all requests and keeps the Experiment 123 per-request reduction order. Attention is single-pass split-KV flash-decoding across all warps, with FP32 online softmax, and the merge happens inside the O-projection phase. The kernel returns final-normed hidden states.
+
+Against native Transformers BF16 eager decode with teacher forcing, argmax agreement was 98.7% over 17 test-layout cases and 98.2% over 16 vLLM-layout cases (contexts to 4000). Every miss had a native top-1/top-2 gap of at most 0.125, one BF16 step. Against an FP32 oracle, the candidate's mean logit error (0.24–0.38) matched native BF16's (0.24–0.40).
+
+Standalone, in one session, steps took 1.334, 1.433, 1.548, 1.767 and 2.207 ms at batch one for contexts 32, 1024, 2048, 4096 and 8000, and 1.349, 1.557, 1.779, 2.215 and 3.078 ms at batch two. L2 prefetch of the next phase's weight rows before each barrier was kept: 2–4% faster at short context and about 1.6% at 8000, with identical outputs. Dataflow arrival counters replacing grid barriers were 3–6% slower and dropped. At 8000 tokens, attention runs about 3× above its KV-bandwidth floor. Earlier sessions showed block-wise roughly 2.8× slow states on this laptop, so only same-session comparisons are used. Evidence: `outputs/megakernel-20261025/decode-megakernel-r5/{megakernel.cu,NOTES.md,parity.json,parity_vllm.json,padtest.json,bench*.json,parity_*.json}` and `outputs/megakernel-20261025/integration-spec.md`.
+
+## Experiment 128: the megakernel inside vLLM cuts decode time per token by 9–21%
+
+An opt-in `inference.decode_megakernel` flag installs a vLLM `LlamaModel.forward` override in the worker. Only pure-decode batches of one to four requests on a SmolLM2-135M-shaped Llama under FLASH_ATTN go to the kernel; prefill, mixed batches, larger batches and other models run stock vLLM. vLLM's tied LM head, logits processing and sampler are unchanged. The kernel ships in `prime-kernels` as the python-only `decode_megakernel`, compiled with nvcc at first use and loaded through ctypes. Its pointer tables update in place, so captured CUDA graphs keep reading current weights.
+
+Inside vLLM, captured-graph replays and eager runs of the kernel produced identical generations, so the graphs replay the kernel path. Per-step final hidden states differed from stock by 1.4% mean relative L2. Sampled-token logprobs differed by about 0.02 on average, the same size as stock's own variation across batch compositions. Prompts of 7000 tokens worked.
+
+In an interleaved A-B-B-A of separate guarded processes, all timed runs were in the high clock state (2250–2610 MHz). Median decode inter-token latency, stock then kernel, was:
+
+| Input | Batch 1 | Batch 2 |
+|---:|---|---|
+| 128 | 1.94 → 1.57 ms (−19%) | 2.05 → 1.62 ms (−21%) |
+| 1024 | 1.97 → 1.68 ms (−15%) | 2.29 → 1.82 ms (−20%) |
+| 4096 | 2.39 → 2.02 ms (−16%) | 2.88 → 2.47 ms (−14%) |
+| 7000 | 2.57 → 2.33 ms (−9%) | 3.34–3.86 → 3.10 ms (−7% to −20%) |
+
+Both kernel runs beat both stock runs in every cell. This is decode step time inside vLLM, not RL wall time; for the current short-completion RL profile, Experiment 126 bounds the wall-time effect at a few seconds. Evidence: `outputs/megakernel-20261025/vllm-integration-r1/{NOTES.md,results/interleaved.json,results/}` and `prime-kernels` commit `17c7c32`.
+
+## Experiment 129: real RL runs with the decode megakernel keep stock mismatch KL and decode 17–19% faster
+
+The Experiment 126 SmolLM2-135M CUDA IPC profile ran as a ten-update A-B-B-A: stock vLLM against `inference.decode_megakernel = true`, with `deps/prime-kernels` at `17c7c32`. The worker logged the backend install in both candidate runs.
+
+| Run | `mismatch_kl` mean (max) | vLLM inter-token latency | Requests | Wall |
+|---|---:|---:|---:|---:|
+| A1 stock | 0.00135 (0.077) | 2.182 ms | 92 | 71.5 s |
+| B1 megakernel | 0.00131 (0.078) | 1.770 ms | 112 | 78.3 s |
+| B2 megakernel | 0.00161 (0.166) | 1.762 ms | 121 | 72.0 s |
+| A2 stock | 0.00172 (0.228) | 2.105 ms | 104 | 70.2 s |
+
+The inference/trainer mismatch KL stayed within the stock range. CUDA IPC updates weights in place every step, so stale weights would have raised it. Losses were finite in every run. Inter-token latency fell 17–19%, and both candidate runs beat both controls. Wall time did not improve. As Experiment 126 predicts, decode is a few seconds of these short-completion runs, and the candidate arms also processed more requests, so the wall comparison is observational only. The decode gain matters for longer generations. All guards returned 0 with zero swap. Evidence: `outputs/rollout-overhead-20261025/mk-abba-r1/{A1,B1,B2,A2}.toml,guard-*/result.json,*-gpu.csv,output/`.

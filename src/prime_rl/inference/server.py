@@ -21,6 +21,8 @@ def setup_vllm_env(config: InferenceConfig):
     # sees. Keep it off so rollout logprobs stay faithful for importance ratios.
     os.environ.setdefault("VLLM_ENFORCE_STRICT_TOOL_CALLING", "0")
 
+    os.environ["PRIME_DECODE_MEGAKERNEL"] = "1" if config.decode_megakernel else "0"
+
     deep_gemm_enabled = "1" if config.use_deep_gemm else "0"
     os.environ["VLLM_USE_DEEP_GEMM"] = deep_gemm_enabled
     os.environ["VLLM_MOE_USE_DEEP_GEMM"] = deep_gemm_enabled
