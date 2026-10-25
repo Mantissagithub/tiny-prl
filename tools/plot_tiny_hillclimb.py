@@ -230,6 +230,8 @@ EXPERIMENTS = {
     132: (MEM, "rejected"),
     133: (E2E, "none"),
     134: (E2E, "none"),
+    135: (TRAIN, "rejected"),
+    136: (TRAIN, "component"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
