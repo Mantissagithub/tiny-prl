@@ -232,6 +232,8 @@ EXPERIMENTS = {
     134: (E2E, "none"),
     135: (TRAIN, "rejected"),
     136: (TRAIN, "component"),
+    137: (E2E, "kept"),
+    138: (NUM, "none"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -407,6 +409,98 @@ def draw_r5_r6_rl_panel(fig, root: Path, mono: str) -> None:
     )
 
 
+def cleanup_rl_runs(root: Path) -> dict[str, object]:
+    directory = root / "megakernel-20261025/cleanup-rl-abba-r1"
+    summary = load(directory / "comparison.json")
+    validation = summary["validation"]
+    if not (
+        validation["same_normalized_recipe_except_run_and_output_labels"]
+        and validation["same_kernel_loader_binary_and_mtime_all_arms"]
+        and validation["no_shared_object_rebuild_during_any_arm"]
+        and validation["all_arms_have_10_finite_loss_kl_updates_and_40_unique_consumed_traces"]
+    ):
+        raise ValueError("cleanup ABBA validation failed")
+    arms = summary["arms"]
+    for name in ("A1", "B1", "B2", "A2"):
+        guard = load(directory / f"guard-{name}" / "result.json")
+        if guard["returncode"] != 0 or guard["stop_reason"] is not None:
+            raise ValueError(f"{directory}/guard-{name} did not complete cleanly")
+        if guard["elapsed_seconds"] != arms[name]["guard"]["wall_seconds"]:
+            raise ValueError(f"{directory}/guard-{name} wall does not match comparison.json")
+        if arms[name]["training"]["consumed_trace_count"] != 40:
+            raise ValueError(f"{name} did not consume 40 traces")
+    return summary
+
+
+def draw_cleanup_rl_panel(fig, root: Path, mono: str) -> None:
+    summary = cleanup_rl_runs(root)
+    arms = summary["arms"]
+    controls = [arms[name]["guard"]["wall_seconds"] for name in ("A1", "A2")]
+    candidates = [arms[name]["guard"]["wall_seconds"] for name in ("B1", "B2")]
+    control_mean = statistics.mean(controls)
+    candidate_mean = statistics.mean(candidates)
+
+    eyebrow(fig, 0.06, 0.88, "g · exp 137 · smollm2-135m · full-parameter rl · 10 updates", mono)
+    fig.text(
+        0.06,
+        0.77,
+        "Verified cleanup-order change reduces full-process wall by 12.16%",
+        fontsize=22,
+        color=INK,
+        fontweight="semibold",
+    )
+    ax = fig.add_axes([0.085, 0.16, 0.49, 0.52])
+    style_axes(ax, mono)
+    points = [
+        ("A1", -0.10, arms["A1"]["guard"]["wall_seconds"], (-18, -14)),
+        ("A2", 0.10, arms["A2"]["guard"]["wall_seconds"], (18, 10)),
+        ("B1", 0.90, arms["B1"]["guard"]["wall_seconds"], (18, -18)),
+        ("B2", 1.10, arms["B2"]["guard"]["wall_seconds"], (-18, 16)),
+    ]
+    ax.scatter([-0.10, 0.10], controls, s=72, facecolors=BG, edgecolors=DIM, linewidths=1.6, zorder=3)
+    ax.scatter([0.90, 1.10], candidates, s=76, color=MINT, edgecolors=BG, linewidths=1.2, zorder=3)
+    for arm, x, wall, offset in points:
+        ax.annotate(
+            f"{arm} {wall:.2f}s",
+            (x, wall),
+            xytext=offset,
+            textcoords="offset points",
+            ha="left" if offset[0] > 0 else "right",
+            va="center",
+            fontsize=8.5,
+            fontfamily=mono,
+            color=INK_2,
+            bbox={"boxstyle": "round,pad=0.12", "facecolor": BG, "edgecolor": "none"},
+            zorder=4,
+        )
+    ax.hlines(control_mean, -0.25, 0.25, color=INK_2, linewidth=2.0, zorder=4)
+    ax.hlines(candidate_mean, 0.75, 1.25, color=MINT, linewidth=2.0, zorder=4)
+    ax.set_xticks([0, 1], ["R6 · old cleanup · A1/A2", "R6 · early cleanup · B1/B2"])
+    ax.set_xlim(-0.55, 1.55)
+    ax.set_ylim(60, 74)
+    ax.set_ylabel("full process seconds", color=DIM, fontsize=10, fontfamily=mono)
+
+    wall = summary["full_wall"]
+    cleanup = summary["cleanup_component"]
+    fig.text(
+        0.63,
+        0.68,
+        f"Full-process means {wall['control_mean_seconds']:.2f}s -> {wall['candidate_mean_seconds']:.2f}s "
+        f"({wall['candidate_vs_control_percent']:+.2f}%); both B runs beat both A.\n"
+        f"Direct cleanup means {cleanup['control_mean_seconds']:.2f}s -> {cleanup['candidate_mean_seconds']:.2f}s "
+        f"(saved {cleanup['mean_seconds_saved']:.2f}s).\n"
+        "Each arm: 10 completed updates; 40 effective traces consumed.\n"
+        "Sampled requests A1/A2 96/102; B1/B2 101/116.\n"
+        "Sampled generated tokens A1/A2 3016/3345; B1/B2 3457/3929.\n"
+        "Periodic counters differ; generated-token work is not claimed matched.\n"
+        "Same warmed R6 binary across arms; cache unchanged.",
+        fontsize=11,
+        color=INK_2,
+        va="top",
+        linespacing=1.5,
+    )
+
+
 def board_effect(root: Path, source: str, tag: str) -> tuple[float, bool]:
     if source == "fake":
         summary = load(root / tag / "summary.json")
@@ -566,22 +660,22 @@ def main() -> None:
     plt.rcParams.update({"font.family": sans, "axes.unicode_minus": False})
     sketch = Sketch()
 
-    outer = plt.figure(figsize=(16, 33), facecolor=BG)
-    fig, index_fig, rl_fig = outer.subfigures(3, 1, height_ratios=[22, 5.5, 5.5], facecolor=BG)
+    outer = plt.figure(figsize=(16, 38.5), facecolor=BG)
+    fig, index_fig, rl_fig, cleanup_fig = outer.subfigures(4, 1, height_ratios=[22, 5.5, 5.5, 5.5], facecolor=BG)
 
     # Header.
     eyebrow(fig, 0.06, 0.957, "tiny-prl · hill climb · rtx 4060 laptop", mono)
     title_kw = {"fontsize": 44, "fontweight": "semibold", "fontfamily": sans}
-    lead = "One RL win: "
-    accent = "12.6% off RL wall time"
+    lead = "Two RL wins: "
+    accent = "Qwen −12.6% · Smol −12.2%"
     fig.text(0.06, 0.918, lead, color=INK, **title_kw)
     lead_w = text_width(fig, lead, **title_kw)
     fig.text(0.06 + lead_w, 0.918, accent, color=YELLOW, **title_kw)
     fig.text(
         0.06,
         0.889,
-        "Every dot is one guarded run under a 2 GiB RAM floor. A verified wall-time win needs matched work, "
-        "both candidates beating both controls, and numerical checks.",
+        "Every dot is guarded under a 2 GiB RAM floor. A wall-time win needs equal admitted work, both candidates "
+        "beating both controls, and numerical checks.",
         fontsize=13,
         color=INK_2,
         fontfamily=sans,
@@ -589,7 +683,7 @@ def main() -> None:
 
     # Hero cards.
     cards = [
-        ("-12.6%", MINT, "Qwen3-0.6B LoRA · RL wall time", "decode CUDA graphs", "exp 6 · only e2e win"),
+        ("-12.6%", MINT, "Qwen3-0.6B LoRA · RL wall time", "decode CUDA graphs", "exp 6 · verified RL win"),
         ("-15.6%", SKY, "SmolLM2-135M · RL trainer fwd/bwd", "Triton RMSNorm+RoPE", "exp 55 · wall: no claim"),
         ("10/10", YELLOW, "SmolLM2-135M · full-parameter RL", "ckpt + fresh resume", "exp 48 · beyond LoRA"),
     ]
@@ -855,6 +949,7 @@ def main() -> None:
         0.94, 0.025, "evidence: examples/tiny/EXPERIMENTS.md", fontsize=9.5, color=DIM, fontfamily=mono, ha="right"
     )
     draw_r5_r6_rl_panel(rl_fig, root, mono)
+    draw_cleanup_rl_panel(cleanup_fig, root, mono)
     outer.savefig(output, dpi=120, facecolor=BG)
 
 
