@@ -1031,3 +1031,39 @@ The first integration probe segfaulted in the compiler process because a tuple o
 The RTX 4060 Laptop reports SM 8.9, 24 SMs and cooperative-launch support. A CUDA probe compiled for SM89 checked its own occupancy before launching 24 blocks of 128 threads through `cudaLaunchCooperativeKernel`. All blocks completed 64 uniform grid-wide synchronization phases, and every checksum matched. The probe's reported occupancy was 12 blocks per SM; this applies only to this small probe, not to a future decoder kernel. Model kernels must query their own compiled resource limits before cooperative launch.
 
 The guard returned 0 in 0.47 seconds with zero sampled swap and at least 11.54 GB available host RAM. GPU memory sampling did not resolve the brief execution peak. This establishes a synchronization primitive for the megakernel work, not model correctness, GPU utilization or a speedup. Evidence: `outputs/megakernel-20261025/cooperative-probe-r1/{cooperative_probe.cu,run_probe.py,result.json,guard/result.json}`. The model-specific decode objective and validation gates are in `examples/tiny/MEGAKERNEL_PLAN.md`.
+
+## Experiment 115: graph-enabled decode baselines cover all three target models
+
+SmolLM2-135M, SmolLM2-360M and Qwen3-0.6B each completed 28 warmed trials: seven repeats at context lengths 32/128 and batches 1/2, with 16 generated tokens per request. vLLM used `FULL_DECODE_ONLY` CUDA graphs with capture sizes 1 and 2, and logs confirmed graph capture. At context 32, scheduler-inclusive inter-token medians were:
+
+| Model | Batch 1 | Batch 2 |
+|---|---:|---:|
+| SmolLM2-135M | 1.937 ms | 2.079 ms |
+| SmolLM2-360M | 4.204 ms | 3.945 ms |
+| Qwen3-0.6B | 5.773 ms | 5.943 ms |
+
+These are per-sequence generation intervals from first to last token, including engine scheduling. They are not GPU-only kernel latency or aggregate output-token throughput. Cold startup and prefill-containing request wall time are recorded separately. No candidate speedup is claimed.
+
+All full-generation token IDs were exact across repeats within each shape. Both SmolLM2 models also had exact full-generation top-five logprobs. Qwen's context-128/batch-2 case had one top-five candidate-set difference and up to 0.248769 matched-candidate logprob variation; this remains a baseline limitation. Separate one-token probes had logprob variation in some SmolLM2 batch-2 cases despite stable token IDs; those observations are kept separate from full-generation repeatability. The first harness rejected its combined output/probe hash before writing results, so the revised harness persists every trial before analysis.
+
+All three guards returned 0 in 19.09–26.48 seconds, used zero sampled swap, peaked at 2,063–2,083 MiB GPU memory and retained at least 7.27 GB available host RAM. Evidence: `outputs/megakernel-20261025/decode-baseline-r2/{consolidated-baselines.json,consolidated-baselines.md,independent-review*.json,SHA256SUMS,results/}`.
+
+## Experiment 116: a complete decoder-block prototype first diverges at RoPE
+
+A Triton prototype implements one complete SmolLM2-135M decoder block in one launch, with one CTA per request and direct writes into a preallocated StaticCache. It covers batch 1/2 and prefix lengths 8/16, including RMSNorm, Q/K/V projections, RoPE, causal GQA attention, output projection/residual and the complete MLP/residual. This deliberately serialized schedule is a correctness stepping stone, not a performance candidate or whole-model megakernel.
+
+The stage-instrumented R7 probe ran all four cases. Input, first RMSNorm and pre-RoPE Q/K/V were bitwise equal; the first differing stage was post-RoPE Q in every case. Actual block-output maximum absolute errors were 0.03125–0.0625; final-logit errors were 0.1875–0.375. Greedy tokens matched, but the original one-ULP block/KV and two-ULP logit gates failed. The prototype is not accepted. Direct module hooks avoid an earlier misleading hidden-state-index comparison after replacing the native layer class. Failed ABI/diagnostic revisions remain preserved separately.
+
+The guarded R7 run returned the intentional failed-parity status after 5.84 seconds, with no resource stop, zero sampled swap, 439 MiB sampled GPU use and at least 9.17 GB available RAM. Evidence: `outputs/megakernel-20261025/block-prototype-r7/{probe.py,probe-progress.json,guard/result.json}`. Subsequent work targets RoPE rounding without changing the acceptance limits.
+
+## Experiment 117: short decode traces identify projection work in both batch shapes
+
+Separate graph-enabled SmolLM2-135M profiler runs at context 32 captured exactly two generation worker iterations per batch shape and no context iteration, verified from matching CPU/GPU annotations and timestamps. Inside the annotated GPU regions, batch 1 recorded 743 kernel events and 3.783 ms of kernel-event duration, including 2.473 ms of cuBLAS BF16 GEMV. Batch 2 recorded 803 events and 4.006 ms, including 2.532 ms of BF16 CUTLASS GEMM. FlashAttention forward/combine accounted for 0.672 ms in each trace; norms accounted for 0.233/0.224 ms. Each trace also contained 58 kernels outside the worker regions, reported separately rather than assigned to these totals.
+
+The compressed traces were under 47 KB each. Both guards returned 0, with zero sampled swap and 2,176 MiB sampled GPU peaks. Profiling changes observed durations and gaps: these figures are not unprofiled latency, GPU utilization or MFU. The original broad symbol classifier confused FlashAttention template names containing CUTLASS with matrix multiplication; the reviewed analyzer matches explicit kernel symbols. Evidence: `outputs/megakernel-20261025/decode-profile-r1/{SHA256SUMS,analyzer-reviewed.py,traces/comparison-review.json,traces/comparison-summary.md,guard-b1/result.json,guard-b2/result.json}`.
+
+## Experiment 118: explicit RoPE rounding gives exact batch-one block outputs
+
+Using explicit PTX `mul.rn.f32` and `add.rn.f32` in the complete block preserves the native BF16 RoPE boundaries. R8 produced bitwise-equal block output, KV cache and final model logits in both batch-one cases (prefix 8/16), with the remaining model layers running natively. This validates the tested one-block batch-one path, not a complete forward-pass megakernel or a speedup. The batch-two cases remained unaccepted under the unchanged numerical gates.
+
+An isolated R9 diagnostic on the exact captured native output-projection inputs explained the next difference: the native batch-one call used cuBLAS GEMV, while batch two used BF16 CUTLASS WMMA GEMM. The serial GEMV candidate matched batch one exactly but differed by one BF16 ULP in one batch-two output element. Both tested BF16 `tl.dot` variants matched batch two exactly, while differing in one batch-one element. Batch-specific arithmetic dispatch is required before accepting the combined candidate. Evidence: `outputs/megakernel-20261025/block-prototype-r8/{probe.py,probe-progress.json,guard/result.json}` and `outputs/megakernel-20261025/block-prototype-r9/{probe.py,probe-progress.json,guard/result.json}`.
