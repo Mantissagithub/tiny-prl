@@ -85,6 +85,46 @@ RPC because callable serialization was disabled. Its evidence is preserved in
 `kv-offload-r6-smoke-r1/`; revision 2 enables the same local diagnostic RPC setting
 used by the existing vLLM harness. No environment package was changed.
 
+## Long-prefix cache-capacity result
+
+A fixed-work A-B-B-A test uses three unique 8000-token prompts, eight generated
+tokens per request, a 192 MiB GPU KV pool and R6 eager decode. Each arm runs
+three warmup requests followed by nine timed requests. GPU-only storage cannot
+retain all three prefixes; the candidate adds a 768 MiB native CPU pool.
+
+Across 18 timed requests per mode, median request time falls from **212.17 ms to
+42.68 ms (4.97x)**. Every candidate sample beats every control sample. All 96
+generated token IDs per arm match, and all timed candidate requests restore 8000
+cached tokens while controls report zero. All four guards return 0 with no job
+swap. GPU clocks were not recorded.
+
+This result requires repeated long prefixes within one policy version and adds
+host memory. It does not establish an RL wall-time gain, higher reward, less total
+memory, or a benefit for the current short-context workload.
+
+## Weight freshness
+
+A controlled in-place mutation of the first MLP down-projection demonstrates
+that resetting only GPU prefixes can still reload 512 old tokens from CPU and
+change generated tokens/logprobs compared with fresh evaluation. A full connector
+reset avoids that. This is a diagnostic, not a production weight-transport test.
+
+The normal rollout path already adds a per-policy-version cache salt. In a second
+controlled GPU test, changing that salt after the mutation gives zero cached tokens
+and exactly matches tokens/logprobs from a full reset. Source tracing confirms the
+salt travels through the environment, verifier, renderer, vLLM request and chained
+block hashes into offload keys. This supports the existing namespace mechanism;
+it does not prove correctness of every in-flight weight-update scenario.
+
+## Actual upstream loss execution
+
+The actual IcePop loss and centering helper extracted from upstream `40babc083`
+pass CPU gradient-oracle checks for full heads, mixed accept/reject proportional
+tails, complete bounded supports, loss masks and missing evidence. This advances
+beyond the mathematical prototype; full sampler-to-trainer integration is still
+being validated in an isolated worktree with source-only dependency overlays.
+The global virtual environment and production defaults remain unchanged.
+
 ## Local evidence
 
 Under `outputs/megakernel-20261025/`:
@@ -94,5 +134,9 @@ Under `outputs/megakernel-20261025/`:
 - `icepop-parallel-r1/kv-budget.json`: cached model configs and hashes.
 - `kv-offload-smoke-r1/{run.py,summarize.py,comparison.json,guard-*/result.json}`.
 - `kv-offload-r6-smoke-r2/{run.py,summarize.py,comparison.json,guard-*/result.json}`.
+
+Additional evidence: `kv-offload-long-r1/{run.py,summarize.py,comparison.json}`,
+`kv-freshness-smoke-r1/`, `kv-freshness-salt-r1/`,
+`kv-freshness-audit-r1/`, and `score-centering-upstream-r1/`.
 
 The raw outputs stay local under the repository's existing ignore policy.
