@@ -1256,3 +1256,43 @@ A guarded CUDA probe loads only layer-0 projection tensors from the cached BF16 
 For the tested seeded inputs, the strided-32 candidate matches all batch-one outputs bitwise. The contiguous-per-lane candidate differs by one BF16 ULP in one element each for Q, QKV and O; both candidates match gate/up and down at batch one, so those cases do not uniquely identify the native reduction order. Native kernel names show cuBLAS GEMV at batch one and CUTLASS BF16 WMMA at batch two. At batch two, the strided candidate matches O but other matrices differ in 1–5 elements, up to 3 BF16 ULP near zero (maximum absolute difference 0.0625 across matrices). More inputs and the tensor-core schedule need checking before a 360M block can be accepted. No speedup is claimed.
 
 The guard returned 0 in 28.48 s, with zero cgroup swap, at least 4.46 GiB available host RAM, 3.18 GiB peak cgroup memory including compilation, and 199 MiB GPU peak. Evidence: `outputs/megakernel-20261025/gemv-order-360-r1/{preflight.json,probe.py,gemv_candidates.cu,result.json,guard/result.json}`. The source-grounded port plan in `smollm360-design-r2/README.md` separately identifies required attention chunk-capacity and dynamic shared-memory changes; none is shipped yet.
+
+## Experiment 139: batch-two 360M projection order matches BF16 WMMA on 25 fixtures
+
+The R2 projection-order probe extends the layer-0 BF16 matrix set across five inputs each. At batch two, the candidate using the observed BF16 WMMA K=16 reduction matches the native CUTLASS WMMA output bitwise in all 25 matrix/input cases. Native batch-one execution remains cuBLAS GEMV, so this result does not establish one reduction order for both batch sizes or complete-block parity. No decoder or speedup claim is made. Evidence: `outputs/megakernel-20261025/gemv-order-360-r2/{audit.json,result.json,guard-r2/result.json}`.
+
+## Experiment 140: first 360M block RoPE attempt fails strict parity
+
+The first integrated single-block CUDA prototype was rejected at numerical validation: its RoPE/KV write path did not reproduce the frozen reference under the original stage-level acceptance gates. This blocked further interpretation of later stages; no throughput result is claimed. Evidence: `outputs/megakernel-20261025/block-360-reference-r1/candidate-validation-r1/comparison.json` and `block-360-audit-r2/{audit.json,audit.md}`.
+
+## Experiment 141: RoPE fix exposes attention mismatch
+
+After correcting the RoPE/KV path, the next candidate reaches attention, where it diverges from the frozen reference and fails the original block-output and final-logit thresholds in all four B1/B2, context-8/32 fixtures. Norm1, QKV, and layer-0 K/V are bitwise exact, and greedy IDs still match, but these do not satisfy the strict gate. No speedup is claimed. Evidence: `outputs/megakernel-20261025/block-360-reference-r1/candidate-validation-r2/comparison.json` and `block-360-audit-r3/{audit.json,audit.md}`.
+
+## Experiment 142: attention fix moves first divergence to SwiGLU
+
+The next candidate corrects attention; the first non-bitwise stage is now SwiGLU in all four fixtures, and block-output and final-logit gates fail despite matching greedy IDs. This candidate is rejected under the unchanged numerical thresholds. No speedup is claimed. Evidence: `outputs/megakernel-20261025/block-360-reference-r1/candidate-validation-r3/comparison.json` and `block-360-audit-r4/{audit.json,audit.md}`.
+
+## Experiment 143: R4 passes four fixtures but misses three held-out cases
+
+The R4 revision passes all four frozen B1/B2, context-8/32 fixtures bitwise at recorded stages, K/V, final norm, and logits. On the 30-case held-out set, 27 pass and three fail the strict gates (the three failures are batch-one, seed-101 contexts 1, 8, and 128). The initial fixture result therefore does not cover every held-out case. This is not a full decoder or serving implementation, and no speedup is claimed. Evidence: `outputs/megakernel-20261025/block-360-reference-r1/candidate-validation-r4/comparison.json` and `block-360-heldout-r1/results-r1/{comparison.json,progress.json}`.
+
+## Experiment 144: half-warp R5 passes 34 fixtures under the strict gates
+
+R5 changes the B1 MLP GEMV reduction from 32 to 16 lanes; the SwiGLU rounding fix belongs to R4. It passes the four initial fixtures and all 30 held-out cases under the original limits: block output ≤1 BF16 ULP, K/V ≤1 ULP, final logits ≤2 ULP, and exact greedy IDs. Across the 30 held-out cases, block output, K/V, final norm, and logits are bitwise identical to native. One B2 attention intermediate retains a pre-existing 1-ULP difference also present in R4, while downstream outputs remain exact. The result covers one candidate block with the remaining 31 decoder layers native; it does not implement a full 360M decoder or establish production-vLLM behavior. No speedup is claimed. Evidence: `outputs/megakernel-20261025/block-360-cuda-r5/{candidate-validation-initial/comparison.json,guard-initial/result.json}`, `block-360-heldout-r5/results-r1/{comparison.json,progress.json}`, and `block-360-b1-analysis-r1/r5-audit.{md,json}`.
+
+## Experiment 145: upstream IcePop score-centering passes focused CPU loss checks
+
+The CPU audit executes AST-extracted loss helpers and `IcePopLoss.loss` from upstream Prime-RL `main` at `40babc0833dda27f6c23ab53547dd527e465ae38`. Against a dense expected-action oracle, it passes permuted full-head gradients, partial-tail mixed acceptance/rejection cases, complete bounded support with zero probability outside the replay support, loss-mask alignment, and the missing-head error path. The isolated local trainer port is still only a port; no RL update or end-to-end score-centering success is recorded. This is loss mathematics validation, not a speed result. Evidence: `outputs/megakernel-20261025/score-centering-upstream-r1/{README.md,results.json,stdout.txt}`.
+
+## Experiment 146: short KV offload smoke is slightly slower
+
+The R6 short-context smoke produces identical 32-token outputs and revisits 512 cached tokens with offload versus none for the baseline. Revisit time is 21.584 ms baseline and 21.699 ms with offload, so this one-run smoke shows no speed win. It has cold-start and eager-decode limitations and makes no RL wall-time claim. Both guards returned 0 with zero swap. Evidence: `outputs/megakernel-20261025/kv-offload-r6-smoke-r2/{comparison.json,baseline.json,offload.json,guard-baseline/result.json,guard-offload/result.json}`.
+
+## Experiment 147: salted KV freshness matches a full reset after mutation
+
+A controlled weight mutation makes stale-cache generation diverge from fresh-cache token IDs and logprobs. The salted-cache path matches a full reset exactly. This validates the tested cache-freshness behavior for the recorded mutation; it is not a changing-weight RL run or a performance result. Evidence: `outputs/megakernel-20261025/kv-freshness-salt-r1/{results.json,guard/result.json}`.
+
+## Experiment 148: long-prefix KV reuse improves the measured component by 4.97×
+
+In a guarded A-B-B-A on three synthetic 8,000-token prefixes and eight completion tokens per request, the control median is 212.174 ms and the candidate median is 42.676 ms (4.9717×). Each arm produces the same 96 token IDs. All candidate samples beat all control samples. The result is limited to reuse of long prefixes within one weight version under stock chunked prefill and R6 eager decode. It does not establish short-context speedup, total-memory reduction, changing-weight hit rate, or full-RL benefit. All guards returned 0 with zero swap. Evidence: `outputs/megakernel-20261025/kv-offload-long-r1/{comparison.json,A1.json,A2.json,B1.json,B2.json,guard-*/result.json}`.
