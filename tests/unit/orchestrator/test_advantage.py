@@ -287,7 +287,7 @@ def test_assign_advantages_broadcasts_scalar():
     trace = episode.traces[0]
     # one user prompt token (masked) + 2 sampled tokens (trainable)
     assign_advantages(trace, 0.7)
-    assert trace_to_samples(trace)[0].advantages == [0.0, 0.7, 0.7]
+    assert trace_to_samples(trace)[0].advantages == pytest.approx([0.0, 0.7, 0.7], abs=1e-7)
 
 
 def test_assign_advantages_zeros_non_trainable():
@@ -296,7 +296,7 @@ def test_assign_advantages_zeros_non_trainable():
     episode = _build_episode(0.0, sampled_lengths=[1], obs_lengths=[1])
     trace = episode.traces[0]
     assign_advantages(trace, 0.7)
-    assert trace_to_samples(trace)[0].advantages == [0.0, 0.7, 0.0]
+    assert trace_to_samples(trace)[0].advantages == pytest.approx([0.0, 0.7, 0.0], abs=1e-7)
 
 
 def test_assign_advantages_rejects_misaligned():

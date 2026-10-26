@@ -58,7 +58,7 @@ def assign_reference_logprobs(branch: vf.Branch, values: list[float]) -> None:
 
 def scalar_advantage(trace: vf.Trace) -> float | None:
     """Mean nonzero token advantage, or zero for an assigned-zero trace."""
-    advantages = [value for node in trace.nodes for value in node.advantages or []]
+    advantages = [value for node in trace.nodes if node.advantages is not None for value in node.advantages]
     if not advantages:
         return None
     nonzero = [value for value in advantages if value != 0.0]
@@ -67,7 +67,9 @@ def scalar_advantage(trace: vf.Trace) -> float | None:
 
 def is_trainable(trace: vf.Trace) -> bool:
     """Whether any sampled token carries nonzero RL credit."""
-    return any(value != 0.0 for node in trace.nodes for value in node.advantages or [])
+    return any(
+        value != 0.0 for node in trace.nodes if node.advantages is not None for value in node.advantages
+    )
 
 
 def stamp_loss_routing(sample: TrainingSample, action_loss_type: ActionLossType) -> None:

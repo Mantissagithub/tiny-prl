@@ -29,7 +29,8 @@ class AdvRangeGate(AdmissionGate):
             for trace in episode.traces
             if episode.ok and not trace.has_error and trace.agent.trainable
             for node in trace.nodes
-            for advantage in node.advantages or []
+            if node.advantages is not None
+            for advantage in node.advantages
         ]
         if not advantages:
             return True

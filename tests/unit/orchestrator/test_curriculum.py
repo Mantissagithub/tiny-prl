@@ -2,6 +2,7 @@ import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import verifiers.v1 as vf
 
@@ -194,3 +195,12 @@ def test_advantage_range_gate_generalizes_zero_advantage_rejection() -> None:
 
     positive_gate = AdvRangeGate(AdvRangeGateConfig(reject_min=0.5, reject_max=0.5))
     assert positive_gate.admit(make_rollout(task, advantages=[0.5])) is False
+
+
+def test_advantage_range_gate_accepts_numpy_advantage_streams() -> None:
+    task = make_task(0)
+    gate = AdvRangeGate(AdvRangeGateConfig())
+    group = make_rollout(task, advantages=[0.0, 0.0])
+    group[0].traces[0].nodes[0].advantages = np.array([0.0, 0.0], dtype=np.float32)
+
+    assert gate.admit(group) is False

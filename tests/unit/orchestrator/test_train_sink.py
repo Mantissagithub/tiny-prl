@@ -10,13 +10,17 @@ import verifiers.v1 as vf
 from verifiers.v1.graph import MessageNode
 from verifiers.v1.trace import ModelCall
 from verifiers.v1.types import AssistantMessage, Tool, ToolMessage, Usage, UserMessage
+from verifiers.v1.types import TopLogprobs as VfTopLogprobs
 
 from prime_rl.configs.algorithm import GRPOAlgoConfig
 from prime_rl.configs.orchestrator import OrchestratorConfig
 from prime_rl.orchestrator.algo.base import Algorithm
+from prime_rl.orchestrator.batch import build_bin_cost, prepare_batch
 from prime_rl.orchestrator.train_sink import TrainSink
 from prime_rl.orchestrator.trajectories import trace_to_samples
 from prime_rl.orchestrator.types import DispatchFailure, GroupCancellation, Progress
+from prime_rl.trainer.rl.data import DataLoader
+from prime_rl.transports.batch.types import MicroBatch
 from prime_rl.utils.logger import setup_logger
 
 setup_logger("warning")
@@ -69,11 +73,68 @@ def episode(traces, *, group="g", version=0):
     )
 
 
+def test_numpy_trace_evidence_roundtrips_prepared_batch_wire():
+    rollout = trace()
+    node = rollout.nodes[-1]
+    node.sampling_mask = vf.SamplingMask(
+        ids=np.array([3, 4], dtype=np.int32),
+        counts=np.array([1, 1], dtype=np.int32),
+    )
+    node.top_logprobs = VfTopLogprobs(
+        ids=np.array([3, 4], dtype=np.int32),
+        logprobs=np.array([-0.1, -0.2], dtype=np.float32),
+        counts=np.array([1, 1], dtype=np.int32),
+    )
+    rollout.nodes.append(
+        MessageNode(
+            parent=len(rollout.nodes) - 1,
+            message=AssistantMessage(content="followup"),
+            sampled=True,
+            token_ids=np.array([5], dtype=np.int32),
+            mask=np.array([True], dtype=np.bool_),
+            logprobs=np.array([-0.3], dtype=np.float32),
+            advantages=np.array([0.5], dtype=np.float32),
+            top_logprobs=VfTopLogprobs(
+                ids=np.array([5, 8], dtype=np.int32),
+                logprobs=np.array([-0.3, -1.2], dtype=np.float32),
+                counts=np.array([2], dtype=np.int32),
+            ),
+        )
+    )
+
+    sample = trace_to_samples(rollout, env_name="test")[0]
+    sample.temperatures = [1.0] * len(sample.token_ids)
+    assert type(sample.token_ids[0]) is int
+    assert type(sample.logprobs[0]) is float
+    assert type(sample.advantages[0]) is float
+
+    grid = prepare_batch(
+        [sample], seq_len=8, num_train_workers=1, bin_cost=build_bin_cost(None), pad_to_multiple_of=8
+    )
+    payload = msgspec.msgpack.encode(grid)
+    decoded = msgspec.msgpack.Decoder(type=list[list[MicroBatch]]).decode(payload)
+    batch = decoded[0][0]
+
+    assert batch.sampling_mask is not None
+    assert batch.top_logprobs is not None
+    assert len(batch.input_ids) == len(batch.inference_logprobs) == len(batch.advantages)
+    assert batch.sampling_mask.logprobs == np.array([-0.1, -0.2], dtype=np.float32).tobytes()
+
+    tensor_batch = DataLoader.__new__(DataLoader)._micro_batch_to_tensor(batch)
+    assert tensor_batch["top_logprobs_ids"] is not None
+    assert tensor_batch["top_logprobs_values"] is not None
+    np.testing.assert_array_equal(tensor_batch["top_logprobs_ids"][0, 2:5].numpy(), [[3, -1], [4, -1], [5, 8]])
+    np.testing.assert_allclose(
+        tensor_batch["top_logprobs_values"][0, 2:5].numpy(), [[-0.1, 0.0], [-0.2, 0.0], [-0.3, -1.2]]
+    )
+
+
 def sink(*, constant=True, admitted=True, batch_size=100):
     config = OrchestratorConfig(batch_size=batch_size, constant_trainer_batch_size=constant, max_off_policy_steps=1)
     env = SimpleNamespace(
         config=SimpleNamespace(group_size=1, sampling=SimpleNamespace(temperature=1.0)),
         requires_sampling_masks=False,
+        requires_top_logprobs=False,
         algorithm=Algorithm(GRPOAlgoConfig(), None),
     )
     return TrainSink(
@@ -128,7 +189,7 @@ def test_queued_trace_does_not_own_discarded_siblings():
         s = sink()
         before = msgspec.msgpack.encode(trace_to_samples(kept, env_name="test"))
         assert await s.add(ep) is None
-        assert all(t.nodes[2].token_ids == [3, 4] for t in discarded)
+        assert all(np.array_equal(t.nodes[2].token_ids, [3, 4]) for t in discarded)
         del discarded, ep
         gc.collect()
         assert all(ref() is None for ref in refs)
@@ -171,7 +232,7 @@ def test_deferred_pruning_and_multiple_batches_preserve_episode_boundaries():
         assert len(batch.samples) == 1 and batch.samples[0].trace_id == kept.id
         assert len(batch.cohort) == 1 and batch.cohort.episodes[0].id == ep_id
         assert sibling.id in s.pending_batch
-        assert zero.nodes[2].token_ids == [3, 4]
+        assert np.array_equal(zero.nodes[2].token_ids, [3, 4])
         batch = await s.take_batch()
         assert len(batch.samples) == 2
         assert len(batch.cohort) == 1 and batch.cohort.num_traces == 2

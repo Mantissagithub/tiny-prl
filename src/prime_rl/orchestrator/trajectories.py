@@ -20,7 +20,7 @@ import numpy as np
 import verifiers.v1 as vf
 
 from prime_rl.transports.batch import MMImageRef, MMRefs, TrainingSample
-from prime_rl.transports.batch.types import RoutedExperts, SamplingMask
+from prime_rl.transports.batch.types import RoutedExperts, SamplingMask, TopLogprobs
 from prime_rl.utils.logger import get_logger
 
 
@@ -80,25 +80,72 @@ def _encode_routed_experts(arr: np.ndarray | None, num_tokens: int) -> RoutedExp
     return RoutedExperts(data=arr.tobytes(), shape=list(arr.shape), dtype=str(arr.dtype))
 
 
-def _encode_sampling_mask(mask: vf.SamplingMask | None, num_tokens: int) -> SamplingMask | None:
-    """Encode a branch sampling mask for a fixed token count.
+def _encode_sampler_evidence(
+    mask: vf.SamplingMask | None, head: vf.TopLogprobs | None, num_tokens: int
+) -> tuple[SamplingMask | None, TopLogprobs | None]:
+    """Encode the branch's sampling mask and sampler top logprobs.
 
     The mask stores row sizes in `counts` and concatenates every row in `ids`.
     For example, `counts=[2, 1]` and `ids=[4, 7, 9]` become `counts=[2]` and
     `ids=[4, 7]` for one token. For three tokens, they become
     `counts=[2, 1, 0]` with unchanged ids. Zero-count rows disable replay.
+
+    A masked token's top logprobs cover exactly its mask, so they move onto the
+    mask. Remaining top-logprob rows are heads of untruncated distributions.
     """
+    if head is not None and (
+        len(head.counts) != num_tokens
+        or int(head.counts.sum()) != len(head.ids)
+        or len(head.ids) != len(head.logprobs)
+    ):
+        raise ValueError("Top logprobs are not aligned to branch tokens")
     if mask is None:
-        return None
-    ids, counts = mask.ids, mask.counts
-    if len(counts) > num_tokens:
-        counts = counts[:num_tokens]
-        ids = ids[: int(counts.sum())]
-    elif len(counts) < num_tokens:
-        counts = np.concatenate([counts, np.zeros(num_tokens - len(counts), dtype=np.int32)])
-    return SamplingMask(
-        ids=np.ascontiguousarray(ids, dtype=np.int32).tobytes(),
-        counts=np.ascontiguousarray(counts, dtype=np.int32).tobytes(),
+        if head is None:
+            return None, None
+        return None, TopLogprobs(
+            ids=np.ascontiguousarray(head.ids, dtype=np.int32).tobytes(),
+            logprobs=np.ascontiguousarray(head.logprobs, dtype=np.float32).tobytes(),
+            counts=np.ascontiguousarray(head.counts, dtype=np.int32).tobytes(),
+        )
+
+    mask_ids, mask_counts = np.asarray(mask.ids), np.asarray(mask.counts)
+    if len(mask_counts) > num_tokens:
+        mask_counts = mask_counts[:num_tokens]
+        mask_ids = mask_ids[: int(mask_counts.sum())]
+    elif len(mask_counts) < num_tokens:
+        mask_counts = np.concatenate([mask_counts, np.zeros(num_tokens - len(mask_counts), dtype=np.int32)])
+    if head is None:
+        return SamplingMask(
+            ids=np.ascontiguousarray(mask_ids, dtype=np.int32).tobytes(),
+            counts=np.ascontiguousarray(mask_counts, dtype=np.int32).tobytes(),
+        ), None
+
+    head_ids, head_logprobs, head_counts = np.asarray(head.ids), np.asarray(head.logprobs), np.asarray(head.counts)
+    if np.array_equal(mask_counts, head_counts) and np.array_equal(mask_ids, head_ids):
+        return SamplingMask(
+            ids=np.ascontiguousarray(head_ids, dtype=np.int32).tobytes(),
+            counts=np.ascontiguousarray(mask_counts, dtype=np.int32).tobytes(),
+            logprobs=np.ascontiguousarray(head_logprobs, dtype=np.float32).tobytes(),
+        ), None
+    rows = np.arange(num_tokens, dtype=np.int64)
+    head_rows = np.repeat(rows, head_counts)
+    masked = mask_counts > 0
+    on_mask = masked[head_rows]
+    mask_keys = np.repeat(rows, mask_counts) << 32 | mask_ids.astype(np.int64)
+    head_keys = head_rows[on_mask] << 32 | head_ids[on_mask].astype(np.int64)
+    if not np.array_equal(np.sort(mask_keys), np.sort(head_keys)):
+        raise ValueError("Top logprobs must cover exactly the recorded sampling support")
+    sampling_mask = SamplingMask(
+        ids=np.ascontiguousarray(head_ids[on_mask], dtype=np.int32).tobytes(),
+        counts=np.ascontiguousarray(mask_counts, dtype=np.int32).tobytes(),
+        logprobs=np.ascontiguousarray(head_logprobs[on_mask], dtype=np.float32).tobytes(),
+    )
+    if on_mask.all():
+        return sampling_mask, None
+    return sampling_mask, TopLogprobs(
+        ids=np.ascontiguousarray(head_ids[~on_mask], dtype=np.int32).tobytes(),
+        logprobs=np.ascontiguousarray(head_logprobs[~on_mask], dtype=np.float32).tobytes(),
+        counts=np.ascontiguousarray(np.where(masked, 0, head_counts), dtype=np.int32).tobytes(),
     )
 
 
@@ -141,7 +188,7 @@ def _loss_weights(branch: vf.Branch, name: str, trained_nodes: set[int]) -> list
                 f"loss weight stream {name!r} must align with node token_ids: "
                 f"got {len(node_weights)}, expected {len(node.token_ids)}"
             )
-        weights.extend(node_weights)
+        weights.extend(float(value) for value in node_weights)
         if any(node_weights):
             trained_nodes.add(id(node))
     return weights if any(weights) else None
@@ -160,31 +207,45 @@ def trace_to_samples(trace: vf.Trace, *, env_name: str = "") -> list[TrainingSam
     samples: list[TrainingSample] = []
     trained_loss_nodes: dict[str, set[int]] = {"rl": set(), "ce": set(), "ref_kl": set()}
     for branch, mask in iter_trainable_branches(trace):
-        token_ids = branch.token_ids
+        # The v1 renderer/verifier streams are NumPy arrays. msgspec's batch
+        # wire structs intentionally use native Python lists, so normalize at
+        # this trace-to-transport boundary before the packer extends them.
+        token_ids = [int(token_id) for token_id in branch.token_ids]
+        train_mask = [bool(value) for value in mask]
+        logprobs = [float(value) for value in branch.logprobs]
+        advantages = None if branch.advantages is None else [float(value) for value in branch.advantages]
+        ref_logprobs = (
+            None if branch.reference_logprobs is None else [float(value) for value in branch.reference_logprobs]
+        )
+        sampling_mask, top_logprobs = _encode_sampler_evidence(
+            branch.sampling_mask, branch.top_logprobs, len(token_ids)
+        )
         mm_token_type_ids: list[int] | None = None
         mm_refs: MMRefs | None = None
         image_urls = _image_urls(branch)
         if image_urls:
-            mm_token_type_ids = branch.mm_token_type_ids
-            if mm_token_type_ids is None:
+            token_types = branch.mm_token_type_ids
+            if token_types is None:
                 raise ValueError("Inline images have no expanded multimodal prompt tokens")
+            mm_token_type_ids = [int(value) for value in token_types]
             mm_refs = _build_mm_refs(image_urls, mm_token_type_ids)
         samples.append(
             TrainingSample(
                 token_ids=token_ids,
-                mask=mask,
-                logprobs=branch.logprobs,
+                mask=train_mask,
+                logprobs=logprobs,
                 temperatures=[],  # filled by TrainSink.process_group
                 env_name=env_name,
-                ref_logprobs=branch.reference_logprobs,
+                ref_logprobs=ref_logprobs,
                 mm_refs=mm_refs,
                 mm_token_type_ids=mm_token_type_ids,
                 routed_experts=_encode_routed_experts(branch.routed_experts, len(token_ids)),
                 rl_weights=_loss_weights(branch, "rl", trained_loss_nodes["rl"]),
                 ce_weights=_loss_weights(branch, "ce", trained_loss_nodes["ce"]),
                 ref_kl_weights=_loss_weights(branch, "ref_kl", trained_loss_nodes["ref_kl"]),
-                advantages=branch.advantages,
-                sampling_mask=_encode_sampling_mask(branch.sampling_mask, len(token_ids)),
+                advantages=advantages,
+                sampling_mask=sampling_mask,
+                top_logprobs=top_logprobs,
                 trace_id=trace.id,
                 branch_index=branch.index,
             )

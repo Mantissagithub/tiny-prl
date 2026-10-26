@@ -21,8 +21,18 @@ class RoutedExperts(msgspec.Struct, array_like=True, gc=False, omit_defaults=Tru
 
 # Sampling masks for top-p/top-k replay: flat int32 token-id bytes plus an
 # int32 count per token position (0 = no mask); len(ids) == 4 * counts.sum().
+# ``logprobs`` optionally carries the sampler's float32 logprob of each id.
 class SamplingMask(msgspec.Struct, array_like=True, gc=False, omit_defaults=True):
     ids: bytes
+    counts: bytes
+    logprobs: bytes | None = None
+
+
+class TopLogprobs(msgspec.Struct, array_like=True, gc=False, omit_defaults=True):
+    """Flat int32 ids, float32 logprobs and int32 row counts (zero for context)."""
+
+    ids: bytes
+    logprobs: bytes
     counts: bytes
 
 
@@ -78,6 +88,7 @@ class TrainingSample(msgspec.Struct, array_like=True, gc=False, omit_defaults=Tr
     # samples (e.g. fake data).
     trace_id: str | None = None
     branch_index: int | None = None
+    top_logprobs: TopLogprobs | None = None
 
 
 # Orchestrator -> Trainer
@@ -115,3 +126,4 @@ class MicroBatch(msgspec.Struct, array_like=True, gc=False, omit_defaults=True):
     # (e.g. a dummy micro batch). ``None`` when no packed sample carried one.
     trace_ids: list[str] | None = None
     branch_indices: list[int] | None = None
+    top_logprobs: TopLogprobs | None = None

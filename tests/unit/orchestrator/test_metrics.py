@@ -2,6 +2,7 @@ import math
 from itertools import count
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import verifiers.v1 as vf
 
@@ -218,6 +219,19 @@ def test_boolean_rates_and_error_breakdown_all_only():
     # has_error + the error-type counts are structurally empty on effective, so emitted on `all` only
     eff = rc.effective.metrics.to_wandb(prefix="train/agg", subset="effective")
     assert not any(k.endswith("/has_error/mean") or "/error/" in k for k in eff)
+
+
+def test_sampling_support_size_ignores_empty_rows():
+    episode = mk()
+    episode.traces[0].nodes = [
+        SimpleNamespace(
+            advantages=[1.0],
+            sampling_mask=SimpleNamespace(counts=np.array([2, 0, 3], dtype=np.int32)),
+        ),
+        SimpleNamespace(advantages=[1.0], sampling_mask=None),
+    ]
+    out = train_episodes([episode]).metrics.to_wandb(prefix="train/agg", subset="all")
+    assert out["train/agg/all/agent/sampling_support/size/mean"] == pytest.approx(5 / 2)
 
 
 def test_solve_rates():

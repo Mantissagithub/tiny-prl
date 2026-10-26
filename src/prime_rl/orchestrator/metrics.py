@@ -305,6 +305,19 @@ class TraceMetrics(StatGroup):
                 out.count(f"{prefix}/error/{key}", float(value))
             num_groups = len({episode_group_id(record.episode) for record in self.records})
             out.rate(prefix, {key: value * num_groups for key, value in self.solve_rates().items()}, num_groups)
+        for trace in self.traces:
+            for node in trace.nodes:
+                sampling_mask = getattr(node, "sampling_mask", None)
+                if sampling_mask is None:
+                    continue
+                counts = sampling_mask.counts
+                counts = counts[counts > 0]
+                if len(counts):
+                    out.rate(
+                        f"{prefix}/sampling_support/size",
+                        {"mean": int(counts.sum())},
+                        len(counts),
+                    )
         # Truncation uses all traces; named stop conditions use only recorded conditions.
         out.rate(
             f"{prefix}/stop_condition/generation_truncated",

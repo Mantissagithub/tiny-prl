@@ -25,6 +25,7 @@ class PrimeLmOutput(TypedDict, total=False):
     logits: Tensor | None
     logprobs: Tensor | None
     entropy: Tensor | None
+    topk_logprobs: Tensor | None
     loss: Tensor | None
 
 
@@ -38,6 +39,7 @@ def cast_float_and_contiguous(output: PrimeLmOutput) -> PrimeLmOutput:
         logits=_float_and_contiguous(output.get("logits")),
         logprobs=_float_and_contiguous(output.get("logprobs")),
         entropy=_float_and_contiguous(output.get("entropy")),
+        topk_logprobs=_float_and_contiguous(output.get("topk_logprobs")),
         loss=output.get("loss"),
     )
 
@@ -71,6 +73,7 @@ class FusedOutputLinear(torch.nn.Linear):
         labels: torch.Tensor | None = None,
         temperature: Tensor | None = None,
         sampling_mask: Tensor | None = None,
+        topk_ids: Tensor | None = None,
     ) -> PrimeLmOutput:
         assert labels is not None, "FusedOutputLinear requires labels for chunked logprob computation"
 
@@ -79,7 +82,7 @@ class FusedOutputLinear(torch.nn.Linear):
         labels = labels.reshape(b * s).contiguous()
 
         if temperature is None:
-            assert sampling_mask is None, "sampling-mask replay requires per-token temperatures"
+            assert sampling_mask is None and topk_ids is None, "Sampling evidence requires per-token temperatures"
             loss = _ChunkedCrossEntropySumFn.apply(hidden_states, self.weight, labels, self.chunk_size)
             return PrimeLmOutput(loss=loss)
 
@@ -87,7 +90,10 @@ class FusedOutputLinear(torch.nn.Linear):
         if sampling_mask is not None:
             sampling_mask = sampling_mask.reshape(b * s, sampling_mask.shape[-1]).contiguous()
 
-        logprobs, entropy = _SequenceChunkedLogProbEntropyFn.apply(
+        if topk_ids is not None:
+            topk_ids = topk_ids.reshape(b * s, topk_ids.shape[-1]).long().contiguous()
+
+        logprobs, entropy, topk_logprobs = _SequenceChunkedLogProbEntropyFn.apply(
             hidden_states,
             self.weight,
             labels,
@@ -97,11 +103,13 @@ class FusedOutputLinear(torch.nn.Linear):
             self.online_update_fn,
             self.backward_epilogue_fn,
             self.fused_online_update_fn,
+            topk_ids,
         )
 
         logprobs = logprobs.reshape(b, s)
         entropy = entropy.reshape(b, s)
-        return PrimeLmOutput(logprobs=logprobs, entropy=entropy)
+        topk_logprobs = topk_logprobs.reshape(b, s, -1) if topk_logprobs is not None else None
+        return PrimeLmOutput(logprobs=logprobs, entropy=entropy, topk_logprobs=topk_logprobs)
 
 
 class VanillaOutputLinear(torch.nn.Linear):
@@ -117,6 +125,7 @@ class VanillaOutputLinear(torch.nn.Linear):
         labels: torch.Tensor | None = None,
         temperature: Tensor | None = None,
         sampling_mask: Tensor | None = None,
+        topk_ids: Tensor | None = None,
     ) -> PrimeLmOutput:
         logits = super().forward(hidden_states)
         if labels is not None and temperature is None:
@@ -175,7 +184,8 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
         online_update_fn: OnlineUpdateFn | None = None,
         backward_epilogue_fn: BackwardEpilogueFn | None = None,
         fused_online_update_fn: FusedOnlineUpdateFn | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        topk_ids: torch.Tensor | None = None,  # [N, K], -1-padded
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """
         Returns per-token logprobs and entropy by chunking over flattened sequence tokens.
 
@@ -196,6 +206,10 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
             assert sampling_mask.dim() == 2 and sampling_mask.shape[0] == hidden.shape[0], (
                 f"expected sampling_mask [N,K], got {tuple(sampling_mask.shape)}"
             )
+        if topk_ids is not None:
+            assert topk_ids.dim() == 2 and topk_ids.shape[0] == hidden.shape[0], (
+                f"expected topk_ids [N,K], got {tuple(topk_ids.shape)}"
+            )
 
         device = hidden.device
         n = hidden.shape[0]
@@ -206,6 +220,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
         entropy = torch.empty((n,), device=device, dtype=torch.float32)
         logz = torch.empty((n,), device=device, dtype=torch.float32)
         replay = torch.zeros((n,), device=device, dtype=torch.bool) if sampling_mask is not None else None
+        topk_logprobs = torch.empty_like(topk_ids, dtype=torch.float32) if topk_ids is not None else None
 
         for start in range(0, n, chunk_size):
             end = min(start + chunk_size, n)
@@ -225,12 +240,15 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
                 # Each mask id lives in exactly one vocab chunk; collect its logit
                 # into a [tokens, K] buffer and logsumexp once after the loop.
                 mask_logits = torch.full_like(mask_chunk, float("-inf"), dtype=torch.float32)
+            topk_chunk = topk_ids[start:end] if topk_ids is not None else None
+            if topk_chunk is not None:
+                topk_logits = torch.zeros_like(topk_chunk, dtype=torch.float32)
 
             for vocab_start in range(0, vocab, vocab_chunk_size):
                 vocab_end = min(vocab_start + vocab_chunk_size, vocab)
                 weight_chunk = weight[vocab_start:vocab_end]
                 logits_chunk = hidden_chunk @ weight_chunk.t()
-                if fused_online_update_fn is not None and mask_chunk is None:
+                if fused_online_update_fn is not None and mask_chunk is None and topk_chunk is None:
                     m, s, t, target_logits = fused_online_update_fn(
                         m, s, t, logits_chunk, inv_temperature[start:end], labels_chunk, vocab_start, target_logits
                     )
@@ -242,6 +260,9 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
                 if mask_chunk is not None:
                     mask_local, mask_in_range = _sampling_mask_local_indices(mask_chunk, vocab_start, vocab_end)
                     mask_logits = torch.where(mask_in_range, scaled_logits.gather(1, mask_local), mask_logits)
+                if topk_chunk is not None:
+                    local, valid = _sampling_mask_local_indices(topk_chunk, vocab_start, vocab_end)
+                    topk_logits = torch.where(valid, scaled_logits.gather(1, local), topk_logits)
 
                 # Branchless target extraction - we don't want to stall the GPU here (because: if torch.any()) calls bool(Tensor) calls Tensor.items() <- sync here we don't want
                 in_range = (labels_chunk >= vocab_start) & (labels_chunk < vocab_end)
@@ -258,23 +279,27 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
             logz[start:end] = logz_chunk
             logprobs[start:end] = target_logits - logz_chunk
             entropy[start:end] = logz_full - (t / s)
+            if topk_chunk is not None:
+                topk_logprobs[start:end] = (topk_logits - logz_chunk.unsqueeze(-1)).masked_fill(topk_chunk < 0, 0.0)
 
         ctx.set_materialize_grads(
             False
         )  # Without materialized grads unused outputs get grad None instead of zeros and backward can reject them without a sync
-        ctx.save_for_backward(hidden, weight, labels, inv_temperature, logz, sampling_mask, replay)
+        ctx.save_for_backward(hidden, weight, labels, inv_temperature, logz, sampling_mask, replay, topk_ids)
         ctx.chunk_size = chunk_size
         ctx.backward_epilogue_fn = backward_epilogue_fn
 
-        return logprobs, entropy
+        return logprobs, entropy, topk_logprobs
 
     @staticmethod
-    def backward(ctx, grad_logprobs: torch.Tensor, grad_entropy: torch.Tensor | None):
+    def backward(
+        ctx, grad_logprobs: torch.Tensor | None, grad_entropy: torch.Tensor | None, grad_topk: torch.Tensor | None
+    ):
         # Grads are not materialized (see forward above) so an unused entropy output arrives becomes None, and as we don't compare values we don't have any sync
         assert grad_entropy is None, "Backward through entropy is not implemented in FusedOutputLinear"
-        assert grad_logprobs is not None, "FusedOutputLinear backward requires logprobs gradients"
+        assert grad_logprobs is not None or grad_topk is not None, "FusedOutputLinear requires a logprob gradient"
 
-        hidden, weight, labels, inv_temperature, logz, sampling_mask, replay = ctx.saved_tensors
+        hidden, weight, labels, inv_temperature, logz, sampling_mask, replay, topk_ids = ctx.saved_tensors
         chunk_size: int = ctx.chunk_size
 
         n, _ = hidden.shape
@@ -289,17 +314,22 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
             end = min(start + chunk_size, n)
             hidden_chunk = hidden[start:end]
             labels_chunk = labels[start:end]
-            grad_chunk = grad_logprobs[start:end].to(torch.float32)
+            grad_chunk = (
+                grad_logprobs[start:end].float() if grad_logprobs is not None else torch.zeros_like(logz[start:end])
+            )
             inv_t_chunk = inv_temperature[start:end].unsqueeze(-1)
             logz_chunk = logz[start:end]
             mask_chunk = sampling_mask[start:end].to(torch.long) if sampling_mask is not None else None
             replay_chunk = replay[start:end] if replay is not None else None
+            topk_chunk = topk_ids[start:end] if topk_ids is not None else None
+            grad_head = grad_topk[start:end].float().masked_fill(topk_chunk < 0, 0.0) if grad_topk is not None else None
+            grad_scale = -grad_chunk if grad_head is None else -grad_chunk - grad_head.sum(-1)
 
             for vocab_start in range(0, vocab, vocab_chunk_size):
                 vocab_end = min(vocab_start + vocab_chunk_size, vocab)
                 weight_chunk = weight[vocab_start:vocab_end]
                 logits_chunk = hidden_chunk @ weight_chunk.t()
-                if ctx.backward_epilogue_fn is not None and mask_chunk is None:
+                if ctx.backward_epilogue_fn is not None and mask_chunk is None and topk_chunk is None:
                     grad_logits = ctx.backward_epilogue_fn(
                         logits_chunk,
                         inv_temperature[start:end].contiguous(),
@@ -311,7 +341,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
                 else:
                     scaled_logits = logits_chunk.to(torch.float32) * inv_t_chunk
 
-                if ctx.backward_epilogue_fn is None or mask_chunk is not None:
+                if ctx.backward_epilogue_fn is None or mask_chunk is not None or topk_chunk is not None:
                     if mask_chunk is not None:
                         # Replayed rows get softmax gradient only on mask ids. Set masked-out
                         # logits to -inf before exp: a masked-out logit above the sampling-mask
@@ -323,11 +353,14 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
                         scaled_logits.masked_fill_(masked_out, float("-inf"))
                     probs = torch.exp(scaled_logits - logz_chunk.unsqueeze(-1))
 
-                    grad_logits = (-grad_chunk).unsqueeze(-1) * probs
+                    grad_logits = grad_scale.unsqueeze(-1) * probs
                     # Branchless grad scatter like we did in the sync-free forward
                     in_range = (labels_chunk >= vocab_start) & (labels_chunk < vocab_end)
                     local_idx = (labels_chunk - vocab_start).clamp(0, vocab_end - vocab_start - 1).to(torch.int64)
                     grad_logits.scatter_add_(1, local_idx.unsqueeze(1), (grad_chunk * in_range).unsqueeze(1))
+                    if grad_head is not None:
+                        local, valid = _sampling_mask_local_indices(topk_chunk, vocab_start, vocab_end)
+                        grad_logits.scatter_add_(1, local, grad_head * valid)
                     grad_logits = grad_logits * inv_t_chunk
 
                 if needs_hidden:
@@ -335,7 +368,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
                 if needs_weight:
                     grad_weight[vocab_start:vocab_end].add_(grad_logits.to(weight.dtype).t() @ hidden_chunk)
 
-        gradients = (grad_hidden, grad_weight, None, None, None, None, None, None, None)
+        gradients = (grad_hidden, grad_weight, None, None, None, None, None, None, None, None)
         return gradients[: len(ctx.needs_input_grad)]
 
 
@@ -433,9 +466,9 @@ def inject_prime_lm_head(
 
     logger = get_logger()
 
-    if any(fn is not None for fn in (online_update_fn, backward_epilogue_fn, fused_online_update_fn)) and not isinstance(
-        chunk_size, int
-    ):
+    if any(
+        fn is not None for fn in (online_update_fn, backward_epilogue_fn, fused_online_update_fn)
+    ) and not isinstance(chunk_size, int):
         raise ValueError("an online LM-head update requires a chunked fused LM head")
 
     # Replace the lm_head with the appropriate wrapper
@@ -470,6 +503,7 @@ def _patch_model_forward(model: nn.Module) -> None:
         logits_to_keep: int = 0,
         temperature: torch.Tensor | None = None,
         sampling_mask: torch.Tensor | None = None,
+        topk_ids: torch.Tensor | None = None,
         **kwargs: object,
     ) -> PrimeLmOutput:
         # For VLM with images, don't create position_ids - let model compute MRoPE internally
@@ -494,6 +528,7 @@ def _patch_model_forward(model: nn.Module) -> None:
             labels[:, slice_indices] if labels is not None else None,
             temperature=temperature[:, slice_indices] if temperature is not None else None,
             sampling_mask=sampling_mask[:, slice_indices] if sampling_mask is not None else None,
+            topk_ids=topk_ids[:, slice_indices] if topk_ids is not None else None,
         )
 
     # Bind the new forward to the model

@@ -1,11 +1,25 @@
+import msgspec
+import numpy as np
 import pytest
 import torch
 from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
 
+from prime_rl.configs.trainer import IcePopLossConfig
+from prime_rl.orchestrator.batch import build_bin_cost, prepare_batch
 from prime_rl.trainer.models import cast_float_and_contiguous
 from prime_rl.trainer.models.layers.lm_head import FusedOutputLinear, VanillaOutputLinear, inject_prime_lm_head
 from prime_rl.trainer.models.qwen3 import Qwen3ForCausalLM
-from prime_rl.trainer.rl.loss import compute_entropy, shift_tensor_left, shift_tensor_right
+from prime_rl.trainer.rl.data import DataLoader, validate_score_centering_data
+from prime_rl.trainer.rl.loss import (
+    IcePopLoss,
+    LossInputs,
+    compute_entropy,
+    compute_loss,
+    selective_topk_log_softmax,
+    shift_tensor_left,
+    shift_tensor_right,
+)
+from prime_rl.transports.batch.types import MicroBatch, SamplingMask, TopLogprobs, TrainingSample
 from prime_rl.utils.utils import default_dtype
 
 
@@ -88,6 +102,223 @@ def test_fused_lm_head_frozen_weight_backward_cpu():
     assert lm.weight.grad is None
 
 
+def test_fused_lm_head_topk_logprobs_forward_and_backward_cpu():
+    torch.manual_seed(22)
+    batch, seq, hidden_size, vocab, head = 2, 3, 5, 11, 4
+    hidden0 = torch.randn(batch, seq, hidden_size, requires_grad=True)
+    weight0 = torch.randn(vocab, hidden_size, requires_grad=True)
+    labels = torch.randint(vocab, (batch, seq))
+    topk_ids = torch.randint(vocab, (batch, seq, head))
+    temperature = torch.linspace(0.8, 1.5, batch * seq).reshape(batch, seq)
+
+    logits0 = hidden0 @ weight0.t() / temperature.unsqueeze(-1)
+    logprobs0 = logits0.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    topk0 = logits0.log_softmax(-1).gather(-1, topk_ids)
+    (logprobs0.sum() + topk0.sum()).backward()
+    expected_hidden_grad = hidden0.grad.detach().clone()
+    expected_weight_grad = weight0.grad.detach().clone()
+
+    hidden1 = hidden0.detach().clone().requires_grad_(True)
+    lm = FusedOutputLinear(hidden_size, vocab, chunk_size=2)
+    lm.weight = torch.nn.Parameter(weight0.detach().clone())
+    out = lm(hidden1, labels, temperature=temperature, topk_ids=topk_ids)
+    assert out["topk_logprobs"].shape == (batch, seq, head)
+    torch.testing.assert_close(out["logprobs"], logprobs0.detach(), rtol=0, atol=1e-5)
+    torch.testing.assert_close(out["topk_logprobs"], topk0.detach(), rtol=0, atol=1e-5)
+    (out["logprobs"].sum() + out["topk_logprobs"].sum()).backward()
+    torch.testing.assert_close(hidden1.grad, expected_hidden_grad, rtol=0, atol=1e-5)
+    torch.testing.assert_close(lm.weight.grad, expected_weight_grad, rtol=0, atol=1e-5)
+
+
+def test_fused_lm_head_topk_replay_normalization_and_backward_cpu():
+    torch.manual_seed(23)
+    batch, seq, hidden_size, vocab = 1, 2, 4, 7
+    hidden0 = torch.randn(batch, seq, hidden_size, requires_grad=True)
+    weight0 = torch.randn(vocab, hidden_size, requires_grad=True)
+    labels = torch.tensor([[2, 5]])
+    support = torch.tensor([[1, 2, 4, 5]])
+    sampling_mask = support.expand(batch, seq, -1)
+    topk_ids = sampling_mask.clone()
+    temperature = torch.ones(batch, seq)
+
+    baseline_scaled = (hidden0 @ weight0.t()) / temperature.unsqueeze(-1)
+    baseline_masked = torch.full_like(baseline_scaled, -torch.inf).scatter(
+        -1, sampling_mask, baseline_scaled.gather(-1, sampling_mask)
+    )
+    baseline_logp = baseline_masked.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    baseline_head = baseline_masked.log_softmax(-1).gather(-1, topk_ids)
+    (baseline_logp.sum() + baseline_head.sum()).backward()
+    expected_hidden_grad = hidden0.grad.detach().clone()
+    expected_weight_grad = weight0.grad.detach().clone()
+
+    hidden = hidden0.detach().clone().requires_grad_(True)
+    lm = FusedOutputLinear(hidden_size, vocab, chunk_size=1)
+    lm.weight = torch.nn.Parameter(weight0.detach().clone())
+    out = lm(hidden, labels, temperature=temperature, sampling_mask=sampling_mask, topk_ids=topk_ids)
+    scaled = (hidden @ lm.weight.t()) / temperature.unsqueeze(-1)
+    masked = torch.full_like(scaled, -torch.inf).scatter(-1, sampling_mask, scaled.gather(-1, sampling_mask))
+    expected_logp = masked.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    expected_topk = masked.log_softmax(-1).gather(-1, topk_ids)
+    torch.testing.assert_close(out["logprobs"], expected_logp, rtol=0, atol=1e-5)
+    torch.testing.assert_close(out["topk_logprobs"], expected_topk, rtol=0, atol=1e-5)
+    (out["logprobs"].sum() + out["topk_logprobs"].sum()).backward()
+    torch.testing.assert_close(hidden.grad, expected_hidden_grad, rtol=0, atol=1e-5)
+    torch.testing.assert_close(lm.weight.grad, expected_weight_grad, rtol=0, atol=1e-5)
+
+
+def test_selective_topk_log_softmax_uses_replay_normalizer_cpu():
+    logits = torch.tensor([[[0.5, 1.0, -0.4, 0.2]]])
+    labels = torch.tensor([[2]])
+    sampling_mask = torch.tensor([[[0, 2, -1]]])
+    topk_ids = torch.tensor([[[0, 2, -1]]])
+    actual = selective_topk_log_softmax(logits, topk_ids, sampling_mask, labels)
+    expected = torch.log_softmax(torch.tensor([[0.5, -0.4]]), dim=-1)
+    torch.testing.assert_close(actual[0, 0, :2], expected[0])
+    assert actual[0, 0, 2] == 0
+
+
+def test_score_centering_data_validation_mixed_replay_and_untruncated_rows_cpu():
+    q = torch.tensor([[0.75, 0.25], [0.6, 0.3]])
+    batch = {
+        "loss_mask": torch.tensor([[True, True]]),
+        "rl_weights": None,
+        "top_logprobs_ids": torch.tensor([[[5, 6], [1, 2]]]),
+        "top_logprobs_values": q.log().unsqueeze(0),
+        "sampling_mask": torch.tensor([[[5, 6], [-1, -1]]]),
+        "input_ids": torch.tensor([[5, 8]]),
+    }
+    validate_score_centering_data(batch, vocab_size=10)
+    bad = {**batch, "input_ids": torch.tensor([[7, 8]])}
+    with pytest.raises(ValueError, match="Sampled token is missing"):
+        validate_score_centering_data(bad, vocab_size=10)
+
+
+def test_data_loader_merges_replay_probabilities_and_untruncated_heads_cpu():
+    sampler_probs = np.array([0.75, 0.25], dtype=np.float32)
+    head_probs = np.array([0.6, 0.3], dtype=np.float32)
+    sampling_mask = SamplingMask(
+        ids=np.array([5, 6], dtype=np.int32).tobytes(),
+        counts=np.array([2, 0], dtype=np.int32).tobytes(),
+        logprobs=np.log(sampler_probs).tobytes(),
+    )
+    top_logprobs = TopLogprobs(
+        ids=np.array([1, 2], dtype=np.int32).tobytes(),
+        logprobs=np.log(head_probs).tobytes(),
+        counts=np.array([0, 2], dtype=np.int32).tobytes(),
+    )
+    sample = TrainingSample(
+        token_ids=[5, 8],
+        mask=[True, True],
+        logprobs=[float(np.log(sampler_probs[0])), float(np.log(head_probs[0]))],
+        temperatures=[1.0, 1.0],
+        env_name="env",
+        advantages=[1.0, 1.0],
+        sampling_mask=sampling_mask,
+        top_logprobs=top_logprobs,
+    )
+    grid = prepare_batch([sample], seq_len=2, num_train_workers=1, bin_cost=build_bin_cost(None))
+    payload = msgspec.msgpack.encode(grid)
+    batch = msgspec.msgpack.Decoder(type=list[list[MicroBatch]]).decode(payload)[0][0]
+    assert batch.sampling_mask is not None
+    assert batch.sampling_mask.logprobs == sampling_mask.logprobs
+    assert batch.top_logprobs is not None
+
+    tensor_batch = DataLoader._micro_batch_to_tensor(object.__new__(DataLoader), batch)
+    torch.testing.assert_close(tensor_batch["top_logprobs_ids"], torch.tensor([[[5, 6], [1, 2]]], dtype=torch.int32))
+    torch.testing.assert_close(
+        tensor_batch["top_logprobs_values"],
+        torch.tensor([[sampler_probs.tolist(), head_probs.tolist()]]).log(),
+    )
+    validate_score_centering_data(tensor_batch, vocab_size=10)
+
+
+def test_icepop_score_centering_partial_head_matches_dense_gradient_cpu():
+    logits = torch.tensor([0.3, -0.4, 0.1, -0.9], requires_grad=True)
+    logp = logits.log_softmax(-1)
+    p = logp.detach().exp()
+    head_size = 2
+    head_ids = torch.arange(head_size)
+    sampler_head = torch.tensor([0.2, 0.6])
+    q = torch.cat((sampler_head, (1 - sampler_head.sum()) * p[head_size:] / p[head_size:].sum()))
+    advantages = torch.tensor([1.3, -0.7, 0.2, -1.0])
+    top_ids = head_ids.expand(logits.numel(), -1)
+    inputs = LossInputs(
+        trainer_logprobs=logp,
+        inference_logprobs=q.log(),
+        ref_logprobs=None,
+        advantages=advantages,
+        loss_mask=torch.ones_like(q, dtype=torch.bool),
+        loss_weights=q,
+        trainer_topk_logprobs=logp[head_ids].expand(logits.numel(), -1),
+        sampler_topk_logprobs=q[head_ids].log().expand(logits.numel(), -1),
+        topk_valid=torch.ones_like(top_ids, dtype=torch.bool),
+    )
+    config = IcePopLossConfig(ratio_low=0.5, ratio_high=2.0, score_centering=True, score_centering_topk=head_size)
+    actual, metrics = compute_loss(
+        trainer_logprobs=[logp],
+        inference_logprobs=[q.log()],
+        ref_logprobs=None,
+        advantages=[advantages],
+        loss_mask=[inputs.loss_mask],
+        rl_weights=[q],
+        ce_weights=None,
+        ref_kl_weights=None,
+        rl_loss_fn=IcePopLoss(config),
+        rl_scale=1.0,
+        ce_scale=1.0,
+        ref_kl_scale=1.0,
+        trainer_topk_logprobs=[inputs.trainer_topk_logprobs],
+        sampler_topk_logprobs=[inputs.sampler_topk_logprobs],
+        topk_valid=[inputs.topk_valid],
+    )
+    ratio = p / q
+    weight = ratio * ((ratio >= config.ratio_low) & (ratio <= config.ratio_high))
+    assert (weight > 0).tolist() == [True, False, False, False]
+    baseline = (q * weight * logp).sum()
+    oracle = -(q * advantages * (weight * logp - baseline)).sum()
+    torch.testing.assert_close(
+        torch.autograd.grad(actual, logits, retain_graph=True)[0],
+        torch.autograd.grad(oracle, logits)[0],
+        atol=2e-7,
+        rtol=2e-6,
+    )
+    assert "score_centering/tail_scale" in metrics
+    assert not metrics["score_centering/tail_scale"].bool().any()
+
+
+def test_icepop_score_centering_complete_support_replay_gradient_cpu():
+    logits = torch.tensor([0.2, -0.3, 0.7, -0.2], requires_grad=True)
+    support = torch.tensor([0, 2, 3])
+    masked_logits = torch.full_like(logits, -torch.inf).scatter(0, support, logits[support])
+    logp = masked_logits.log_softmax(-1)
+    q = torch.tensor([0.4, 0.0, 0.35, 0.25])
+    advantages = torch.tensor([1.0, 0.0, -0.5, 2.0])
+    inputs = LossInputs(
+        trainer_logprobs=logp[support],
+        inference_logprobs=q[support].log(),
+        ref_logprobs=None,
+        advantages=advantages[support],
+        loss_mask=torch.ones(support.numel(), dtype=torch.bool),
+        loss_weights=q[support],
+        trainer_topk_logprobs=logp[support].expand(support.numel(), -1),
+        sampler_topk_logprobs=q[support].log().expand(support.numel(), -1),
+        topk_valid=torch.ones((support.numel(), support.numel()), dtype=torch.bool),
+        sampler_support_complete=torch.ones(support.numel(), dtype=torch.bool),
+    )
+    config = IcePopLossConfig(ratio_low=0.5, ratio_high=2.0, score_centering=True)
+    output = IcePopLoss(config).loss(inputs)
+    actual = output.loss
+    ratio = logp[support].detach().exp() / q[support]
+    weight = ratio * ((ratio >= config.ratio_low) & (ratio <= config.ratio_high))
+    baseline = (q[support] * weight * logp[support]).sum()
+    oracle = -(q[support] * advantages[support] * (weight * logp[support] - baseline)).sum()
+    actual_grad = torch.autograd.grad(actual, logits, retain_graph=True)[0]
+    oracle_grad = torch.autograd.grad(oracle, logits)[0]
+    torch.testing.assert_close(actual_grad, oracle_grad, atol=2e-7, rtol=2e-6)
+    assert actual_grad[1] == 0
+    assert torch.equal(output.metrics["score_centering/tail_scale"], torch.zeros(support.numel()))
+
+
 def test_backward_epilogue_receives_contiguous_broadcast_upstream_grad_cpu():
     torch.manual_seed(4)
     rows, hidden_size, vocab = 4, 5, 17
@@ -114,9 +345,7 @@ def test_backward_epilogue_receives_contiguous_broadcast_upstream_grad_cpu():
         grad_logits.scatter_add_(1, local, (grad_logprobs * in_range).unsqueeze(-1))
         return grad_logits * inv_temperature.float().unsqueeze(-1)
 
-    lm = FusedOutputLinear(
-        hidden_size, vocab, chunk_size=rows, backward_epilogue_fn=backward_epilogue
-    )
+    lm = FusedOutputLinear(hidden_size, vocab, chunk_size=rows, backward_epilogue_fn=backward_epilogue)
     lm.weight = torch.nn.Parameter(weight.detach().clone())
     out = lm(hidden, labels, temperature=temperature)
     output_gradient_strides = []

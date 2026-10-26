@@ -12,16 +12,20 @@ deltas here:
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import numpy as np
 from vllm.entrypoints.scale_out.token_in_token_out.protocol import (
+    GenerateRequest,
     GenerateResponse,
     GenerateResponseChoice,
     PlaceholderRangeInfo,
 )
+from vllm.entrypoints.scale_out.token_in_token_out.serving import ServingTokens
 from vllm.entrypoints.serve.engine.protocol import UsageInfo
 from vllm.logprobs import FlatLogprobs, Logprob
+from vllm.sampling_params import SamplingParams
 
 from prime_rl.inference.vllm.serving_tokens import (
     PrimeRlServingTokens,
@@ -40,10 +44,34 @@ def test_subclass_overrides_serve_tokens_full_generator():
     assert PrimeRlServingTokens.serve_tokens_full_generator is not upstream.serve_tokens_full_generator
 
 
+def test_serve_tokens_clones_real_vllm_sampling_params(monkeypatch):
+    original = SamplingParams(logprobs=2, extra_args={"prl_replay": True, "prl_compact_logprobs": True})
+    request = GenerateRequest(token_ids=[1], sampling_params=original)
+    seen = {}
+
+    async def serve_tokens(self, cloned_request, raw_request):
+        seen["request"] = cloned_request
+        return SimpleNamespace()
+
+    monkeypatch.setattr(ServingTokens, "serve_tokens", serve_tokens)
+    monkeypatch.setenv("PRL_TOP_P_BEFORE_TOP_K", "1")
+    result = asyncio.run(PrimeRlServingTokens.serve_tokens(object.__new__(PrimeRlServingTokens), request))
+
+    assert isinstance(result, SimpleNamespace)
+    assert seen["request"].sampling_params is not original
+    assert seen["request"].sampling_params.extra_args["prl_paired_capture"] is True
+    assert seen["request"].sampling_params.logprobs is None
+    assert original.extra_args == {"prl_replay": True, "prl_compact_logprobs": True}
+    assert original.logprobs == 2
+
+
 def test_generate_response_post_process_preserves_prompt_metadata():
     compact_routed_experts = {"data": "AQID", "shape": [1, 1, 3], "start": 0}
     capture = _PackedOutputs(
-        _empty_request_outputs(), SimpleNamespace(sampling_params=SimpleNamespace(routed_experts_prompt_start=0))
+        _empty_request_outputs(),
+        SimpleNamespace(
+            sampling_params=SimpleNamespace(logprobs=None, extra_args=None, routed_experts_prompt_start=0)
+        ),
     )
     capture.fields[0] = {"routed_experts": compact_routed_experts}
     usage = UsageInfo(prompt_tokens=4, completion_tokens=3, total_tokens=7)

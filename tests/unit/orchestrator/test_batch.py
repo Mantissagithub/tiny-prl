@@ -10,7 +10,14 @@ from prime_rl.orchestrator.batch import (
     prepare_batch,
     prepare_sample,
 )
-from prime_rl.transports.batch.types import MicroBatch, MMImageRef, MMRefs, RoutedExperts, TrainingSample
+from prime_rl.transports.batch.types import (
+    MicroBatch,
+    MMImageRef,
+    MMRefs,
+    RoutedExperts,
+    SamplingMask,
+    TrainingSample,
+)
 
 
 def _routed_experts(data, dtype=np.uint8):
@@ -91,6 +98,56 @@ def test_training_sample_requires_env_name():
             advantages=[0.0, 0.0, 1.0, 1.0],
         )
 
+
+def test_prepare_batch_rejects_mixed_sampling_mask_logprobs():
+    counts = np.array([0, 0, 1, 0], dtype=np.int32).tobytes()
+
+    def sample(token: int, logprobs: bytes | None) -> TrainingSample:
+        return TrainingSample(
+            token_ids=[token, token + 1, token + 2, token + 3],
+            mask=[False, False, True, False],
+            logprobs=[0.0, 0.0, -0.1, 0.0],
+            temperatures=[1.0] * 4,
+            advantages=[0.0, 0.0, 1.0, 0.0],
+            env_name="test-env",
+            sampling_mask=SamplingMask(
+                ids=np.array([token + 2], dtype=np.int32).tobytes(),
+                counts=counts,
+                logprobs=logprobs,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="mixed missing sampler logprobs"):
+        prepare_batch(
+            [sample(10, np.array([-0.1], dtype=np.float32).tobytes()), sample(20, None)],
+            seq_len=8,
+            num_train_workers=1,
+            bin_cost=build_bin_cost(None),
+        )
+
+
+def test_prepare_sample_truncates_sampling_mask_logprobs_with_ids():
+    ids = np.array([5, 6, 7, 8], dtype=np.int32).tobytes()
+    logprobs = np.array([-0.1, -0.2, -0.3, -0.4], dtype=np.float32).tobytes()
+    sample = TrainingSample(
+        token_ids=[1, 2, 3, 4],
+        mask=[False, True, True, True],
+        logprobs=[0.0, -0.1, -0.2, -0.3],
+        temperatures=[1.0] * 4,
+        advantages=[0.0, 1.0, 1.0, 1.0],
+        env_name="test-env",
+        sampling_mask=SamplingMask(
+            ids=ids,
+            counts=np.array([1, 2, 0, 1], dtype=np.int32).tobytes(),
+            logprobs=logprobs,
+        ),
+    )
+
+    micro_batch = prepare_sample(sample, seq_len=3)
+
+    assert micro_batch.sampling_mask is not None
+    assert micro_batch.sampling_mask.ids == ids[:12]
+    assert micro_batch.sampling_mask.logprobs == logprobs[:12]
 
 @pytest.mark.parametrize(
     ("rollout_count", "num_train_workers", "expected_batches_per_worker"), [(4, 2, 2), (5, 2, 3), (7, 1, 7), (11, 4, 3)]

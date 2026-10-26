@@ -1,6 +1,7 @@
 import asyncio
 from unittest.mock import MagicMock
 
+import numpy as np
 import pydantic
 import pytest
 import verifiers.v1 as vf
@@ -10,6 +11,7 @@ from verifiers.v1.types import AssistantMessage, ToolMessage, UserMessage
 from prime_rl.configs.algorithm import AlgoConfig, FrozenModelConfig
 from prime_rl.orchestrator.algo import EchoAlgorithm, assign_advantages, stamp_loss_routing
 from prime_rl.orchestrator.algo.base import iter_trainable_traces
+from prime_rl.orchestrator.algo.routing import is_trainable, scalar_advantage
 from prime_rl.orchestrator.trajectories import trace_to_samples
 from prime_rl.transports.batch.types import TrainingSample
 
@@ -235,6 +237,20 @@ def test_assign_advantages_full_length_stream():
     trace = _make_episode().traces[0]
     assign_advantages(trace, [0.5, -0.5, 1.0])
     assert trace_to_samples(trace)[0].advantages == [0.0, 0.0, 0.5, -0.5, 0.0, 1.0]
+
+
+def test_advantage_routing_handles_numpy_streams():
+    trace = _make_episode().traces[0]
+    trace.nodes[1].advantages = np.array([0.5, -0.25], dtype=np.float32)
+    trace.nodes[3].advantages = np.array([0.75], dtype=np.float32)
+
+    assert scalar_advantage(trace) == pytest.approx(1 / 3)
+    assert is_trainable(trace)
+
+    trace.nodes[1].advantages = np.zeros(2, dtype=np.float32)
+    trace.nodes[3].advantages = np.zeros(1, dtype=np.float32)
+    assert scalar_advantage(trace) == 0.0
+    assert not is_trainable(trace)
 
 
 def test_compaction_retries_train_only_causally_used_generations():
