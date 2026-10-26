@@ -1,5 +1,7 @@
 # IcePop score-centering port checkpoint
 
+Current status: the opt-in feature is integrated on tiny-prl main at `c4c7722ec`, using verifier backport `1e80567bc` and renderer `70c8204`. The earlier #4176 overlays and their metadata conflict below are historical checkpoint inputs. Current main passed 317 CPU tests and separate bounded, untruncated and default-IPO 10-update runs. See `main-integration-result.json` and `../../examples/tiny/ICEPOP_KV_CACHE.md` for current acceptance and limitations.
+
 This directory preserves the isolated bounded-sampling / score-centering port as a patch. It is intentionally not applied to the main source tree and does not change dependency metadata or submodules. The validated R4 run is a three-update integration smoke, not a quality or speed result.
 
 ## Contents

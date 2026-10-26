@@ -1,34 +1,23 @@
 # tiny-prl research handoff
 
-Checkpoint: 2026-10-26. This note captures the current state of the IcePop port, 360M decode work, and KV-cache work. It does not claim that pending suite or full-run work has passed.
+Checkpoint: 2026-10-26. This note captures the current state of the IcePop integration, 360M decode work, and KV-cache work. The main-worktree CPU suite and all three 10-update RL runtime arms completed (bounded IcePop, untruncated IcePop, and default IPO).
 
 ## Repository and environment boundaries
 
-- Prime-RL working repository: `/home/pradheep/tiny-prl/prime-rl`. Local `main` and `origin/main` are `c81caffb2ba8c3492daca8132435e88e082a3f1b`; local `upstream/main` is `40babc0833dda27f6c23ab53547dd527e465ae38`. The origin is the personal fork; upstream is PrimeIntellect.
-- Prime-Kernels checkout: `/home/pradheep/tiny-prl/prime-kernels`. Local `main` and `origin/main` are `1ead41b19e71bae6fbaeb9c1c41f05c4ed12491b`, also the Prime-RL `deps/prime-kernels` gitlink. The canonical upstream remote is configured; this checkout had no fetched `upstream/main` ref at checkpoint time.
-- The root worktree's tracked production source is not the isolated IcePop port. The local status includes changes to `examples/tiny/EXPERIMENTS.md`, `examples/tiny/hillclimb.png`, and `tools/plot_tiny_hillclimb.py`; preserve those concurrent changes. The primary progress image remains `examples/tiny/hillclimb.png`; this handoff does not change its path or design.
-- The score-centering port is a detached, dirty worktree at `outputs/megakernel-20261025/icepop-port-r1/worktree`, based on `09ada94d771096ab46ebe0ebad3afc28d7716084` (parent `8fa401ebc0a5e14495161bf8c8778e93bb28fcc6`). It contains uncommitted port changes and must not be confused with Prime-RL `main`. Reproduction checkpoint/patches are in `icepop-port-r1/checkpoint/`; patch SHA-256 is `6b50a4b496a02c99a92c71362e689d03f34208ab48f4c4a94242edc5c0152aa9`.
-- Use the pinned `/home/pradheep/.venv` through offline `uv run`; keep it read-only. No dependency install, root lockfile update, dependency gitlink update, dtype change, or production integration is part of this checkpoint. Dependency overlays are source-only and remain under `outputs/`; they are not symlinked into the checkout or installed environment.
+- Prime-RL working repository: `/home/pradheep/tiny-prl/prime-rl`. Current local `main` and `origin/main` are `5813e7a26b6e91c44f0471f33c59d0c9df42664e`; the published IcePop implementation is commit `c4c7722ec`. Local `upstream/main` is `40babc0833dda27f6c23ab53547dd527e465ae38`. The origin is the personal fork; upstream is PrimeIntellect.
+- Prime-Kernels checkout: `/home/pradheep/tiny-prl/prime-kernels`. Local `main`, `origin/main`, and the Prime-RL submodule are `3cb1a678eed2325997182a0b62b3a886b3fae37d`. This revision removes GitHub Actions workflows; the active production kernel remains R6.
+- The main worktree now contains the opt-in IcePop integration and related compatibility changes. Concurrent research edits include `examples/tiny/EXPERIMENTS.md`, `examples/tiny/hillclimb.png`, and `tools/plot_tiny_hillclimb.py`; preserve them. The primary progress image remains `examples/tiny/hillclimb.png`.
+- Active dependency submodules are verifiers `1e80567bc3e80de16a73f0fa5e0ee93b15d1cdca` and renderers `70c8204bbce9c0afa7de746c1e249a717980f8dc`. The pinned `/home/pradheep/.venv` remains read-only. The offline lock check did not complete because the cached vLLM 0.31 wheel URL was unavailable; no lockfile edit, download, or environment sync was made. Model dtype settings remain unchanged.
 
 ## Score-centering / IcePop
 
-Prime-RL upstream #4012 is `90fbb8db28252f509b9add326aaa37fab4ce2a87`; bounded replay #4176 is `735496e36fc9cb82e94b50098841bb80b2a0aaa1`. The isolated port uses the #4176 source snapshots recorded in `icepop-port-r1/dependency-overlays/dependency-manifest.json`: renderers `b6ab8c7d67229be6fb99d57a8395f978d94b0566`, verifiers `9f0f03ae4733e949e371ec80d3c95d945dfecff6`. The root checkout still pins older submodules (renderers `5d870d8eaa65114f5bef8a4cffc146fbcb418ec4`; verifiers `a25041a12bd2396ecdbbc9e112b0464155ed8de2`). The isolated overlays solve runtime API availability, not minimum dependency metadata; the verifier/sandbox floor and root lock are still unresolved.
+Prime-RL upstream #4012 is `90fbb8db28252f509b9add326aaa37fab4ce2a87`; bounded replay #4176 is `735496e36fc9cb82e94b50098841bb80b2a0aaa1`. The main-worktree integration is opt-in through `trainer.loss.type = "icepop"` and `trainer.loss.score_centering = true`. See `ICEPOP_KV_CACHE.md` for bounded-exact and untruncated-proportional-tail invocations based on the complete `smollm2-full-ipc.toml` example.
 
-**Established:** the upstream loss CPU oracle passes full-head, proportional-tail, complete-support, mask-alignment, and missing-evidence cases (`score-centering-upstream-r1/`). The isolated R4 port completed three guarded updates with bounded sampling (`logprobs=8`, `top_k=8`), finite loss/KL/gradient norm, and all 12 consumed trace IDs joined to stream/orchestrator records. However, head mass was about 1, tail scale was 0, and mean correction L1 only `6.6–7.0e-7`. This is an integration smoke with negligible effective correction, not learning, reward, quality, or speed evidence. See `icepop-rl-smoke-r4/{runtime-audit.md,runtime-audit.json,guard/result.json,frozen-source-hashes.json}` and Experiment 149 in `EXPERIMENTS.md`.
+**CPU validation:** main-checkout tests passed: trainer/orchestrator 126; inference/config 191; 317 total, zero failures and 108 deselected. The run used the pinned submodule source directly, with no overlays. Commands, stdout, import origins and result JSON are in `outputs/icepop-main-tests-r1/`. `test_load_configs` was excluded because it requires external environments; GPU-marked tests were deselected.
 
-**Current full-suite evidence:** corrected broad CPU sweep: 317 passed, zero failures, 108 deselected. Trainer/orchestrator: 126 passed after replacing two exact-float assertions in test_advantage.py with pytest.approx(abs=1e-7); production math was unchanged. The earlier failed output is preserved. Inference/config: 191 passed after adding the required taskset package roots. Initial 39 setup failures are retained, not the final result. Exact commands/stdout/results: `icepop-full-tests-r1/`; published compact copies: `research/icepop-score-centering/`.
+**Runtime status:** bounded replay completed ten updates in `outputs/megakernel-20261025/icepop-main-full-r1/`; untruncated sampling completed ten updates in `outputs/megakernel-20261025/icepop-main-untruncated-r2/`. Both guards returned 0 with zero job swap. Both runs have 40 trainer trace IDs joined to orchestrator annotations and stream records. Bounded replay (`top_p=.99`, `top_k=8`, eight logprobs) recorded complete sampler support: head mass was approximately 1 and no tail estimate was used. Untruncated sampling (`top_p=1`, no `top_k`, eight logprobs) recorded head mass between 0.82 and 0.94 with proportional tail scale approximately 1. Both runs had zero clipped tokens, so the correction was at floating-point-noise scale for bounded replay and zero for untruncated sampling. This establishes runtime integration and evidence alignment, not a meaningful centering effect, learning gain, reward gain, or speed gain. A separate default-IPO reference completed ten finite updates with guard code 0, zero swap, and 40/40 trainer trace joins. It is functional context only, not a paired performance or quality control for the IcePop recipes. Overall, the three RL runs provide 30 completed main-worktree updates. Machine-readable audit: `outputs/megakernel-20261025/icepop-main-acceptance-r1/summary.json`; compact public copy: `research/icepop-score-centering/main-integration-result.json`.
 
-The guarded 10-update IcePop run **completed**: `icepop-rl-full-r1/summary.json`, guard exit 0, 65.10 s, GPU peak 5262 MiB, zero job swap, all ten loss/KL/gradient-norm values finite. All frozen source hashes match. No reward or wall-time improvement claim is established. The loss/std logging metric was dropped as non-finite. Resolve coherent dependency metadata before activating the port; the two CPU precision assertions are now fixed.
-
-Useful source-only API import command (the dependency overlay manifest has the validated invocation):
-
-```sh
-cd /home/pradheep/tiny-prl/prime-rl
-ulimit -v 2097152
-PYTHONPATH="$PWD/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/renderers:$PWD/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/verifiers" \
-  uv run --offline --no-project --python /home/pradheep/.venv/bin/python python -c \
-  'from renderers.client import _parse_compact_logprobs; from verifiers.v1 import SamplingMask, TopLogprobs; from verifiers.v1.trace import Trace, MessageNode'
-```
+The offline lock check could not complete because its cached vLLM 0.31 wheel URL was unavailable. This is a cache limitation, not evidence of a dependency conflict. No dependency download or environment sync was attempted. The lockfile was not changed.
 
 ## SmolLM2-360M decode
 
@@ -38,20 +27,9 @@ The first full 32-layer prototype is isolated at `decode-360-cuda-r1/`. It uses 
 
 Full-model GPU evidence is `decode-360-validation-r3/results-r1/comparison.json`, tied to SmolLM2-360M snapshot `a10cc1512eabd3dde888204e902eca88bddb4951` (config SHA `224f72354f10d617a359cc82ad15a3c96e866b9b2ffadb81997eeea9e88e22ee`; weights SHA `e6bffe7435d7ddc10fd3b9a9efd429dafbacb1cb17015fb5562664e7532bf86e`). At B1/B2 × context 8/32, three cases pass exactly; B2/context 32 fails strict layer/KV/logit gates although greedy IDs match exactly. The first post-block divergence is layer 15; the first K/V divergence is layer 16. At layer 15, 220/1920 output elements differ, first difference is 1 ULP and max absolute error is 0.0625. Layer-16 K/V has 305 differing elements, first difference 1 ULP and max absolute error 0.015625. Divergence propagates downstream; final hidden max absolute error is 0.15625 and logits max absolute error is 0.1875 across 45,782 differing logits. Maximum BF16 ULP values become large near zero, so use the reported actual values and absolute errors to diagnose; do not loosen the gates. Greedy match alone is not acceptance.
 
-Next action: add or use internal per-stage capture around the failing layer-15 path and identify the first arithmetic stage that changes before layer-16 K/V. The current prototype exposes every post-block output but its internal debug buffer covers only one block, so it cannot identify all 32 layers' internal first divergence. Keep thresholds fixed. Run the corrected diagnostic in a new result directory and preserve the existing R1 results.
+R7 captured the layer-15 attention stages. Rotated Q, cached K/V, scaled QK scores, and softmax probabilities match exactly. PV is the first mismatch in B2/context32: 1 of 1,920 outputs differs at `[0,14,15]` by one BF16 ULP (native `-0.455078125`, candidate `-0.453125`). The downstream R7 gates still fail, despite matching greedy IDs. See `decode-360-validation-r7/results-r1/comparison.json` and the GPU primitive evidence in `decode360-pv-gpu-probe-r1/`. Torch BF16 matmul matches native PV across the four saved captures; tested explicit round-to-nearest reduction schedules still miss the B1/context8 midpoint case. A native cuBLAS PV SASS probe is in progress at `decode360-pv-order-r1/`; no PV math fix is established. A newer R4 candidate has not yet passed GPU validation. Next, use the native SASS probe to identify a candidate PV accumulation order, then rerun the unchanged strict four-case plus held-out validation in a new result directory.
 
-Prepared GPU command after root review:
-
-```sh
-cd /home/pradheep/tiny-prl/prime-rl
-uv run --offline --no-project --python /home/pradheep/.venv/bin/python python \
-  outputs/megakernel-20261025/decode-360-validation-r3/validate.py \
-  --library outputs/megakernel-20261025/decode-360-cuda-r1/build/libdecode360_r1.so \
-  --output-dir outputs/megakernel-20261025/decode-360-validation-r3/results-r1 \
-  --device cuda:0
-```
-
-The validation harness has CPU syntax, helper, cache clone, and 27-parameter ABI preflights. The actual R3 full-model run above already exists; use a fresh output directory for any rerun. The R1/R2/R3 harness history and results are retained separately.
+The R7 full-model comparison is in `decode-360-validation-r7/results-r1/comparison.json`; the native PV instruction probe and its output are under `decode360-pv-order-r1/`. Preserve the existing R1 result directories. Once a candidate PV accumulation order is grounded in the SASS analysis, validate it in a fresh directory against the same strict four-case and held-out gates. The probe has not established a production math fix yet.
 
 ## KV-cache offload
 
@@ -62,8 +40,8 @@ The short-context R6 smoke is functionally exact for the tested 32 generated IDs
 - Keep `examples/tiny/MEGAKERNEL_PLAN.md` as the megakernel design/acceptance plan, `EXPERIMENTS.md` as the published experiment ledger, and `ICEPOP_KV_CACHE.md` as KV-specific evidence. This handoff records where work stands; it does not replace those documents.
 - Preserve the pinned environment and source snapshots. Keep experimental CUDA and port files in the existing ignored `outputs/megakernel-20261025/` paths; do not edit production kernels, dependency pins, locks, or dtype settings as part of diagnosis.
 - Use one guarded GPU workload at a time. Record full command, source hashes, guard result, exact output directory, and numerical/workload scope. A partial run or failed guard is not a completed result.
-- The user authorizes useful commits and pushes to the personal fork main branches. Stage explicit paths, preserve upstream repositories, and verify remote parity. The opt-in port is checkpointed as a reproducible patch until dependency metadata is coherent.
+- The user authorizes useful commits and pushes to the personal fork main branches. Stage explicit paths, preserve upstream repositories, and verify remote parity. The opt-in port is published in the personal Prime-RL fork as implementation commit `c4c7722ec`; the pinned environment remains unchanged. The offline lock check could not complete because the cached vLLM 0.31 wheel URL was unavailable.
 
 ## Published checkpoint files
 
-`research/icepop-score-centering/` contains the full replayable port patch, exact dependency manifest, patch/source-hash validation, CPU results/commands, and full 10-update RL result. The full 360M decoder prototype is archived in the separate prime-kernels fork under `research/smollm2_360m_decode/`, explicitly marked not accepted (3/4 strict cases). Resume with layer-15 internal-stage capture for B2/context32; do not relax gates.
+`research/icepop-score-centering/` contains the full replayable port patch, exact dependency manifest, patch/source-hash validation, CPU results/commands, and main integration audit for three 10-update runs. The full 360M decoder prototype is archived in the separate prime-kernels fork under `research/smollm2_360m_decode/`, explicitly marked not accepted (3/4 strict cases). Continue from the native PV SASS analysis and validate any candidate against the unchanged strict gates; do not relax them.

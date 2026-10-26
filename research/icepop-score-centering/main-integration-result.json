@@ -1,0 +1,334 @@
+{
+  "title": "IcePop score centering: main-worktree integration runtime acceptance",
+  "date": "2026-10-26",
+  "model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+  "main_cpu_suite": {
+    "passed": 317,
+    "failed": 0,
+    "deselected": 108,
+    "evidence": "outputs/icepop-main-tests-r1/results.json"
+  },
+  "dependency_metadata": {
+    "verifiers_commit": "1e80567bc3e80de16a73f0fa5e0ee93b15d1cdca",
+    "renderers_commit": "70c8204bbce9c0afa7de746c1e249a717980f8dc",
+    "declared_verifier_environment_requirements_satisfied": 32,
+    "offline_lock_check": "not completed: cached vLLM 0.31 wheel URL unavailable; lock not changed, no install/sync performed"
+  },
+  "runs": [
+    {
+      "mode": "bounded",
+      "source_dir": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-main-full-r1",
+      "sampling": {
+        "temperature": 1.0,
+        "top_p": 0.99,
+        "top_k": 8,
+        "requested_logprobs": 8,
+        "sampling_mask_enabled": true,
+        "support": "complete bounded replay support"
+      },
+      "trainer": {
+        "loss": "icepop",
+        "score_centering": true,
+        "score_centering_topk": 8,
+        "steps": 10,
+        "step_numbers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "all_logged_loss_entropy_kl_grad_norm_finite": true,
+        "logged_step_metric_ranges": {
+          "loss": {
+            "min": 0.0,
+            "max": 0.0651
+          },
+          "entropy": {
+            "min": 0.4957,
+            "max": 1.5106
+          },
+          "mismatch_kl": {
+            "min": 0.0004,
+            "max": 0.0012
+          },
+          "grad_norm": {
+            "min": 0.0064,
+            "max": 1.3737
+          }
+        }
+      },
+      "centering_metrics": {
+        "head_mass_mean_across_steps": {
+          "min": 0.9999999403953552,
+          "max": 1.0,
+          "mean": 0.9999999940395355
+        },
+        "tail_scale_mean_across_steps": {
+          "min": 0.0,
+          "max": 0.0,
+          "mean": 0.0
+        },
+        "correction_l1_mean_across_steps": {
+          "min": 5.827249651702004e-07,
+          "max": 6.829145036135742e-07,
+          "mean": 6.328448876047332e-07
+        },
+        "masked_fraction_mean_across_steps": {
+          "min": 0.0,
+          "max": 0.0,
+          "mean": 0.0
+        },
+        "unmasked_mismatch_kl_mean_across_steps": {
+          "min": 0.00045649035018868744,
+          "max": 0.0013011065311729908,
+          "mean": 0.0008787316881353035
+        },
+        "interpretation": "Recorded sampler support covers all sampler probability mass (head mass approximately 1); no tail estimate is used. No rollout tokens were clipped, so the centering correction is at floating-point-noise scale."
+      },
+      "guard": {
+        "returncode": 0,
+        "stop_reason": null,
+        "elapsed_seconds": 58.889255122005125,
+        "minimum_available_bytes": 3092393984,
+        "peak_swap_bytes": 0,
+        "peak_gpu_mib": 5262
+      },
+      "trace_join": {
+        "stream_rows": 76,
+        "stream_trace_ids": 76,
+        "orchestrator_annotation_ids": 40,
+        "trainer_annotation_ids": 40,
+        "trainer_ids_join_orchestrator_and_stream": 40,
+        "all_trainer_ids_join": true
+      },
+      "source": {
+        "origins": {
+          "loss": "/home/pradheep/tiny-prl/prime-rl/src/prime_rl/trainer/rl/loss.py",
+          "verifiers": "/home/pradheep/tiny-prl/prime-rl/deps/verifiers/verifiers/v1/__init__.py",
+          "renderers": "/home/pradheep/tiny-prl/prime-rl/deps/renderers/renderers/client.py"
+        },
+        "source_hashes": {
+          "loss": "d6f5bb520ed890d5bdc90a4c8b4eba9558ad7608a50bae3190233e1dedd7be98",
+          "verifiers": "f6577677cbfcfa24fd59c2cc37417c11b758bbce64cd72f8bfda6114706963b4",
+          "renderers": "95abbc628329f03334295ae1cabaee48c2c08d5578325920495474d7f88c65d9"
+        },
+        "dependency_commits": {
+          "verifiers": "1e80567bc3e80de16a73f0fa5e0ee93b15d1cdca",
+          "renderers": "70c8204bbce9c0afa7de746c1e249a717980f8dc",
+          "prime-kernels": "607902aa3e732bf85c83cd4ef312dd1520c1ab1a"
+        }
+      },
+      "limitations": [
+        "Two independent 10-update completion runs, not a matched performance or quality comparison.",
+        "No reward, learning improvement, or speed improvement is established.",
+        "Both runs have zero masked fraction; the correction did not materially change the observed gradients.",
+        "loss/std was dropped by the logger as a non-finite aggregate; per-step loss, entropy, mismatch KL and gradient norm logged in trainer.log are finite."
+      ]
+    },
+    {
+      "mode": "untruncated",
+      "source_dir": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-main-untruncated-r2",
+      "sampling": {
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": null,
+        "requested_logprobs": 8,
+        "sampling_mask_enabled": false,
+        "support": "untruncated full-vocabulary sampling"
+      },
+      "trainer": {
+        "loss": "icepop",
+        "score_centering": true,
+        "score_centering_topk": 8,
+        "steps": 10,
+        "step_numbers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "all_logged_loss_entropy_kl_grad_norm_finite": true,
+        "logged_step_metric_ranges": {
+          "loss": {
+            "min": -0.0004,
+            "max": 0.0005
+          },
+          "entropy": {
+            "min": 0.8378,
+            "max": 1.9104
+          },
+          "mismatch_kl": {
+            "min": 0.001,
+            "max": 0.0021
+          },
+          "grad_norm": {
+            "min": 0.0079,
+            "max": 1.4696
+          }
+        }
+      },
+      "centering_metrics": {
+        "head_mass_mean_across_steps": {
+          "min": 0.8209415078163147,
+          "max": 0.9414278268814087,
+          "mean": 0.8867253839969635
+        },
+        "tail_scale_mean_across_steps": {
+          "min": 0.9999999403953552,
+          "max": 1.0,
+          "mean": 0.9999999880790711
+        },
+        "correction_l1_mean_across_steps": {
+          "min": 0.0,
+          "max": 0.0,
+          "mean": 0.0
+        },
+        "masked_fraction_mean_across_steps": {
+          "min": 0.0,
+          "max": 0.0,
+          "mean": 0.0
+        },
+        "unmasked_mismatch_kl_mean_across_steps": {
+          "min": 0.0008440639358013868,
+          "max": 0.0022245063446462154,
+          "mean": 0.0014965232810936868
+        },
+        "interpretation": "The eight-token head contains partial sampler mass and the proportional tail estimate is active (tail scale approximately 1). No rollout tokens were clipped, so the observed centering correction is zero in this run."
+      },
+      "guard": {
+        "returncode": 0,
+        "stop_reason": null,
+        "elapsed_seconds": 68.34122305999335,
+        "minimum_available_bytes": 2866143232,
+        "peak_swap_bytes": 0,
+        "peak_gpu_mib": 5260
+      },
+      "trace_join": {
+        "stream_rows": 122,
+        "stream_trace_ids": 122,
+        "orchestrator_annotation_ids": 40,
+        "trainer_annotation_ids": 40,
+        "trainer_ids_join_orchestrator_and_stream": 40,
+        "all_trainer_ids_join": true
+      },
+      "source": {
+        "origins": {
+          "loss": "/home/pradheep/tiny-prl/prime-rl/src/prime_rl/trainer/rl/loss.py",
+          "verifiers": "/home/pradheep/tiny-prl/prime-rl/deps/verifiers/verifiers/v1/__init__.py",
+          "renderers": "/home/pradheep/tiny-prl/prime-rl/deps/renderers/renderers/client.py"
+        },
+        "source_hashes": {
+          "loss": "d6f5bb520ed890d5bdc90a4c8b4eba9558ad7608a50bae3190233e1dedd7be98",
+          "verifiers": "f6577677cbfcfa24fd59c2cc37417c11b758bbce64cd72f8bfda6114706963b4",
+          "renderers": "95abbc628329f03334295ae1cabaee48c2c08d5578325920495474d7f88c65d9"
+        },
+        "dependency_commits": {
+          "verifiers": "1e80567bc3e80de16a73f0fa5e0ee93b15d1cdca",
+          "renderers": "70c8204bbce9c0afa7de746c1e249a717980f8dc",
+          "prime-kernels": "607902aa3e732bf85c83cd4ef312dd1520c1ab1a"
+        }
+      },
+      "limitations": [
+        "Two independent 10-update completion runs, not a matched performance or quality comparison.",
+        "No reward, learning improvement, or speed improvement is established.",
+        "Both runs have zero masked fraction; the correction did not materially change the observed gradients.",
+        "loss/std was dropped by the logger as a non-finite aggregate; per-step loss, entropy, mismatch KL and gradient norm logged in trainer.log are finite."
+      ]
+    },
+    {
+      "mode": "default_ipo_control",
+      "source_dir": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-main-ipo-control-r1",
+      "sampling": {
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": null,
+        "requested_logprobs": null,
+        "sampling_mask_enabled": false,
+        "support": "untruncated full-vocabulary sampling"
+      },
+      "trainer": {
+        "loss": "ipo",
+        "score_centering": false,
+        "steps": 10,
+        "step_numbers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "all_logged_loss_entropy_kl_grad_norm_finite": true,
+        "logged_step_metric_ranges": {
+          "loss": {
+            "min": -0.0011,
+            "max": 0.0002
+          },
+          "entropy": {
+            "min": 0.8436,
+            "max": 1.8737
+          },
+          "mismatch_kl": {
+            "min": 0.001,
+            "max": 0.0043
+          },
+          "grad_norm": {
+            "min": 0.0079,
+            "max": 1.4651
+          }
+        }
+      },
+      "guard": {
+        "returncode": 0,
+        "stop_reason": null,
+        "elapsed_seconds": 70.54298670298886,
+        "minimum_available_bytes": 2744832000,
+        "peak_swap_bytes": 0,
+        "peak_gpu_mib": 5260
+      },
+      "trace_join": {
+        "stream_rows": 121,
+        "stream_trace_ids": 121,
+        "orchestrator_annotation_ids": 40,
+        "trainer_annotation_ids": 40,
+        "trainer_ids_join_orchestrator_and_stream": 40,
+        "all_trainer_ids_join": true
+      },
+      "source": {
+        "origins": {
+          "loss": "/home/pradheep/tiny-prl/prime-rl/src/prime_rl/trainer/rl/loss.py",
+          "verifiers": "/home/pradheep/tiny-prl/prime-rl/deps/verifiers/verifiers/v1/__init__.py",
+          "renderers": "/home/pradheep/tiny-prl/prime-rl/deps/renderers/renderers/client.py"
+        },
+        "source_hashes": {
+          "loss": "d6f5bb520ed890d5bdc90a4c8b4eba9558ad7608a50bae3190233e1dedd7be98",
+          "verifiers": "f6577677cbfcfa24fd59c2cc37417c11b758bbce64cd72f8bfda6114706963b4",
+          "renderers": "95abbc628329f03334295ae1cabaee48c2c08d5578325920495474d7f88c65d9"
+        },
+        "dependency_commits": {
+          "verifiers": "1e80567bc3e80de16a73f0fa5e0ee93b15d1cdca",
+          "renderers": "70c8204bbce9c0afa7de746c1e249a717980f8dc",
+          "prime-kernels": "607902aa3e732bf85c83cd4ef312dd1520c1ab1a"
+        }
+      },
+      "interpretation": "Functional default-IPO reference run on the same model and main source family; it is not a matched performance or quality control for either IcePop sampling recipe."
+    }
+  ],
+  "conclusion": "The bounded IcePop, untruncated IcePop, and default IPO reference runs each completed ten finite trainer updates with successful guards. Both IcePop runs have 40/40 trainer trace IDs joined to orchestration and stream evidence. The IPO run also has 40/40 joins. Bounded and untruncated centering behavior is summarized separately in each run. The IPO run is a functional reference only, not a matched performance or quality comparison. Across these runs this establishes 317 CPU regressions plus 30 runtime updates, not a meaningful score-centering effect, learning gain, reward gain, or speed gain."
+}

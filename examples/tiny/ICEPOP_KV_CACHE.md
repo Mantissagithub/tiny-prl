@@ -1,9 +1,91 @@
 # IcePop score centering and native KV offload
 
-Source snapshot: upstream `40babc0833dda27f6c23ab53547dd527e465ae38`,
+Initial source-audit baseline: upstream `40babc0833dda27f6c23ab53547dd527e465ae38`,
 local `8fa401ebc0a5e14495161bf8c8778e93bb28fcc6`, inspected 2026-10-26.
-These are separate experimental directions. Neither changes the verified RL
-wall-time result yet.
+These are separate experimental directions. The score-centering integration
+is now in the main worktree behind an opt-in loss flag. CPU regression tests
+pass, and bounded, untruncated, and default-IPO runtime runs completed ten
+updates each. KV offload results
+below are independent of score centering.
+
+## Using score centering
+
+The main-worktree port is opt-in with `trainer.loss.type = "icepop"` and
+`trainer.loss.score_centering = true`. The setting is validated for policy
+sampling and requests sampler probabilities automatically. Keep the model
+dtype settings from the complete base configuration unchanged.
+
+Start from the complete shared-GPU example, which already contains the model,
+deployment, renderer, and task configuration:
+
+```sh
+uv run --offline rl @examples/tiny/smollm2-full-ipc.toml \
+  --trainer.loss.type icepop \
+  --trainer.loss.score-centering true \
+  --trainer.loss.score-centering-topk 8
+```
+
+For **untruncated sampling**, leave `top_p = 1.0` and `top_k` unset in the
+training sampling config. The example requests an eight-token probability head;
+the loss keeps full-vocabulary normalization and estimates the unobserved tail
+proportionally. This is an approximation, not exact full-vocabulary score
+centering.
+
+For **bounded exact replay**, use this full invocation instead:
+
+```sh
+uv run --offline rl @examples/tiny/smollm2-full-ipc.toml \
+  --trainer.loss.type icepop \
+  --trainer.loss.score-centering true \
+  --trainer.loss.score-centering-topk 8 \
+  --orchestrator.train.sampling.top-k 8
+```
+
+With replay support complete, centering is exact on that recorded support and
+there is no modeled tail. The option still uses eight as the head-size setting
+for untruncated sources if the same config contains them. Do not set `top_p < 1`
+for this recipe unless the resulting support is also bounded. Config validation
+enforces the captured-head/replay requirements.
+
+The compact per-token evidence adds top-token IDs and logprobs plus server-side
+extraction and trainer storage. At top-128, the raw IDs and float32 logprobs are
+about 1 KiB per scored token before framing. This is a learning-estimator change;
+the overhead and throughput effect require measurement.
+
+## Main-worktree integration status
+
+The opt-in port and compatibility changes are present in the main worktree. The
+verifier submodule is pinned to `1e80567bc3e80de16a73f0fa5e0ee93b15d1cdca`
+and renderers to `70c8204bbce9c0afa7de746c1e249a717980f8dc`. A direct main-tree
+CPU regression sweep passed 317 tests (126 trainer/orchestrator and 191
+inference/config), with 108 deselected; no GPU test was run. All 32 declared
+verifier environment requirements were already satisfied by the pinned local
+environment.
+
+Two guarded 10-update main-worktree runs completed with code 0, zero job swap,
+and all 40 trainer trace IDs joined to orchestration annotations and stream
+records. Bounded replay used `top_p=0.99`, `top_k=8`, eight recorded logprobs,
+and sampling-mask capture; sampler-head mass was approximately 1 and no tail
+estimate was used. Untruncated sampling used `top_p=1.0`, no `top_k`, and eight
+recorded logprobs; the head held 0.82–0.94 of sampler probability mass and the
+proportional tail scale was approximately 1. Both runs had zero clipped tokens,
+so measured centering corrections were at floating-point-noise scale in the
+bounded run and zero in the untruncated run. These runs establish integration
+and evidence alignment, not a learning, reward, or speed improvement. Runtime
+and trace details are in
+`outputs/megakernel-20261025/icepop-main-acceptance-r1/summary.json`.
+
+A separate default-IPO functional reference also completed ten finite updates
+with guard code 0, no swap, and 40/40 trainer trace joins. It used untruncated
+sampling with no score-centering capture. It is not a matched performance or
+quality control for either IcePop recipe. Together, the bounded, untruncated,
+and IPO runs provide 30 completed main-worktree updates; they do not establish
+a learning, reward, or speed benefit.
+
+The existing lock was not changed. An offline lock check could not complete
+because the cached vLLM 0.31 wheel URL was unavailable; no download or
+environment sync was attempted. This is a cache limitation, not a dependency
+conflict finding. The pinned environment and dtype settings remain unchanged.
 
 ## Upstream changes
 

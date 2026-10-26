@@ -1,0 +1,54 @@
+{
+  "scope": "main checkout, CPU-only relevant unit regression suite",
+  "cuda_visible_devices": "",
+  "resource_limits_per_job": {
+    "MemoryMax": "2G",
+    "MemorySwapMax": "0",
+    "RuntimeMaxSec": "180s"
+  },
+  "source_overlays": false,
+  "dependency_submodules": {
+    "verifiers": "1e80567bc3e80de16a73f0fa5e0ee93b15d1cdca",
+    "renderers": "70c8204bbce9c0afa7de746c1e249a717980f8dc"
+  },
+  "import_origins": {
+    "verifiers.v1": "/home/pradheep/tiny-prl/deps/verifiers/verifiers/v1/__init__.py",
+    "renderers.client": "/home/pradheep/tiny-prl/deps/renderers/renderers/client.py",
+    "prime_rl.trainer.rl.loss": "/home/pradheep/tiny-prl/prime-rl/src/prime_rl/trainer/rl/loss.py",
+    "verifiers_metadata_version": "0.4.1.dev12"
+  },
+  "test_groups": [
+    {
+      "command_result_file": "trainer-orchestrator.stdout.txt",
+      "passed": 126,
+      "failed": 0,
+      "deselected": 23,
+      "warnings": 22,
+      "exit_code": 0
+    },
+    {
+      "command_result_file": "inference-configs.stdout.txt",
+      "passed": 191,
+      "failed": 0,
+      "deselected": 85,
+      "warnings": 17,
+      "exit_code": 0
+    }
+  ],
+  "aggregate": {
+    "passed": 317,
+    "failed": 0,
+    "deselected": 108,
+    "exit_code": 0
+  },
+  "limitations": [
+    "GPU tests were deselected; this is CPU verification only.",
+    "tests/unit/test_configs.py::test_load_configs was excluded because it depends on external environments.",
+    "uv lock --check --offline previously could not complete because the cached vLLM 0.31 wheel URL was unavailable; no lock or dependency metadata edits were made, and no download or environment sync was attempted."
+  ],
+  "stdout_files": [
+    "imports.stdout.txt",
+    "trainer-orchestrator.stdout.txt",
+    "inference-configs.stdout.txt"
+  ]
+}
