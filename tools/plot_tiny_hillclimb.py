@@ -244,6 +244,7 @@ EXPERIMENTS = {
     146: (MEM, "rejected"),
     147: (MEM, "validated"),
     148: (MEM, "component"),
+    149: (TRAIN, "validated"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -263,6 +264,7 @@ CALLOUTS = {
     123: ("cuBLAS GEMV order exact", (-75, 20)),
     128: ("decode megakernel\n-9..-21% ITL in vLLM", (-95, 48)),
     131: ("R6 vLLM: 5/6 cells faster\nshort −6.8–10.9%; 2048/B1 +1%", (-35, -38)),
+    148: ("8k prefix reuse\n4.97× · component only", (-30, -24)),
 }
 
 MILESTONES = [

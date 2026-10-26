@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "purpose": "Read-only source overlays for the bounded IcePop probability APIs used by prime-rl #4176",
+  "overlays": {
+    "renderers": {
+      "path": "renderers",
+      "package_path": "renderers/renderers",
+      "source_repository": "https://github.com/PrimeIntellect-ai/renderers.git",
+      "commit": "b6ab8c7d67229be6fb99d57a8395f978d94b0566",
+      "tree": "48a4245bd9d08cc5739f594a4022f940874dc78a",
+      "commit_subject": "perf: return completion logprobs as a float32 array (#201)",
+      "feature_evidence": [
+        "renderers/client.py::_parse_compact_logprobs parses bounded compact sampled-token and top-k logprobs",
+        "renderers/client.py::generate returns completion_top_ids and completion_top_logprobs"
+      ]
+    },
+    "verifiers": {
+      "path": "verifiers",
+      "package_path": "verifiers/verifiers",
+      "source_repository": "https://github.com/PrimeIntellect-ai/verifiers.git",
+      "commit": "9f0f03ae4733e949e371ec80d3c95d945dfecff6",
+      "tree": "b246eed5a2e97350de99e2a913987ba10543c03c",
+      "commit_subject": "fix: scope run sampling to the run's client (#2973)",
+      "feature_evidence": [
+        "verifiers/v1/clients/train.py maps completion_top_ids and completion_top_logprobs into TopLogprobs",
+        "verifiers/v1/types.py defines TopLogprobs",
+        "verifiers/v1/trace.py exposes branch-aligned sampling_mask and top_logprobs views"
+      ]
+    }
+  },
+  "selection": "Exact gitlinks recorded by prime-rl commit 735496e36fc9cb82e94b50098841bb80b2a0aaa1 (#4176), rather than the older #4012 pins.",
+  "validation": {
+    "command": "ulimit -v 2097152; PYTHONPATH=<overlay-renderers>:<overlay-verifiers> uv run --offline --no-project --python .venv/bin/python python -c 'from renderers.client import _parse_compact_logprobs; from verifiers.v1 import SamplingMask, TopLogprobs; from verifiers.v1.trace import Trace, MessageNode'",
+    "result": "passed",
+    "memory_virtual_limit_kib": 2097152,
+    "environment_modified": false,
+    "scope": "source imports only; no dependency installation, package build, or GPU work"
+  },
+  "dependency_notes": [
+    "The bare offline system interpreter lacks pydantic and cannot import renderers; the existing prime-rl .venv has pydantic 2.13.4 and the requested API imports pass there.",
+    "verifiers.v1.SamplingMask intentionally carries ids/counts only at the upstream API boundary. The prime-rl #4176 transport SamplingMask.logprobs is assembled downstream from its paired bounded-support evidence; no verifier overlay patch was made."
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "all_three_steps_finite": true,
+  "bounded_sampling": {
+    "effective_support_size_mean_by_orchestrator_step": {
+      "1": 4.233333333333333,
+      "2": 4.105263157894737,
+      "3": 4.743119266055046
+    },
+    "observed_stream_calls": 32,
+    "sampling_config": {
+      "logprobs": 8,
+      "max_tokens": 64,
+      "top_k": 8,
+      "top_p": 0.99
+    },
+    "unique_sampling_configurations": 1
+  },
+  "diagnostic_attempts": {
+    "R1": "vLLM 0.31 SamplingParams has no model_copy; nested clone adapted to installed API.",
+    "R2": "NumPy scalar/ID values from newer trace output were not msgspec encodable; explicit wire conversion added.",
+    "R3": "SamplingMask.logprobs was dropped by local batch slicing/packing; propagation and padding validation added.",
+    "R4": "Normal guarded completion after fixes; functional integration evidence only."
+  },
+  "full_artifact_relative_path": "../icepop-rl-smoke-r4/runtime-audit.json",
+  "guard": {
+    "elapsed_seconds": 47.71681368499412,
+    "minimum_available_bytes": 3281571840,
+    "peak_cgroup_bytes": 6730063872,
+    "peak_gpu_mib": 5220,
+    "peak_swap_bytes": 0,
+    "returncode": 0,
+    "stop_reason": null
+  },
+  "interpretation": {
+    "off_policy_observation": "orchestrator max off-policy is 0 at step 1 then 1 at steps 2 and 3; stream policy ranges show asynchronous version overlap. 12/16 episodes at orchestrator step 2 were discarded as no_signal per log, while 4/4 admitted remained trainable.",
+    "result": "3 successful RL optimization updates with finite metrics and valid bounded replay evidence. Functional integration smoke only.",
+    "reward_or_quality_claim": "not established; run is too small and lacks a matched baseline/held-out evaluation",
+    "score_centering_observation": "head mass numerically approximately 1.0 and tail scale exactly 0 for every recorded training step; this run does not validate meaningful correction beyond current tiny-support inputs",
+    "wall_speed_claim": "not established; no controlled baseline timing comparison"
+  },
+  "policy_freshness": {
+    "inference_waited_for_policy_v3_before_shutdown": true,
+    "orchestrator_startup_sync_v0_logged": true,
+    "stream_policy_ranges_by_run_step": {
+      "1": [
+        [
+          0,
+          0
+        ]
+      ],
+      "2": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "3": [
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    "trainer_broadcast_seconds_by_step": {
+      "1": 0.49447006899572443,
+      "2": 0.5054020579991629,
+      "3": 0.5186300689965719
+    },
+    "trainer_startup_broadcast_v0_logged": true,
+    "update_weights_http_200_count": 4
+  },
+  "run": "icepop-sc-bounded-smoke-r4",
+  "source_freeze": {
+    "base_commit": "09ada94d771096ab46ebe0ebad3afc28d7716084",
+    "file_count": 34,
+    "mismatches": [],
+    "verified": true
+  },
+  "trace_accounting": {
+    "stream_trace_count": 32,
+    "stream_unique_trace_count": 32,
+    "trainer_annotated_count": 12,
+    "trainer_annotated_orchestrator_joins": 12,
+    "trainer_annotated_stream_joins": 12
+  },
+  "trainer_steps": [
+    {
+      "all_selected_finite": true,
+      "metrics": {
+        "loss/mean": 0.0015741423703730106,
+        "mismatch_kl/all/mean": 0.0004668719775509089,
+        "optim/grad_norm": 0.07542168349027634,
+        "score_centering/head_mass/max": 1.000000238418579,
+        "score_centering/head_mass/mean": 1.0,
+        "score_centering/head_mass/min": 0.9999998807907104,
+        "score_centering/logit_correction_l1/mean": 6.720640044477477e-07,
+        "score_centering/tail_scale/max": 0.0,
+        "score_centering/tail_scale/mean": 0.0,
+        "time/broadcast_weights": 0.49447006899572443,
+        "unmasked_mismatch_kl/mean": 0.0005575453396886587
+      },
+      "step": 1
+    },
+    {
+      "all_selected_finite": true,
+      "metrics": {
+        "loss/mean": 0.0014864045660942793,
+        "mismatch_kl/all/mean": 0.0005079580587334931,
+        "optim/grad_norm": 0.09850700944662094,
+        "score_centering/head_mass/max": 1.0000001192092896,
+        "score_centering/head_mass/mean": 1.0,
+        "score_centering/head_mass/min": 0.9999998807907104,
+        "score_centering/logit_correction_l1/mean": 6.968740535739926e-07,
+        "score_centering/tail_scale/max": 0.0,
+        "score_centering/tail_scale/mean": 0.0,
+        "time/broadcast_weights": 0.5054020579991629,
+        "unmasked_mismatch_kl/mean": 0.0007066052639856935
+      },
+      "step": 2
+    },
+    {
+      "all_selected_finite": true,
+      "metrics": {
+        "loss/mean": 0.006072808522731066,
+        "mismatch_kl/all/mean": 0.000632748007774353,
+        "optim/grad_norm": 0.1435636729001999,
+        "score_centering/head_mass/max": 1.0000001192092896,
+        "score_centering/head_mass/mean": 0.9999999403953552,
+        "score_centering/head_mass/min": 0.9999998807907104,
+        "score_centering/logit_correction_l1/mean": 6.628632718275185e-07,
+        "score_centering/tail_scale/max": 0.0,
+        "score_centering/tail_scale/mean": 0.0,
+        "time/broadcast_weights": 0.5186300689965719,
+        "unmasked_mismatch_kl/mean": 0.0006028596544638276
+      },
+      "step": 3
+    }
+  ]
+}

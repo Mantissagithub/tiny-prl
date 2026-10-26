@@ -1,0 +1,26 @@
+{
+  "base_commit": "09ada94d771096ab46ebe0ebad3afc28d7716084",
+  "frozen_source_file_count": 34,
+  "frozen_source_match": true,
+  "frozen_source_match_after_patch_apply": true,
+  "frozen_source_mismatches_in_port_worktree": [],
+  "new_files_in_patch": [
+    "src/prime_rl/inference/vllm/compact_logprobs.py",
+    "src/prime_rl/inference/vllm/paired_capture.py",
+    "src/prime_rl/inference/vllm/request_replay.py",
+    "src/prime_rl/inference/vllm/sampling_order.py",
+    "tests/unit/inference/test_compact_logprobs.py",
+    "tests/unit/inference/test_sampling_order.py"
+  ],
+  "patch_bytes": 123750,
+  "patch_sha256": "6b50a4b496a02c99a92c71362e689d03f34208ab48f4c4a94242edc5c0152aa9",
+  "temporary_worktree_apply_check": "passed",
+  "temporary_worktree_base_commit": "09ada94d771096ab46ebe0ebad3afc28d7716084",
+  "temporary_worktree_changed_paths": 34,
+  "temporary_worktree_patch_apply": "passed",
+  "tests_not_covered_by_r4_source_hash_manifest": [
+    "tests/unit/inference/test_compact_logprobs.py",
+    "tests/unit/inference/test_sampling_order.py"
+  ],
+  "tracked_changed_paths": 28
+}

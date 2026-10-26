@@ -1,0 +1,83 @@
+{
+  "status": "10_update_functional_rl_pass",
+  "updates": [
+    {
+      "step": 1,
+      "loss": 0.0016,
+      "kl": 0.0004,
+      "grad_norm": 0.0747
+    },
+    {
+      "step": 2,
+      "loss": 0.0008,
+      "kl": 0.0005,
+      "grad_norm": 0.0657
+    },
+    {
+      "step": 3,
+      "loss": 0.0059,
+      "kl": 0.0007,
+      "grad_norm": 0.1395
+    },
+    {
+      "step": 4,
+      "loss": 0.0683,
+      "kl": 0.0012,
+      "grad_norm": 0.9604
+    },
+    {
+      "step": 5,
+      "loss": 0.0032,
+      "kl": 0.0005,
+      "grad_norm": 0.1232
+    },
+    {
+      "step": 6,
+      "loss": 0.0001,
+      "kl": 0.001,
+      "grad_norm": 0.027
+    },
+    {
+      "step": 7,
+      "loss": -0.0001,
+      "kl": 0.0008,
+      "grad_norm": 0.0121
+    },
+    {
+      "step": 8,
+      "loss": 0.0,
+      "kl": 0.0004,
+      "grad_norm": 0.0076
+    },
+    {
+      "step": 9,
+      "loss": 0.009,
+      "kl": 0.0003,
+      "grad_norm": 1.3356
+    },
+    {
+      "step": 10,
+      "loss": 0.0001,
+      "kl": 0.0005,
+      "grad_norm": 0.0961
+    }
+  ],
+  "guard": {
+    "command": [
+      "/home/pradheep/.venv/bin/python",
+      "/home/pradheep/tiny-prl/outputs/megakernel-20261025/icepop-rl-full-r1/launch.py"
+    ],
+    "returncode": 0,
+    "stop_reason": null,
+    "elapsed_seconds": 65.100002141,
+    "minimum_available_bytes": 3441688576,
+    "peak_cgroup_bytes": 7028330496,
+    "peak_swap_bytes": 0,
+    "peak_gpu_mib": 5262,
+    "disk_free_before_bytes": 30965350400,
+    "minimum_disk_free_bytes": 30962954240
+  },
+  "frozen_source_files": 34,
+  "source_hash_mismatches": [],
+  "limitations": "No matched wall-time/reward improvement claim. loss/std metric was dropped as non-finite; per-update loss/KL/gradient norm were finite. Broad CPU suite retains two precision assertion failures."
+}

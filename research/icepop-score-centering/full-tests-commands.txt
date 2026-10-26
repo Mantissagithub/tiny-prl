@@ -1,0 +1,27 @@
+All commands ran from `/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree`. Each ran under a separate `systemd-run` scope with `MemoryMax=2G`, `MemorySwapMax=0`, `RuntimeMaxSec=180s`, `CUDA_VISIBLE_DEVICES=""`, and `-m "not gpu"`.
+
+## Part 1
+
+```sh
+bash -o pipefail -c 'systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0 -p RuntimeMaxSec=180s env CUDA_VISIBLE_DEVICES="" PYTHONPATH="/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/packages/prime-rl-configs/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/renderers:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/verifiers:/home/pradheep/tiny-prl/prime-rl/deps/prime-kernels:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/alphabet_sort" uv run --offline --no-project --python /home/pradheep/.venv/bin/python -m pytest tests/unit/train/rl tests/unit/orchestrator -m "not gpu" -q 2>&1 | tee /home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-full-tests-r1/part1-trainer-orchestrator.stdout.txt'
+```
+
+Result: exit 1; 124 passed, 2 failed, 23 deselected. Full stdout: `part1-trainer-orchestrator.stdout.txt`.
+
+## Part 2 initial attempt
+
+```sh
+bash -o pipefail -c 'systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0 -p RuntimeMaxSec=180s env CUDA_VISIBLE_DEVICES="" PYTHONPATH="/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/packages/prime-rl-configs/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/renderers:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/verifiers:/home/pradheep/tiny-prl/prime-rl/deps/prime-kernels:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/alphabet_sort" uv run --offline --no-project --python /home/pradheep/.venv/bin/python -m pytest tests/unit/inference tests/unit/test_configs.py -m "not gpu" -k "not test_load_configs" -q 2>&1 | tee /home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-full-tests-r1/part2-inference-config.stdout.txt'
+```
+
+Result: exit 1; 152 passed, 39 failed, 85 deselected. This first attempt omitted optional verifier taskset package roots. The import failures are retained in its full stdout: `part2-inference-config.stdout.txt`.
+
+## Part 2 corrected retry
+
+```sh
+bash -o pipefail -c 'systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0 -p RuntimeMaxSec=180s env CUDA_VISIBLE_DEVICES="" PYTHONPATH="/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/packages/prime-rl-configs/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/renderers:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/verifiers:/home/pradheep/tiny-prl/prime-rl/deps/prime-kernels:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/alphabet_sort:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/color_codeword:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/gsm8k:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/kuhn_poker:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/proposer_solver:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/reverse_text:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/wiki_search:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/wordle" uv run --offline --no-project --python /home/pradheep/.venv/bin/python -m pytest tests/unit/inference tests/unit/test_configs.py -m "not gpu" -k "not test_load_configs" -q 2>&1 | tee /home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-full-tests-r1/part2-inference-config-retry.stdout.txt'
+```
+
+Result: exit 0; 191 passed, 85 deselected. Full stdout: `part2-inference-config-retry.stdout.txt`.
+
+No GPU tests ran. `results.json` has the summary counts and failure attribution.

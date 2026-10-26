@@ -1,0 +1,2473 @@
+diff --git a/packages/prime-rl-configs/src/prime_rl/configs/inference.py b/packages/prime-rl-configs/src/prime_rl/configs/inference.py
+index c71ba7dc1..2ce677bfb 100644
+--- a/packages/prime-rl-configs/src/prime_rl/configs/inference.py
++++ b/packages/prime-rl-configs/src/prime_rl/configs/inference.py
+@@ -439,7 +439,10 @@ class InferenceConfig(BaseConfig):
+     """Auto-set for disaggregated P/D: emit the NIXL transfer connector. Persisted into the per-node config (which drops ``deployment``) so the connector is still built per worker. Not meant to be set by hand."""
+ 
+     enable_return_sampling_mask: bool = False
+-    """Return per-token sampling masks (``sampling_mask``) on ``/inference/v1/generate`` responses via vLLM's native ``--return-sampling-mask`` (>= 0.28). The ``rl`` entrypoint enables this field for truncated policy sampling. Standalone inference must set it explicitly because no orchestrator sampling config is available. The field persists into per-node configs and selects the V2 model runner before vLLM starts. Capture is engine-wide: vLLM rejects requests with ``temperature <= 0`` or without ``top_k > 0`` while it is on."""
++    """Return per-token sampling masks (``sampling_mask``) on ``/inference/v1/generate`` responses via vLLM's native ``--return-sampling-mask`` (>= 0.28). The ``rl`` entrypoint enables this field for truncated policy sampling. Standalone inference must set it explicitly because no orchestrator sampling config is available. The field persists into per-node configs and selects the V2 model runner before vLLM starts. Requests opt in with ``extra_args.prl_replay = true``; only these requests require positive temperature and bounded top-k. Evaluation requests need not opt in. Request-scoped capture currently requires non-speculative decoding."""
++
++    top_p_before_top_k: bool = True
++    """With sampling-mask capture, apply top-p to the full temperature-scaled distribution before the top-k cap. Applies engine-wide on the V2 runner and uses a sorting-based reference sampler. Has no effect without sampling-mask capture. The final support can contain less than top_p of the original mass when the cap binds. Set false to use vLLM's top-k-before-top-p order."""
+ 
+     decode_megakernel: bool = False
+     """Route pure decode batches of 1 to 4 requests through the fused decode step for SmolLM2-shaped Llama on FLASH_ATTN. Needs a decode step (a ``prime-kernels`` build or the test reference); other batches and models run stock vLLM."""
+diff --git a/packages/prime-rl-configs/src/prime_rl/configs/orchestrator.py b/packages/prime-rl-configs/src/prime_rl/configs/orchestrator.py
+index 485f75bc5..567f1fe7c 100644
+--- a/packages/prime-rl-configs/src/prime_rl/configs/orchestrator.py
++++ b/packages/prime-rl-configs/src/prime_rl/configs/orchestrator.py
+@@ -52,6 +52,9 @@ class TrainSamplingConfig(BaseConfig):
+     max_completion_tokens: int | None = None
+     """Maximum output tokens per turn. If None, generates until max context length or EOS."""
+ 
++    logprobs: int | None = Field(None, ge=1)
++    """Record this many top sampler probabilities per token, in addition to its sampled logprob."""
++
+     # Strictly speaking, extra_body is not a sampling parameter, but it is the
+     # easiest way to pass arbitrary extra parameters to the server via verifiers
+     extra_body: dict[str, Any] = {}
+@@ -256,6 +259,8 @@ class TrainSourceConfig(EnvConfig):
+             | {"min_p", "logprobs", "return_token_ids", "cache_salt"}
+         )
+         sampling = vf.SamplingConfig(**self.sampling.model_dump(exclude_none=True))
++        if getattr(sampling, "extra_args", None) == {"prl_replay": self.sampling.truncates_distribution()}:
++            supported.add("extra_args")
+         if unsupported := sampling.model_dump(exclude_none=True).keys() - supported:
+             raise ValueError(
+                 f"Policy source '{self.resolved_name}' has unsupported sampling parameters: {sorted(unsupported)}"
+@@ -456,8 +461,7 @@ class ConcurrencyConfig(BaseConfig):
+ # bound for explicit top-k. vLLM's native sampling-mask capture requires a
+ # per-request top_k > 0 to bound mask sizes, and the trainer pads each micro
+ # batch's masks to the largest sampling mask, so the bound also caps trainer
+-# mask tensors. Large enough that a 0.95-0.99 nucleus rarely reaches it (the
+-# sampling policy is essentially unchanged).
++# mask tensors.
+ TRAIN_TOP_K_BOUND = 512
+ 
+ 
+@@ -693,8 +697,8 @@ class OrchestratorConfig(BaseConfig):
+         return self
+ 
+     @model_validator(mode="after")
+-    def resolve_env_config(self):
+-        """Set vLLM sampling defaults on each train env from top-level fields."""
++    def resolve_sampling_replay(self):
++        """Opt policy train sources into replay and keep eval sampling independent."""
+         for env in self.train.source:
+             # Policy-sourced rollouts hit our vLLM server; frozen-sourced
+             # rollouts may hit external OAI endpoints that reject these knobs.
+@@ -702,6 +706,14 @@ class OrchestratorConfig(BaseConfig):
+                 env.sampling.extra_body.setdefault("top_k", -1)
+                 env.sampling.extra_body.setdefault("min_p", 0.0)
+                 env.sampling.extra_body.setdefault("return_token_ids", True)
++                extra_args = dict(env.sampling.extra_body.get("extra_args") or {})
++                extra_args["prl_replay"] = env.sampling.truncates_distribution()
++                env.sampling.extra_body["extra_args"] = extra_args
++        if self.eval is not None:
++            for env in self.eval.source:
++                if getattr(env.sampling, "top_k", None) is None:
++                    env.sampling.top_k = -1
++                env.sampling.logprobs = None
+         return self
+ 
+     @model_validator(mode="after")
+diff --git a/packages/prime-rl-configs/src/prime_rl/configs/rl.py b/packages/prime-rl-configs/src/prime_rl/configs/rl.py
+index adec4b9c8..9f04c3b00 100644
+--- a/packages/prime-rl-configs/src/prime_rl/configs/rl.py
++++ b/packages/prime-rl-configs/src/prime_rl/configs/rl.py
+@@ -578,13 +578,47 @@ class RLConfig(BaseConfig):
+             raise ValueError("Multi-node deployments require inference.router to front the per-rank engines.")
+         return self
+ 
++    @model_validator(mode="after")
++    def auto_setup_score_centering(self):
++        loss = self.trainer.loss
++        if loss.type != "icepop" or not loss.score_centering:
++            return self
++        samplings = [
++            env.sampling for env in self.orchestrator.train.source if env.algo.sampling.source == "policy"
++        ] or ([self.orchestrator.train.sampling] if not self.orchestrator.train.source else [])
++        if not samplings:
++            raise ValueError("Score centering requires a policy-sampled training source")
++        requested = []
++        for sampling in samplings:
++            if sampling.temperature <= 0:
++                raise ValueError("Score centering requires stochastic sampling (temperature > 0)")
++            k = sampling.top_k if sampling.truncates_distribution() else loss.score_centering_topk
++            if k is None:
++                raise ValueError("Truncated score centering requires a bounded top_k")
++            if sampling.logprobs is not None and sampling.logprobs < k:
++                raise ValueError(f"Score centering needs sampling.logprobs >= {k}")
++            sampling.logprobs = max(sampling.logprobs or 0, k)
++            requested.append(sampling.logprobs + 2)
++        if self.inference is not None:
++            if getattr(self.inference.vllm, "logprobs_mode", "processed_logprobs") != "processed_logprobs":
++                raise ValueError("Score centering requires inference.vllm.logprobs_mode = 'processed_logprobs'")
++            self.inference.vllm.logprobs_mode = "processed_logprobs"
++            limit = getattr(self.inference.vllm, "max_logprobs", 20)
++            if limit != -1:
++                self.inference.vllm.max_logprobs = max(limit, *requested)
++        else:
++            warnings.warn(
++                "Score centering requires the external server to use processed_logprobs and sufficient max_logprobs",
++                stacklevel=2,
++            )
++        return self
++
+     @model_validator(mode="after")
+     def auto_setup_sampling_mask_capture(self):
+         """Truncated train sampling needs the inference server to return the sampling
+         masks the trainer replays (OrchestratorConfig guarantees truncating
+-        configs are bounded by TRAIN_TOP_K_BOUND). Capture is engine-wide: while it is
+-        on, vLLM rejects requests with ``temperature <= 0`` or without ``top_k > 0``,
+-        so eval sampling against the same server must set both."""
++        configs are bounded by TRAIN_TOP_K_BOUND). Only opted-in requests capture
++        masks; eval requests retain independent sampling settings."""
+         policy_samplings = [
+             env.sampling for env in self.orchestrator.train.source if env.algo.sampling.source == "policy"
+         ] or ([self.orchestrator.train.sampling] if not self.orchestrator.train.source else [])
+@@ -599,13 +633,6 @@ class RLConfig(BaseConfig):
+             )
+             return self
+         self.inference.enable_return_sampling_mask = True
+-        if self.orchestrator.eval is not None:
+-            warnings.warn(
+-                "Sampling-mask capture is engine-wide: eval requests without top_k > 0 (from the "
+-                "eval sampling config or the model's generation config) or with temperature 0 are "
+-                "rejected by the inference server while truncated train sampling is on.",
+-                stacklevel=2,
+-            )
+         return self
+ 
+     @model_validator(mode="after")
+diff --git a/packages/prime-rl-configs/src/prime_rl/configs/trainer.py b/packages/prime-rl-configs/src/prime_rl/configs/trainer.py
+index 437756c77..ecd3aadcb 100644
+--- a/packages/prime-rl-configs/src/prime_rl/configs/trainer.py
++++ b/packages/prime-rl-configs/src/prime_rl/configs/trainer.py
+@@ -520,6 +520,14 @@ class IcePopLossConfig(BaseConfig):
+     adv_tau: float = Field(1.0, ge=0)
+     """Temperature for the advantage term."""
+ 
++    score_centering: bool = False
++    """Center the ratio-masked importance-weighted score under the sampler."""
++
++    score_centering_topk: int = Field(128, ge=1)
++    """Captured head size for an untruncated sampler with a proportional tail.
++    Probabilities retain full-vocabulary normalization. With sampling replay, the
++    complete recorded support is captured instead."""
++
+     @model_validator(mode="after")
+     def validate_ratio_bounds(self):
+         if self.ratio_low > self.ratio_high:
+@@ -573,7 +581,8 @@ class CustomLossConfig(BaseConfig):
+ 
+ 
+ LossConfig: TypeAlias = Annotated[
+-    IPOLossConfig | IcePopLossConfig | PPOLossConfig | CISPOLossConfig | CustomLossConfig, Field(discriminator="type")
++    IPOLossConfig | IcePopLossConfig | PPOLossConfig | CISPOLossConfig | CustomLossConfig,
++    Field(discriminator="type"),
+ ]
+ 
+ 
+diff --git a/src/prime_rl/inference/patches.py b/src/prime_rl/inference/patches.py
+index f9b8d5065..b9ebd8589 100644
+--- a/src/prime_rl/inference/patches.py
++++ b/src/prime_rl/inference/patches.py
+@@ -30,6 +30,13 @@ def apply_shared_vllm_patches():
+     monkey_patch_dp_coordinator_startup_timeout()
+     monkey_patch_minimax_m2_for_lora()
+     monkey_patch_packed_sampling_masks()
++    from prime_rl.inference.vllm.request_replay import patch_request_replay
++
++    patch_request_replay()
++    if os.environ.get("PRL_TOP_P_BEFORE_TOP_K") == "1":
++        from prime_rl.inference.vllm.sampling_order import patch_top_p_then_top_k
++
++        patch_top_p_then_top_k()
+     # Set by `server()` when the LoRA target modules include no expert layers.
+     if os.environ.get("PRIME_NO_MOE_LORA") == "1":
+         monkey_patch_no_moe_lora()
+diff --git a/src/prime_rl/inference/server.py b/src/prime_rl/inference/server.py
+index 4045a8973..f1ddcdec3 100644
+--- a/src/prime_rl/inference/server.py
++++ b/src/prime_rl/inference/server.py
+@@ -15,6 +15,11 @@ def setup_vllm_env(config: InferenceConfig):
+     if config.enable_return_sampling_mask or config.vllm.enable_return_routed_experts:
+         os.environ.setdefault("VLLM_USE_V2_MODEL_RUNNER", "1")
+ 
++    top_p_first = config.top_p_before_top_k and config.enable_return_sampling_mask
++    if top_p_first and os.environ.get("VLLM_USE_V2_MODEL_RUNNER") != "1":
++        raise ValueError("top_p_before_top_k requires VLLM_USE_V2_MODEL_RUNNER=1")
++    os.environ["PRL_TOP_P_BEFORE_TOP_K"] = "1" if top_p_first else "0"
++
+     # vLLM 0.24.0 flipped VLLM_ENFORCE_STRICT_TOOL_CALLING's default to True, which
+     # grammar-constrains generation (xgrammar structural tags) for tool_choice
+     # "required"/named and strict tools — a sampling distribution the trainer never
+diff --git a/src/prime_rl/inference/vllm/serving_tokens.py b/src/prime_rl/inference/vllm/serving_tokens.py
+index 70474b88c..30828b75f 100644
+--- a/src/prime_rl/inference/vllm/serving_tokens.py
++++ b/src/prime_rl/inference/vllm/serving_tokens.py
+@@ -24,6 +24,7 @@ Everything else delegates to upstream so we track future vLLM changes for free.
+ 
+ from __future__ import annotations
+ 
++import os
+ from collections.abc import AsyncGenerator, AsyncIterator
+ from typing import Any
+ 
+@@ -41,6 +42,9 @@ from vllm.entrypoints.serve.engine.protocol import ErrorResponse
+ from vllm.logprobs import FlatLogprobs
+ from vllm.outputs import RequestOutput
+ 
++from prime_rl.inference.vllm.compact_logprobs import serialize_compact_logprobs
++from prime_rl.inference.vllm.paired_capture import serialize_paired_support
++
+ # vLLM's clamp for missing or -inf logprobs; renderers treat it as "no sampling evidence".
+ LOGPROB_SENTINEL = -9999.0
+ 
+@@ -48,6 +52,7 @@ LOGPROB_SENTINEL = -9999.0
+ class PrimeRlGenerateResponseChoice(GenerateResponseChoice):
+     routed_experts: dict[str, Any] | None = None  # type: ignore[assignment]
+     completion_logprobs: dict[str, Any] | None = None
++    compact_logprobs: dict[str, Any] | None = None
+     sampling_mask: dict[str, Any] | None = None  # type: ignore[assignment]
+ 
+ 
+@@ -81,6 +86,9 @@ class _PackedOutputs:
+     def __init__(self, generator: AsyncIterator[RequestOutput], request: GenerateRequest):
+         self._generator = generator
+         self._request = request
++        self._num_logprobs = request.sampling_params.logprobs
++        self._compact = (request.sampling_params.extra_args or {}).get("prl_compact_logprobs", False)
++        self._paired = (request.sampling_params.extra_args or {}).get("prl_paired_capture", False)
+         self.fields: dict[int, dict[str, Any]] = {}
+ 
+     async def __aiter__(self):
+@@ -96,14 +104,33 @@ class _PackedOutputs:
+                         "start": num_tokens - 1 - len(output.routed_experts),
+                     }
+                     output.routed_experts = None
+-                if isinstance(output.logprobs, FlatLogprobs):
++                if self._paired:
++                    mask = output.sampling_mask
++                    if mask is None or mask.ids.dtype != np.int64:
++                        raise ValueError("Missing paired sampling-support evidence")
++                    mask.ids, fields["compact_logprobs"] = serialize_paired_support(mask.ids, mask.counts)
++                    output.logprobs = None
++                elif self._compact:
++                    assert output.logprobs is not None, "Did not output logprobs"
++                    assert len(output.logprobs) == len(output.token_ids), "Logprob count does not match token count"
++                    fields["compact_logprobs"] = serialize_compact_logprobs(
++                        output.logprobs,
++                        self._num_logprobs,
++                        drop_filtered=output.sampling_mask is not None,
++                    )
++                    output.logprobs = None
++                    self._request.sampling_params.logprobs = None
++                elif isinstance(output.logprobs, FlatLogprobs) and (self._num_logprobs or 0) <= 1:
+                     fields["completion_logprobs"] = encode_array(pack_sampled_logprobs(output.logprobs))
+                     output.logprobs = None
+                     # Upstream would build ``logprobs.content`` from the logprobs we took.
+                     self._request.sampling_params.logprobs = None
+                 mask = output.sampling_mask
+                 if mask is not None:
+-                    fields["sampling_mask"] = {"ids": encode_array(mask.ids), "counts": encode_array(mask.counts)}
++                    fields["sampling_mask"] = {
++                        "ids": encode_array(mask.ids.astype(np.int32, copy=False)),
++                        "counts": encode_array(mask.counts),
++                    }
+                     output.sampling_mask = None
+             yield request_output
+ 
+@@ -126,7 +153,23 @@ class PrimeRlServingTokens(ServingTokens):
+         request: GenerateRequest,
+         raw_request: Request | None = None,
+     ) -> GenerateResponse | ErrorResponse | AsyncGenerator[str, None]:
++        request = request.model_copy(update={"sampling_params": request.sampling_params.clone()})
+         sampling_params = request.sampling_params
++        if (sampling_params.extra_args or {}).get("prl_compact_logprobs", False):
++            if request.stream or sampling_params.logprobs is None:
++                return self.create_error_response(
++                    "Compact logprobs require a non-streaming request with logprobs enabled"
++                )
++        extra_args = sampling_params.extra_args or {}
++        paired = (
++            not request.stream
++            and extra_args.get("prl_replay", False)
++            and extra_args.get("prl_compact_logprobs", False)
++            and os.environ.get("PRL_TOP_P_BEFORE_TOP_K") == "1"
++        )
++        sampling_params.extra_args = {**extra_args, "prl_paired_capture": paired}
++        if paired:
++            sampling_params.logprobs = None
+         if not request.stream:
+             # Upstream's prompt-logprobs response path expects the per-token dicts.
+             sampling_params.flat_logprobs = sampling_params.prompt_logprobs is None
+@@ -142,6 +185,7 @@ class PrimeRlServingTokens(ServingTokens):
+         model_name: str,
+         request_metadata: RequestResponseMetadata,
+     ) -> ErrorResponse | GenerateResponse:
++        request = request.model_copy(update={"sampling_params": request.sampling_params.clone()})
+         packed = _PackedOutputs(result_generator, request)
+         response = await super().serve_tokens_full_generator(
+             request,
+diff --git a/src/prime_rl/orchestrator/algo/routing.py b/src/prime_rl/orchestrator/algo/routing.py
+index d841d136b..28c4f9b98 100644
+--- a/src/prime_rl/orchestrator/algo/routing.py
++++ b/src/prime_rl/orchestrator/algo/routing.py
+@@ -58,7 +58,7 @@ def assign_reference_logprobs(branch: vf.Branch, values: list[float]) -> None:
+ 
+ def scalar_advantage(trace: vf.Trace) -> float | None:
+     """Mean nonzero token advantage, or zero for an assigned-zero trace."""
+-    advantages = [value for node in trace.nodes for value in node.advantages or []]
++    advantages = [value for node in trace.nodes if node.advantages is not None for value in node.advantages]
+     if not advantages:
+         return None
+     nonzero = [value for value in advantages if value != 0.0]
+@@ -67,7 +67,9 @@ def scalar_advantage(trace: vf.Trace) -> float | None:
+ 
+ def is_trainable(trace: vf.Trace) -> bool:
+     """Whether any sampled token carries nonzero RL credit."""
+-    return any(value != 0.0 for node in trace.nodes for value in node.advantages or [])
++    return any(
++        value != 0.0 for node in trace.nodes if node.advantages is not None for value in node.advantages
++    )
+ 
+ 
+ def stamp_loss_routing(sample: TrainingSample, action_loss_type: ActionLossType) -> None:
+diff --git a/src/prime_rl/orchestrator/batch.py b/src/prime_rl/orchestrator/batch.py
+index 1417ed2bd..6d7be7b1d 100644
+--- a/src/prime_rl/orchestrator/batch.py
++++ b/src/prime_rl/orchestrator/batch.py
+@@ -8,7 +8,15 @@ import numpy as np
+ from transformers import AutoConfig
+ 
+ from prime_rl.configs.orchestrator import OrchestratorConfig
+-from prime_rl.transports.batch.types import MicroBatch, MMImageRef, MMRefs, RoutedExperts, SamplingMask, TrainingSample
++from prime_rl.transports.batch.types import (
++    MicroBatch,
++    MMImageRef,
++    MMRefs,
++    RoutedExperts,
++    SamplingMask,
++    TopLogprobs,
++    TrainingSample,
++)
+ from prime_rl.utils.logger import get_logger
+ 
+ # Backfill value per component weight stream when a packed sample doesn't
+@@ -282,6 +290,7 @@ def _pad_routed_experts(micro_batch: MicroBatch, padding_size: int) -> None:
+ 
+ 
+ _SAMPLING_MASK_ITEMSIZE = np.dtype(np.int32).itemsize
++_TOP_LOGPROBS_ITEMSIZE = np.dtype(np.int32).itemsize
+ 
+ 
+ def _empty_sampling_mask(num_tokens: int) -> SamplingMask:
+@@ -290,8 +299,24 @@ def _empty_sampling_mask(num_tokens: int) -> SamplingMask:
+ 
+ def _slice_sampling_mask(sampling_mask: SamplingMask, seq_len: int) -> SamplingMask:
+     counts = np.frombuffer(sampling_mask.counts, dtype=np.int32)[:seq_len]
++    size = int(counts.sum()) * _SAMPLING_MASK_ITEMSIZE
+     return SamplingMask(
+-        ids=sampling_mask.ids[: int(counts.sum()) * _SAMPLING_MASK_ITEMSIZE],
++        ids=sampling_mask.ids[:size],
++        counts=counts.tobytes(),
++        logprobs=sampling_mask.logprobs[:size] if sampling_mask.logprobs is not None else None,
++    )
++
++
++def _empty_top_logprobs(num_tokens: int) -> TopLogprobs:
++    return TopLogprobs(ids=b"", logprobs=b"", counts=b"\0" * (num_tokens * _TOP_LOGPROBS_ITEMSIZE))
++
++
++def _slice_top_logprobs(top_logprobs: TopLogprobs, seq_len: int) -> TopLogprobs:
++    counts = np.frombuffer(top_logprobs.counts, dtype=np.int32)[:seq_len]
++    size = int(counts.sum()) * _TOP_LOGPROBS_ITEMSIZE
++    return TopLogprobs(
++        ids=top_logprobs.ids[:size],
++        logprobs=top_logprobs.logprobs[:size],
+         counts=counts.tobytes(),
+     )
+ 
+@@ -306,6 +331,12 @@ def _pad_sampling_mask(micro_batch: MicroBatch, padding_size: int) -> None:
+     sampling_mask.counts += b"\0" * (padding_size * _SAMPLING_MASK_ITEMSIZE)
+ 
+ 
++def _pad_top_logprobs(micro_batch: MicroBatch, padding_size: int) -> None:
++    top_logprobs = micro_batch.top_logprobs
++    assert top_logprobs is not None
++    top_logprobs.counts += b"\0" * (padding_size * _TOP_LOGPROBS_ITEMSIZE)
++
++
+ def _truncate_mm_refs(refs: MMRefs, seq_len: int) -> tuple[int, MMRefs | None]:
+     cut = seq_len
+     kept: list[MMImageRef] = []
+@@ -381,6 +412,7 @@ def prepare_sample(training_example: TrainingSample, seq_len: int) -> MicroBatch
+     # No copy needed: SamplingMask holds immutable bytes, and _pad_sampling_mask only
+     # ever mutates _materialize_bin's own accumulator.
+     sampling_mask = training_example.sampling_mask
++    top_logprobs = training_example.top_logprobs
+ 
+     if len(input_ids) > seq_len:
+         cut = seq_len
+@@ -404,6 +436,8 @@ def prepare_sample(training_example: TrainingSample, seq_len: int) -> MicroBatch
+             routed_experts = _slice_routed_experts(routed_experts, cut)
+         if sampling_mask is not None:
+             sampling_mask = _slice_sampling_mask(sampling_mask, cut)
++        if top_logprobs is not None:
++            top_logprobs = _slice_top_logprobs(top_logprobs, cut)
+         if mm_token_type_ids is not None:
+             mm_token_type_ids = mm_token_type_ids[:cut]
+         env_names = env_names[:cut]
+@@ -440,6 +474,15 @@ def prepare_sample(training_example: TrainingSample, seq_len: int) -> MicroBatch
+             f"sampling_mask counts: {len(mask_counts)}, input_ids: {len(input_ids)}"
+         )
+         assert len(sampling_mask.ids) == int(mask_counts.sum()) * _SAMPLING_MASK_ITEMSIZE
++        assert sampling_mask.logprobs is None or len(sampling_mask.logprobs) == len(sampling_mask.ids)
++
++    if top_logprobs is not None:
++        top_counts = np.frombuffer(top_logprobs.counts, dtype=np.int32)
++        assert len(top_counts) == len(input_ids), (
++            f"top_logprobs counts: {len(top_counts)}, input_ids: {len(input_ids)}"
++        )
++        assert len(top_logprobs.ids) == int(top_counts.sum()) * _TOP_LOGPROBS_ITEMSIZE
++        assert len(top_logprobs.logprobs) == int(top_counts.sum()) * np.dtype(np.float32).itemsize
+ 
+     assert len(env_names) == len(input_ids), f"env_names: {len(env_names)}, input_ids: {len(input_ids)}"
+ 
+@@ -454,6 +497,7 @@ def prepare_sample(training_example: TrainingSample, seq_len: int) -> MicroBatch
+         temperatures=temperatures,
+         routed_experts=routed_experts,
+         sampling_mask=sampling_mask,
++        top_logprobs=top_logprobs,
+         mm_token_type_ids=mm_token_type_ids,
+         env_names=env_names,
+         mm_refs=mm_refs,
+@@ -531,6 +575,11 @@ def _materialize_bin(bin_content: _MicroBatchBin) -> MicroBatch:
+     # Sampling masks are per-token optional (unlike routed_experts): samples
+     # without them get zero-count backfill instead of constraining packing.
+     has_sampling_mask = any(sample.sampling_mask is not None for sample in bin_content.samples)
++    has_mask_logprobs = any(
++        sample.sampling_mask is not None and sample.sampling_mask.logprobs is not None
++        for sample in bin_content.samples
++    )
++    has_top_logprobs = any(sample.top_logprobs is not None for sample in bin_content.samples)
+ 
+     input_ids: list[int] = []
+     loss_mask: list[bool] = []
+@@ -545,7 +594,14 @@ def _materialize_bin(bin_content: _MicroBatchBin) -> MicroBatch:
+     streams: dict[str, list[float] | None] = {name: ([] if has_stream[name] else None) for name in STREAM_FILL}
+     seq_lens: list[int] = []
+     routed_experts: RoutedExperts | None = None
+-    sampling_mask: SamplingMask | None = SamplingMask(ids=b"", counts=b"") if has_sampling_mask else None
++    sampling_mask: SamplingMask | None = (
++        SamplingMask(ids=b"", counts=b"", logprobs=b"" if has_mask_logprobs else None)
++        if has_sampling_mask
++        else None
++    )
++    top_logprobs: TopLogprobs | None = (
++        TopLogprobs(ids=b"", logprobs=b"", counts=b"") if has_top_logprobs else None
++    )
+     trace_ids: list[str] = []
+     branch_indices: list[int] = []
+ 
+@@ -593,6 +649,21 @@ def _materialize_bin(bin_content: _MicroBatchBin) -> MicroBatch:
+             sample_mask = sample.sampling_mask if sample.sampling_mask is not None else _empty_sampling_mask(sample_len)
+             sampling_mask.ids += sample_mask.ids
+             sampling_mask.counts += sample_mask.counts
++            if sampling_mask.logprobs is not None:
++                if sample_mask.logprobs is None:
++                    if sample_mask.ids:
++                        raise ValueError("Cannot pack sampling masks with mixed missing sampler logprobs")
++                else:
++                    if len(sample_mask.logprobs) != len(sample_mask.ids):
++                        raise ValueError("Sampling mask ids and sampler logprobs must align")
++                    sampling_mask.logprobs += sample_mask.logprobs
++        if top_logprobs is not None:
++            sample_top_logprobs = (
++                sample.top_logprobs if sample.top_logprobs is not None else _empty_top_logprobs(sample_len)
++            )
++            top_logprobs.ids += sample_top_logprobs.ids
++            top_logprobs.logprobs += sample_top_logprobs.logprobs
++            top_logprobs.counts += sample_top_logprobs.counts
+         trace_ids.extend(sample.trace_ids or [""] * len(sample.sequence_lengths))
+         branch_indices.extend(sample.branch_indices or [-1] * len(sample.sequence_lengths))
+ 
+@@ -611,6 +682,7 @@ def _materialize_bin(bin_content: _MicroBatchBin) -> MicroBatch:
+         temperatures=temperatures,
+         routed_experts=routed_experts,
+         sampling_mask=sampling_mask,
++        top_logprobs=top_logprobs,
+         mm_token_type_ids=mm_token_type_ids,
+         env_names=env_names,
+         mm_refs=mm_refs,
+@@ -740,6 +812,8 @@ def pad_micro_batch(micro_batch: MicroBatch, pad_to_multiple_of: int) -> MicroBa
+         _pad_routed_experts(micro_batch, padding_size)
+     if micro_batch.sampling_mask is not None:
+         _pad_sampling_mask(micro_batch, padding_size)
++    if micro_batch.top_logprobs is not None:
++        _pad_top_logprobs(micro_batch, padding_size)
+     micro_batch.env_names.extend([""] * padding_size)
+ 
+     return micro_batch
+@@ -791,6 +865,16 @@ def _assert_token_arrays_aligned(micro_batch: MicroBatch) -> None:
+             f"sampling_mask ids/counts inconsistent after packing: "
+             f"{len(micro_batch.sampling_mask.ids)} bytes != {int(mask_counts.sum())} ids"
+         )
++        assert micro_batch.sampling_mask.logprobs is None or len(micro_batch.sampling_mask.logprobs) == len(
++            micro_batch.sampling_mask.ids
++        ), "sampling_mask logprobs and ids must align after packing"
++    if micro_batch.top_logprobs is not None:
++        top_counts = np.frombuffer(micro_batch.top_logprobs.counts, dtype=np.int32)
++        assert len(top_counts) == num_tokens, (
++            f"top_logprobs misaligned after packing: {len(top_counts)} != {num_tokens} tokens"
++        )
++        assert len(micro_batch.top_logprobs.ids) == int(top_counts.sum()) * _TOP_LOGPROBS_ITEMSIZE
++        assert len(micro_batch.top_logprobs.logprobs) == int(top_counts.sum()) * np.dtype(np.float32).itemsize
+ 
+ 
+ def _make_dummy_batch(source: MicroBatch) -> MicroBatch:
+@@ -805,6 +889,7 @@ def _make_dummy_batch(source: MicroBatch) -> MicroBatch:
+     dummy.ref_kl_weights = None
+     # Fully loss-masked, so replaying sampling masks would be pure wasted work.
+     dummy.sampling_mask = None
++    dummy.top_logprobs = None
+     # The copied identity would double-annotate the source's traces.
+     dummy.trace_ids = None
+     dummy.branch_indices = None
+diff --git a/src/prime_rl/orchestrator/curriculum/gates/adv.py b/src/prime_rl/orchestrator/curriculum/gates/adv.py
+index 93abfdc09..47012cb40 100644
+--- a/src/prime_rl/orchestrator/curriculum/gates/adv.py
++++ b/src/prime_rl/orchestrator/curriculum/gates/adv.py
+@@ -29,7 +29,8 @@ class AdvRangeGate(AdmissionGate):
+             for trace in episode.traces
+             if episode.ok and not trace.has_error and trace.agent.trainable
+             for node in trace.nodes
+-            for advantage in node.advantages or []
++            if node.advantages is not None
++            for advantage in node.advantages
+         ]
+         if not advantages:
+             return True
+diff --git a/src/prime_rl/orchestrator/envs.py b/src/prime_rl/orchestrator/envs.py
+index 15a65d1c9..c0cd488c8 100644
+--- a/src/prime_rl/orchestrator/envs.py
++++ b/src/prime_rl/orchestrator/envs.py
+@@ -156,12 +156,13 @@ class TrainEnv(Env):
+         self.algorithm = algorithm
+         self.uses_live_policy = config.algo.sampling.source == "policy"
+         self.sampling = vf.SamplingConfig(
+-            **config.sampling.model_dump(exclude_none=True),
++            **config.sampling.model_dump(exclude_none=True, exclude={"logprobs"}),
+             # Only policy rollouts need sampling logprobs for importance ratios.
+-            logprobs=True if self.uses_live_policy else None,
++            logprobs=(config.sampling.logprobs or True) if self.uses_live_policy else None,
+         )
+         # Truncated policy sampling must ship the sampling masks the trainer replays.
+         self.requires_sampling_masks = config.sampling.truncates_distribution() and self.uses_live_policy
++        self.requires_top_logprobs = config.sampling.logprobs is not None and self.uses_live_policy
+ 
+     async def setup(self) -> None:
+         async def connect_source() -> None:
+diff --git a/src/prime_rl/orchestrator/metrics.py b/src/prime_rl/orchestrator/metrics.py
+index 973a07d62..794207321 100644
+--- a/src/prime_rl/orchestrator/metrics.py
++++ b/src/prime_rl/orchestrator/metrics.py
+@@ -305,6 +305,19 @@ class TraceMetrics(StatGroup):
+                 out.count(f"{prefix}/error/{key}", float(value))
+             num_groups = len({episode_group_id(record.episode) for record in self.records})
+             out.rate(prefix, {key: value * num_groups for key, value in self.solve_rates().items()}, num_groups)
++        for trace in self.traces:
++            for node in trace.nodes:
++                sampling_mask = getattr(node, "sampling_mask", None)
++                if sampling_mask is None:
++                    continue
++                counts = sampling_mask.counts
++                counts = counts[counts > 0]
++                if len(counts):
++                    out.rate(
++                        f"{prefix}/sampling_support/size",
++                        {"mean": int(counts.sum())},
++                        len(counts),
++                    )
+         # Truncation uses all traces; named stop conditions use only recorded conditions.
+         out.rate(
+             f"{prefix}/stop_condition/generation_truncated",
+diff --git a/src/prime_rl/orchestrator/train_sink.py b/src/prime_rl/orchestrator/train_sink.py
+index 5c835a22e..8e3121b48 100644
+--- a/src/prime_rl/orchestrator/train_sink.py
++++ b/src/prime_rl/orchestrator/train_sink.py
+@@ -258,6 +258,9 @@ class TrainSink:
+                         "the inference server config (the rl entrypoint does this automatically) - "
+                         "it requires vLLM's native sampling-mask capture (>= 0.28)."
+                     )
++                mask_logprobs = sample.sampling_mask.logprobs if sample.sampling_mask is not None else None
++                if env.requires_top_logprobs and sample.top_logprobs is None and mask_logprobs is None:
++                    raise RuntimeError(f"env {env_name!r} requested sampler top logprobs but returned none")
+                 stamp_loss_routing(sample, env.algorithm.action_loss_type)
+             if self.config.constant_trainer_batch_size:
+                 samples = [sample for sample in samples if _prune_zero_advantages(sample)]
+diff --git a/src/prime_rl/orchestrator/trajectories.py b/src/prime_rl/orchestrator/trajectories.py
+index 4d5845779..162fc137a 100644
+--- a/src/prime_rl/orchestrator/trajectories.py
++++ b/src/prime_rl/orchestrator/trajectories.py
+@@ -20,7 +20,7 @@ import numpy as np
+ import verifiers.v1 as vf
+ 
+ from prime_rl.transports.batch import MMImageRef, MMRefs, TrainingSample
+-from prime_rl.transports.batch.types import RoutedExperts, SamplingMask
++from prime_rl.transports.batch.types import RoutedExperts, SamplingMask, TopLogprobs
+ from prime_rl.utils.logger import get_logger
+ 
+ 
+@@ -80,25 +80,72 @@ def _encode_routed_experts(arr: np.ndarray | None, num_tokens: int) -> RoutedExp
+     return RoutedExperts(data=arr.tobytes(), shape=list(arr.shape), dtype=str(arr.dtype))
+ 
+ 
+-def _encode_sampling_mask(mask: vf.SamplingMask | None, num_tokens: int) -> SamplingMask | None:
+-    """Encode a branch sampling mask for a fixed token count.
++def _encode_sampler_evidence(
++    mask: vf.SamplingMask | None, head: vf.TopLogprobs | None, num_tokens: int
++) -> tuple[SamplingMask | None, TopLogprobs | None]:
++    """Encode the branch's sampling mask and sampler top logprobs.
+ 
+     The mask stores row sizes in `counts` and concatenates every row in `ids`.
+     For example, `counts=[2, 1]` and `ids=[4, 7, 9]` become `counts=[2]` and
+     `ids=[4, 7]` for one token. For three tokens, they become
+     `counts=[2, 1, 0]` with unchanged ids. Zero-count rows disable replay.
++
++    A masked token's top logprobs cover exactly its mask, so they move onto the
++    mask. Remaining top-logprob rows are heads of untruncated distributions.
+     """
++    if head is not None and (
++        len(head.counts) != num_tokens
++        or int(head.counts.sum()) != len(head.ids)
++        or len(head.ids) != len(head.logprobs)
++    ):
++        raise ValueError("Top logprobs are not aligned to branch tokens")
+     if mask is None:
+-        return None
+-    ids, counts = mask.ids, mask.counts
+-    if len(counts) > num_tokens:
+-        counts = counts[:num_tokens]
+-        ids = ids[: int(counts.sum())]
+-    elif len(counts) < num_tokens:
+-        counts = np.concatenate([counts, np.zeros(num_tokens - len(counts), dtype=np.int32)])
+-    return SamplingMask(
+-        ids=np.ascontiguousarray(ids, dtype=np.int32).tobytes(),
+-        counts=np.ascontiguousarray(counts, dtype=np.int32).tobytes(),
++        if head is None:
++            return None, None
++        return None, TopLogprobs(
++            ids=np.ascontiguousarray(head.ids, dtype=np.int32).tobytes(),
++            logprobs=np.ascontiguousarray(head.logprobs, dtype=np.float32).tobytes(),
++            counts=np.ascontiguousarray(head.counts, dtype=np.int32).tobytes(),
++        )
++
++    mask_ids, mask_counts = np.asarray(mask.ids), np.asarray(mask.counts)
++    if len(mask_counts) > num_tokens:
++        mask_counts = mask_counts[:num_tokens]
++        mask_ids = mask_ids[: int(mask_counts.sum())]
++    elif len(mask_counts) < num_tokens:
++        mask_counts = np.concatenate([mask_counts, np.zeros(num_tokens - len(mask_counts), dtype=np.int32)])
++    if head is None:
++        return SamplingMask(
++            ids=np.ascontiguousarray(mask_ids, dtype=np.int32).tobytes(),
++            counts=np.ascontiguousarray(mask_counts, dtype=np.int32).tobytes(),
++        ), None
++
++    head_ids, head_logprobs, head_counts = np.asarray(head.ids), np.asarray(head.logprobs), np.asarray(head.counts)
++    if np.array_equal(mask_counts, head_counts) and np.array_equal(mask_ids, head_ids):
++        return SamplingMask(
++            ids=np.ascontiguousarray(head_ids, dtype=np.int32).tobytes(),
++            counts=np.ascontiguousarray(mask_counts, dtype=np.int32).tobytes(),
++            logprobs=np.ascontiguousarray(head_logprobs, dtype=np.float32).tobytes(),
++        ), None
++    rows = np.arange(num_tokens, dtype=np.int64)
++    head_rows = np.repeat(rows, head_counts)
++    masked = mask_counts > 0
++    on_mask = masked[head_rows]
++    mask_keys = np.repeat(rows, mask_counts) << 32 | mask_ids.astype(np.int64)
++    head_keys = head_rows[on_mask] << 32 | head_ids[on_mask].astype(np.int64)
++    if not np.array_equal(np.sort(mask_keys), np.sort(head_keys)):
++        raise ValueError("Top logprobs must cover exactly the recorded sampling support")
++    sampling_mask = SamplingMask(
++        ids=np.ascontiguousarray(head_ids[on_mask], dtype=np.int32).tobytes(),
++        counts=np.ascontiguousarray(mask_counts, dtype=np.int32).tobytes(),
++        logprobs=np.ascontiguousarray(head_logprobs[on_mask], dtype=np.float32).tobytes(),
++    )
++    if on_mask.all():
++        return sampling_mask, None
++    return sampling_mask, TopLogprobs(
++        ids=np.ascontiguousarray(head_ids[~on_mask], dtype=np.int32).tobytes(),
++        logprobs=np.ascontiguousarray(head_logprobs[~on_mask], dtype=np.float32).tobytes(),
++        counts=np.ascontiguousarray(np.where(masked, 0, head_counts), dtype=np.int32).tobytes(),
+     )
+ 
+ 
+@@ -141,7 +188,7 @@ def _loss_weights(branch: vf.Branch, name: str, trained_nodes: set[int]) -> list
+                 f"loss weight stream {name!r} must align with node token_ids: "
+                 f"got {len(node_weights)}, expected {len(node.token_ids)}"
+             )
+-        weights.extend(node_weights)
++        weights.extend(float(value) for value in node_weights)
+         if any(node_weights):
+             trained_nodes.add(id(node))
+     return weights if any(weights) else None
+@@ -160,31 +207,45 @@ def trace_to_samples(trace: vf.Trace, *, env_name: str = "") -> list[TrainingSam
+     samples: list[TrainingSample] = []
+     trained_loss_nodes: dict[str, set[int]] = {"rl": set(), "ce": set(), "ref_kl": set()}
+     for branch, mask in iter_trainable_branches(trace):
+-        token_ids = branch.token_ids
++        # The v1 renderer/verifier streams are NumPy arrays. msgspec's batch
++        # wire structs intentionally use native Python lists, so normalize at
++        # this trace-to-transport boundary before the packer extends them.
++        token_ids = [int(token_id) for token_id in branch.token_ids]
++        train_mask = [bool(value) for value in mask]
++        logprobs = [float(value) for value in branch.logprobs]
++        advantages = None if branch.advantages is None else [float(value) for value in branch.advantages]
++        ref_logprobs = (
++            None if branch.reference_logprobs is None else [float(value) for value in branch.reference_logprobs]
++        )
++        sampling_mask, top_logprobs = _encode_sampler_evidence(
++            branch.sampling_mask, branch.top_logprobs, len(token_ids)
++        )
+         mm_token_type_ids: list[int] | None = None
+         mm_refs: MMRefs | None = None
+         image_urls = _image_urls(branch)
+         if image_urls:
+-            mm_token_type_ids = branch.mm_token_type_ids
+-            if mm_token_type_ids is None:
++            token_types = branch.mm_token_type_ids
++            if token_types is None:
+                 raise ValueError("Inline images have no expanded multimodal prompt tokens")
++            mm_token_type_ids = [int(value) for value in token_types]
+             mm_refs = _build_mm_refs(image_urls, mm_token_type_ids)
+         samples.append(
+             TrainingSample(
+                 token_ids=token_ids,
+-                mask=mask,
+-                logprobs=branch.logprobs,
++                mask=train_mask,
++                logprobs=logprobs,
+                 temperatures=[],  # filled by TrainSink.process_group
+                 env_name=env_name,
+-                ref_logprobs=branch.reference_logprobs,
++                ref_logprobs=ref_logprobs,
+                 mm_refs=mm_refs,
+                 mm_token_type_ids=mm_token_type_ids,
+                 routed_experts=_encode_routed_experts(branch.routed_experts, len(token_ids)),
+                 rl_weights=_loss_weights(branch, "rl", trained_loss_nodes["rl"]),
+                 ce_weights=_loss_weights(branch, "ce", trained_loss_nodes["ce"]),
+                 ref_kl_weights=_loss_weights(branch, "ref_kl", trained_loss_nodes["ref_kl"]),
+-                advantages=branch.advantages,
+-                sampling_mask=_encode_sampling_mask(branch.sampling_mask, len(token_ids)),
++                advantages=advantages,
++                sampling_mask=sampling_mask,
++                top_logprobs=top_logprobs,
+                 trace_id=trace.id,
+                 branch_index=branch.index,
+             )
+diff --git a/src/prime_rl/trainer/model.py b/src/prime_rl/trainer/model.py
+index 04ba8e498..885414430 100644
+--- a/src/prime_rl/trainer/model.py
++++ b/src/prime_rl/trainer/model.py
+@@ -1128,6 +1128,7 @@ def forward(
+     temperature: Tensor | None = None,
+     routed_experts: Int[Tensor, "batch seq layers topk"] | None = None,
+     sampling_mask: Int[Tensor, "batch seq mask"] | None = None,
++    topk_ids: Int[Tensor, "batch seq head"] | None = None,
+     mm_kwargs: dict[str, Tensor] | None = None,
+     mm_forward_policy: ForwardPolicy | None = None,
+     mm_token_type_ids: Int[Tensor, "batch seq"] | None = None,
+@@ -1142,6 +1143,9 @@ def forward(
+         "sampling_mask": sampling_mask,
+     }
+ 
++    if topk_ids is not None:
++        kwargs["topk_ids"] = topk_ids
++
+     if mm_kwargs:
+         kwargs.update(mm_kwargs)
+         if mm_token_type_ids is not None:
+diff --git a/src/prime_rl/trainer/models/layers/lm_head.py b/src/prime_rl/trainer/models/layers/lm_head.py
+index 77b15c6d9..3e6788cf8 100644
+--- a/src/prime_rl/trainer/models/layers/lm_head.py
++++ b/src/prime_rl/trainer/models/layers/lm_head.py
+@@ -25,6 +25,7 @@ class PrimeLmOutput(TypedDict, total=False):
+     logits: Tensor | None
+     logprobs: Tensor | None
+     entropy: Tensor | None
++    topk_logprobs: Tensor | None
+     loss: Tensor | None
+ 
+ 
+@@ -38,6 +39,7 @@ def cast_float_and_contiguous(output: PrimeLmOutput) -> PrimeLmOutput:
+         logits=_float_and_contiguous(output.get("logits")),
+         logprobs=_float_and_contiguous(output.get("logprobs")),
+         entropy=_float_and_contiguous(output.get("entropy")),
++        topk_logprobs=_float_and_contiguous(output.get("topk_logprobs")),
+         loss=output.get("loss"),
+     )
+ 
+@@ -71,6 +73,7 @@ class FusedOutputLinear(torch.nn.Linear):
+         labels: torch.Tensor | None = None,
+         temperature: Tensor | None = None,
+         sampling_mask: Tensor | None = None,
++        topk_ids: Tensor | None = None,
+     ) -> PrimeLmOutput:
+         assert labels is not None, "FusedOutputLinear requires labels for chunked logprob computation"
+ 
+@@ -79,7 +82,7 @@ class FusedOutputLinear(torch.nn.Linear):
+         labels = labels.reshape(b * s).contiguous()
+ 
+         if temperature is None:
+-            assert sampling_mask is None, "sampling-mask replay requires per-token temperatures"
++            assert sampling_mask is None and topk_ids is None, "Sampling evidence requires per-token temperatures"
+             loss = _ChunkedCrossEntropySumFn.apply(hidden_states, self.weight, labels, self.chunk_size)
+             return PrimeLmOutput(loss=loss)
+ 
+@@ -87,7 +90,10 @@ class FusedOutputLinear(torch.nn.Linear):
+         if sampling_mask is not None:
+             sampling_mask = sampling_mask.reshape(b * s, sampling_mask.shape[-1]).contiguous()
+ 
+-        logprobs, entropy = _SequenceChunkedLogProbEntropyFn.apply(
++        if topk_ids is not None:
++            topk_ids = topk_ids.reshape(b * s, topk_ids.shape[-1]).long().contiguous()
++
++        logprobs, entropy, topk_logprobs = _SequenceChunkedLogProbEntropyFn.apply(
+             hidden_states,
+             self.weight,
+             labels,
+@@ -97,11 +103,13 @@ class FusedOutputLinear(torch.nn.Linear):
+             self.online_update_fn,
+             self.backward_epilogue_fn,
+             self.fused_online_update_fn,
++            topk_ids,
+         )
+ 
+         logprobs = logprobs.reshape(b, s)
+         entropy = entropy.reshape(b, s)
+-        return PrimeLmOutput(logprobs=logprobs, entropy=entropy)
++        topk_logprobs = topk_logprobs.reshape(b, s, -1) if topk_logprobs is not None else None
++        return PrimeLmOutput(logprobs=logprobs, entropy=entropy, topk_logprobs=topk_logprobs)
+ 
+ 
+ class VanillaOutputLinear(torch.nn.Linear):
+@@ -117,6 +125,7 @@ class VanillaOutputLinear(torch.nn.Linear):
+         labels: torch.Tensor | None = None,
+         temperature: Tensor | None = None,
+         sampling_mask: Tensor | None = None,
++        topk_ids: Tensor | None = None,
+     ) -> PrimeLmOutput:
+         logits = super().forward(hidden_states)
+         if labels is not None and temperature is None:
+@@ -175,7 +184,8 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+         online_update_fn: OnlineUpdateFn | None = None,
+         backward_epilogue_fn: BackwardEpilogueFn | None = None,
+         fused_online_update_fn: FusedOnlineUpdateFn | None = None,
+-    ) -> tuple[torch.Tensor, torch.Tensor]:
++        topk_ids: torch.Tensor | None = None,  # [N, K], -1-padded
++    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+         """
+         Returns per-token logprobs and entropy by chunking over flattened sequence tokens.
+ 
+@@ -196,6 +206,10 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+             assert sampling_mask.dim() == 2 and sampling_mask.shape[0] == hidden.shape[0], (
+                 f"expected sampling_mask [N,K], got {tuple(sampling_mask.shape)}"
+             )
++        if topk_ids is not None:
++            assert topk_ids.dim() == 2 and topk_ids.shape[0] == hidden.shape[0], (
++                f"expected topk_ids [N,K], got {tuple(topk_ids.shape)}"
++            )
+ 
+         device = hidden.device
+         n = hidden.shape[0]
+@@ -206,6 +220,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+         entropy = torch.empty((n,), device=device, dtype=torch.float32)
+         logz = torch.empty((n,), device=device, dtype=torch.float32)
+         replay = torch.zeros((n,), device=device, dtype=torch.bool) if sampling_mask is not None else None
++        topk_logprobs = torch.empty_like(topk_ids, dtype=torch.float32) if topk_ids is not None else None
+ 
+         for start in range(0, n, chunk_size):
+             end = min(start + chunk_size, n)
+@@ -225,12 +240,15 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+                 # Each mask id lives in exactly one vocab chunk; collect its logit
+                 # into a [tokens, K] buffer and logsumexp once after the loop.
+                 mask_logits = torch.full_like(mask_chunk, float("-inf"), dtype=torch.float32)
++            topk_chunk = topk_ids[start:end] if topk_ids is not None else None
++            if topk_chunk is not None:
++                topk_logits = torch.zeros_like(topk_chunk, dtype=torch.float32)
+ 
+             for vocab_start in range(0, vocab, vocab_chunk_size):
+                 vocab_end = min(vocab_start + vocab_chunk_size, vocab)
+                 weight_chunk = weight[vocab_start:vocab_end]
+                 logits_chunk = hidden_chunk @ weight_chunk.t()
+-                if fused_online_update_fn is not None and mask_chunk is None:
++                if fused_online_update_fn is not None and mask_chunk is None and topk_chunk is None:
+                     m, s, t, target_logits = fused_online_update_fn(
+                         m, s, t, logits_chunk, inv_temperature[start:end], labels_chunk, vocab_start, target_logits
+                     )
+@@ -242,6 +260,9 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+                 if mask_chunk is not None:
+                     mask_local, mask_in_range = _sampling_mask_local_indices(mask_chunk, vocab_start, vocab_end)
+                     mask_logits = torch.where(mask_in_range, scaled_logits.gather(1, mask_local), mask_logits)
++                if topk_chunk is not None:
++                    local, valid = _sampling_mask_local_indices(topk_chunk, vocab_start, vocab_end)
++                    topk_logits = torch.where(valid, scaled_logits.gather(1, local), topk_logits)
+ 
+                 # Branchless target extraction - we don't want to stall the GPU here (because: if torch.any()) calls bool(Tensor) calls Tensor.items() <- sync here we don't want
+                 in_range = (labels_chunk >= vocab_start) & (labels_chunk < vocab_end)
+@@ -258,23 +279,27 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+             logz[start:end] = logz_chunk
+             logprobs[start:end] = target_logits - logz_chunk
+             entropy[start:end] = logz_full - (t / s)
++            if topk_chunk is not None:
++                topk_logprobs[start:end] = (topk_logits - logz_chunk.unsqueeze(-1)).masked_fill(topk_chunk < 0, 0.0)
+ 
+         ctx.set_materialize_grads(
+             False
+         )  # Without materialized grads unused outputs get grad None instead of zeros and backward can reject them without a sync
+-        ctx.save_for_backward(hidden, weight, labels, inv_temperature, logz, sampling_mask, replay)
++        ctx.save_for_backward(hidden, weight, labels, inv_temperature, logz, sampling_mask, replay, topk_ids)
+         ctx.chunk_size = chunk_size
+         ctx.backward_epilogue_fn = backward_epilogue_fn
+ 
+-        return logprobs, entropy
++        return logprobs, entropy, topk_logprobs
+ 
+     @staticmethod
+-    def backward(ctx, grad_logprobs: torch.Tensor, grad_entropy: torch.Tensor | None):
++    def backward(
++        ctx, grad_logprobs: torch.Tensor | None, grad_entropy: torch.Tensor | None, grad_topk: torch.Tensor | None
++    ):
+         # Grads are not materialized (see forward above) so an unused entropy output arrives becomes None, and as we don't compare values we don't have any sync
+         assert grad_entropy is None, "Backward through entropy is not implemented in FusedOutputLinear"
+-        assert grad_logprobs is not None, "FusedOutputLinear backward requires logprobs gradients"
++        assert grad_logprobs is not None or grad_topk is not None, "FusedOutputLinear requires a logprob gradient"
+ 
+-        hidden, weight, labels, inv_temperature, logz, sampling_mask, replay = ctx.saved_tensors
++        hidden, weight, labels, inv_temperature, logz, sampling_mask, replay, topk_ids = ctx.saved_tensors
+         chunk_size: int = ctx.chunk_size
+ 
+         n, _ = hidden.shape
+@@ -289,17 +314,22 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+             end = min(start + chunk_size, n)
+             hidden_chunk = hidden[start:end]
+             labels_chunk = labels[start:end]
+-            grad_chunk = grad_logprobs[start:end].to(torch.float32)
++            grad_chunk = (
++                grad_logprobs[start:end].float() if grad_logprobs is not None else torch.zeros_like(logz[start:end])
++            )
+             inv_t_chunk = inv_temperature[start:end].unsqueeze(-1)
+             logz_chunk = logz[start:end]
+             mask_chunk = sampling_mask[start:end].to(torch.long) if sampling_mask is not None else None
+             replay_chunk = replay[start:end] if replay is not None else None
++            topk_chunk = topk_ids[start:end] if topk_ids is not None else None
++            grad_head = grad_topk[start:end].float().masked_fill(topk_chunk < 0, 0.0) if grad_topk is not None else None
++            grad_scale = -grad_chunk if grad_head is None else -grad_chunk - grad_head.sum(-1)
+ 
+             for vocab_start in range(0, vocab, vocab_chunk_size):
+                 vocab_end = min(vocab_start + vocab_chunk_size, vocab)
+                 weight_chunk = weight[vocab_start:vocab_end]
+                 logits_chunk = hidden_chunk @ weight_chunk.t()
+-                if ctx.backward_epilogue_fn is not None and mask_chunk is None:
++                if ctx.backward_epilogue_fn is not None and mask_chunk is None and topk_chunk is None:
+                     grad_logits = ctx.backward_epilogue_fn(
+                         logits_chunk,
+                         inv_temperature[start:end].contiguous(),
+@@ -311,7 +341,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+                 else:
+                     scaled_logits = logits_chunk.to(torch.float32) * inv_t_chunk
+ 
+-                if ctx.backward_epilogue_fn is None or mask_chunk is not None:
++                if ctx.backward_epilogue_fn is None or mask_chunk is not None or topk_chunk is not None:
+                     if mask_chunk is not None:
+                         # Replayed rows get softmax gradient only on mask ids. Set masked-out
+                         # logits to -inf before exp: a masked-out logit above the sampling-mask
+@@ -323,11 +353,14 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+                         scaled_logits.masked_fill_(masked_out, float("-inf"))
+                     probs = torch.exp(scaled_logits - logz_chunk.unsqueeze(-1))
+ 
+-                    grad_logits = (-grad_chunk).unsqueeze(-1) * probs
++                    grad_logits = grad_scale.unsqueeze(-1) * probs
+                     # Branchless grad scatter like we did in the sync-free forward
+                     in_range = (labels_chunk >= vocab_start) & (labels_chunk < vocab_end)
+                     local_idx = (labels_chunk - vocab_start).clamp(0, vocab_end - vocab_start - 1).to(torch.int64)
+                     grad_logits.scatter_add_(1, local_idx.unsqueeze(1), (grad_chunk * in_range).unsqueeze(1))
++                    if grad_head is not None:
++                        local, valid = _sampling_mask_local_indices(topk_chunk, vocab_start, vocab_end)
++                        grad_logits.scatter_add_(1, local, grad_head * valid)
+                     grad_logits = grad_logits * inv_t_chunk
+ 
+                 if needs_hidden:
+@@ -335,7 +368,7 @@ class _SequenceChunkedLogProbEntropyFn(torch.autograd.Function):
+                 if needs_weight:
+                     grad_weight[vocab_start:vocab_end].add_(grad_logits.to(weight.dtype).t() @ hidden_chunk)
+ 
+-        gradients = (grad_hidden, grad_weight, None, None, None, None, None, None, None)
++        gradients = (grad_hidden, grad_weight, None, None, None, None, None, None, None, None)
+         return gradients[: len(ctx.needs_input_grad)]
+ 
+ 
+@@ -433,9 +466,9 @@ def inject_prime_lm_head(
+ 
+     logger = get_logger()
+ 
+-    if any(fn is not None for fn in (online_update_fn, backward_epilogue_fn, fused_online_update_fn)) and not isinstance(
+-        chunk_size, int
+-    ):
++    if any(
++        fn is not None for fn in (online_update_fn, backward_epilogue_fn, fused_online_update_fn)
++    ) and not isinstance(chunk_size, int):
+         raise ValueError("an online LM-head update requires a chunked fused LM head")
+ 
+     # Replace the lm_head with the appropriate wrapper
+@@ -470,6 +503,7 @@ def _patch_model_forward(model: nn.Module) -> None:
+         logits_to_keep: int = 0,
+         temperature: torch.Tensor | None = None,
+         sampling_mask: torch.Tensor | None = None,
++        topk_ids: torch.Tensor | None = None,
+         **kwargs: object,
+     ) -> PrimeLmOutput:
+         # For VLM with images, don't create position_ids - let model compute MRoPE internally
+@@ -494,6 +528,7 @@ def _patch_model_forward(model: nn.Module) -> None:
+             labels[:, slice_indices] if labels is not None else None,
+             temperature=temperature[:, slice_indices] if temperature is not None else None,
+             sampling_mask=sampling_mask[:, slice_indices] if sampling_mask is not None else None,
++            topk_ids=topk_ids[:, slice_indices] if topk_ids is not None else None,
+         )
+ 
+     # Bind the new forward to the model
+diff --git a/src/prime_rl/trainer/rl/data.py b/src/prime_rl/trainer/rl/data.py
+index 45ae121de..83ce8c889 100644
+--- a/src/prime_rl/trainer/rl/data.py
++++ b/src/prime_rl/trainer/rl/data.py
+@@ -48,6 +48,8 @@ class TensorMicroBatch(TypedDict):
+     # Sampling-mask token ids per position, padded with -1 to the micro batch's
+     # maximum mask size. A row containing only -1 has no mask.
+     sampling_mask: Int[Tensor, "batch seq mask"] | None
++    top_logprobs_ids: Int[Tensor, "batch seq head"] | None
++    top_logprobs_values: Float[Tensor, "batch seq head"] | None
+ 
+     # Multimodal inputs. The data loader sets mm_refs (undecoded image references), and prepare_micro_batch
+     # replaces them with mm_kwargs (CPU tensors for the vision encoder) and mm_forward_policy.
+@@ -137,6 +139,8 @@ class FakeDataLoader:
+             "seq_lens": torch.tensor(sequence_lengths, dtype=torch.long),
+             "routed_experts": None,
+             "sampling_mask": None,
++            "top_logprobs_ids": None,
++            "top_logprobs_values": None,
+             "mm_refs": None,
+             "mm_token_type_ids": None,
+             "rl_weights": None,
+@@ -169,6 +173,8 @@ class FakeDataLoader:
+             "seq_lens": torch.tensor([self.seq_len], dtype=torch.long),
+             "routed_experts": None,
+             "sampling_mask": None,
++            "top_logprobs_ids": None,
++            "top_logprobs_values": None,
+             "mm_refs": None,
+             "mm_token_type_ids": None,
+             "rl_weights": None,
+@@ -249,6 +255,25 @@ class DataLoader:
+             padded = np.full((len(counts), max_mask_size), -1, dtype=np.int32)
+             padded[np.arange(max_mask_size)[None, :] < counts[:, None]] = ids
+             sampling_mask = torch.from_numpy(padded).unsqueeze(0)
++        heads = [
++            head
++            for head in (micro_batch.top_logprobs, packed_sampling_mask)
++            if head is not None and head.logprobs is not None
++        ]
++        top_ids = top_values = None
++        if heads:
++            head_counts = [np.frombuffer(head.counts, dtype=np.int32) for head in heads]
++            counts = sum(head_counts)
++            rows = np.concatenate([np.repeat(np.arange(len(row_counts)), row_counts) for row_counts in head_counts])
++            order = np.argsort(rows, kind="stable")
++            width = max(int(counts.max(initial=0)), 1)
++            valid = np.arange(width)[None, :] < counts[:, None]
++            ids = np.full((len(counts), width), -1, dtype=np.int32)
++            values = np.zeros((len(counts), width), dtype=np.float32)
++            ids[valid] = np.concatenate([np.frombuffer(head.ids, dtype=np.int32) for head in heads])[order]
++            values[valid] = np.concatenate([np.frombuffer(head.logprobs, dtype=np.float32) for head in heads])[order]
++            top_ids = torch.from_numpy(ids).unsqueeze(0)
++            top_values = torch.from_numpy(values).unsqueeze(0)
+         return TensorMicroBatch(
+             input_ids=torch.tensor(micro_batch.input_ids, dtype=torch.long).unsqueeze(0),
+             position_ids=torch.tensor(micro_batch.position_ids, dtype=torch.long).unsqueeze(0),
+@@ -272,6 +297,8 @@ class DataLoader:
+             else None,
+             routed_experts=routed_experts,
+             sampling_mask=sampling_mask,
++            top_logprobs_ids=top_ids,
++            top_logprobs_values=top_values,
+             rl_weights=torch.tensor(micro_batch.rl_weights, dtype=torch.float).unsqueeze(0)
+             if micro_batch.rl_weights is not None
+             else None,
+@@ -284,6 +311,38 @@ class DataLoader:
+         )
+ 
+ 
++def validate_score_centering_data(batch: TensorMicroBatch, *, vocab_size: int) -> None:
++    """Validate sampler head/replay evidence before the LM head consumes it."""
++    mask = batch["loss_mask"]
++    if batch["rl_weights"] is not None:
++        mask = mask & (batch["rl_weights"] != 0)
++    if not mask.any():
++        return
++    ids, values = batch["top_logprobs_ids"], batch["top_logprobs_values"]
++    if ids is None or values is None:
++        raise ValueError("Score centering requires top logprobs on every RL token")
++    ids, values = ids[mask], values[mask]
++    valid = ids >= 0
++    if not valid.any(-1).all() or (ids >= vocab_size).any():
++        raise ValueError("Missing or out-of-vocabulary sampler top logprobs")
++    if not torch.isfinite(values[valid]).all() or (values[valid] > 1e-6).any():
++        raise ValueError("Sampler top logprobs must be finite and nonpositive")
++    ordered = ids.sort(-1).values
++    if ((ordered[:, 1:] == ordered[:, :-1]) & (ordered[:, 1:] >= 0)).any():
++        raise ValueError("Duplicate sampler head ids")
++    q = values.exp().masked_fill(~valid, 0.0)
++    if (q.sum(-1) > 1.0001).any():
++        raise ValueError("Sampler head mass exceeds one")
++    if batch["sampling_mask"] is not None:
++        support = batch["sampling_mask"][mask]
++        replay = (support >= 0).any(-1)
++        if not torch.isclose(q.sum(-1)[replay], torch.ones_like(q.sum(-1)[replay]), atol=1e-4, rtol=0).all():
++            raise ValueError("Sampler probabilities must normalize over the recorded support")
++        sampled = batch["input_ids"][mask]
++        if not ((support[replay] == sampled[replay, None]).any(-1)).all():
++            raise ValueError("Sampled token is missing from the recorded support")
++
++
+ def _torch_dtype(name: str) -> torch.dtype:
+     """Resolve a numpy/torch dtype name (e.g. ``"float32"``) to torch.dtype."""
+     # Strip the ``numpy.`` prefix some dtype reprs carry.
+diff --git a/src/prime_rl/trainer/rl/loss.py b/src/prime_rl/trainer/rl/loss.py
+index bbb49f722..6f1f93685 100644
+--- a/src/prime_rl/trainer/rl/loss.py
++++ b/src/prime_rl/trainer/rl/loss.py
+@@ -34,6 +34,10 @@ class LossInputs:
+     advantages: Float[Tensor, " seq"]
+     loss_mask: Bool[Tensor, " seq"]
+     loss_weights: Float[Tensor, " seq"] | None = field(default=None)
++    trainer_topk_logprobs: Float[Tensor, "seq head"] | None = None
++    sampler_topk_logprobs: Float[Tensor, "seq head"] | None = None
++    topk_valid: Bool[Tensor, "seq head"] | None = None
++    sampler_support_complete: Bool[Tensor, " seq"] | None = None
+ 
+ 
+ @dataclass
+@@ -70,6 +74,20 @@ def selective_log_softmax(
+     return torch.gather(logprobs, dim=-1, index=index.unsqueeze(-1)).squeeze(-1)
+ 
+ 
++def selective_topk_log_softmax(
++    logits: Tensor, topk_ids: Tensor, sampling_mask: Tensor | None = None, labels: Tensor | None = None
++) -> Tensor:
++    """Gather head logprobs under the same normalization as the sampled token."""
++    logz = logits.logsumexp(-1, keepdim=True)
++    if sampling_mask is not None:
++        replay = sampling_replay_mask(sampling_mask, labels).unsqueeze(-1)
++        mask_logits = logits.gather(-1, sampling_mask.clamp_min(0).long()).masked_fill(sampling_mask < 0, -torch.inf)
++        mask_logits = torch.where(replay, mask_logits, 0.0)
++        logz = torch.where(replay, mask_logits.logsumexp(-1, keepdim=True), logz)
++    head = logits.gather(-1, topk_ids.clamp_min(0).long()) - logz
++    return head.masked_fill(topk_ids < 0, 0.0)
++
++
+ @jaxtyped(typechecker=typechecker)
+ def selective_log_softmax_with_sampling_mask(
+     logits: Float[Tensor, "batch seq vocab"],
+@@ -147,6 +165,18 @@ def _capped_importance_ratio(log_importance_ratio: Tensor, max_ratio: float) ->
+     return torch.exp(capped_log_ratio + (log_importance_ratio - log_importance_ratio.detach()))
+ 
+ 
++def _centering_head(inputs: LossInputs) -> tuple[Tensor, Tensor, Tensor]:
++    if inputs.trainer_topk_logprobs is None or inputs.sampler_topk_logprobs is None or inputs.topk_valid is None:
++        raise ValueError("Score centering requires sampler top logprobs on every RL token")
++    mask = inputs.loss_mask
++    trainer = inputs.trainer_topk_logprobs[mask]
++    valid = inputs.topk_valid[mask]
++    sampler = inputs.sampler_topk_logprobs[mask].detach()
++    if not bool(valid.any(-1).all()):
++        raise ValueError("Score centering is missing sampler heads on RL tokens")
++    return trainer, sampler, valid
++
++
+ class IPOLoss:
+     """IPO loss type: a symmetric trust region (mask tokens whose probability
+     moved more than ``eps`` in absolute terms), policy gradient via
+@@ -213,6 +243,33 @@ class IcePopLoss:
+         per_token_loss = -loss_config.adv_tau * advantages[keep_mask] * importance_ratio
+         if weights is not None:
+             per_token_loss = per_token_loss * weights[keep_mask]
++        loss = per_token_loss.sum()
++
++        centering_metrics = {}
++        if loss_config.score_centering and log_importance_ratio.numel():
++            head, sampler, valid = _centering_head(inputs)
++            with torch.no_grad():
++                p = head.exp().masked_fill(~valid, 0.0)
++                q = sampler.exp().masked_fill(~valid, 0.0)
++                head_log_ratio = head - sampler
++                accepted = valid & (head_log_ratio >= log_ratio_low) & (head_log_ratio <= log_ratio_high)
++                mass = p.masked_fill(~accepted, 0.0)
++                p_tail = (1.0 - p.sum(-1)).clamp_min(1e-6)
++                q_tail = (1.0 - q.sum(-1)).clamp_min(1e-6)
++                tail_log_ratio = -(q_tail / p_tail).log()
++                alpha = ((tail_log_ratio >= log_ratio_low) & (tail_log_ratio <= log_ratio_high)).to(p.dtype)
++                if inputs.sampler_support_complete is not None:
++                    alpha = alpha.masked_fill(inputs.sampler_support_complete[inputs.loss_mask], 0.0)
++                mass = mass - alpha.unsqueeze(-1) * p
++                centering_metrics["score_centering/tail_scale"] = alpha
++                centering_metrics["score_centering/head_mass"] = q.sum(-1)
++                centering_metrics["score_centering/logit_correction_l1"] = (
++                    mass - p * mass.sum(-1, keepdim=True)
++                ).abs().sum(-1) + (1.0 - p.sum(-1)).clamp_min(0.0) * mass.sum(-1).abs()
++            correction = loss_config.adv_tau * advantages.detach() * (mass * head).sum(-1)
++            if weights is not None:
++                correction = correction * weights
++            loss = loss + correction.sum()
+ 
+         mismatch_kl = _mismatch_kl_from_log_ratio(log_importance_ratio)
+ 
+@@ -220,8 +277,9 @@ class IcePopLoss:
+             "masked_mismatch_kl": _safe_mean(mismatch_kl, is_masked),
+             "unmasked_mismatch_kl": _safe_mean(mismatch_kl, keep_mask),
+             "is_masked": is_masked.sum() / max(is_masked.numel(), 1),
++            **centering_metrics,
+         }
+-        return LossOutputs(loss=per_token_loss.sum(), metrics=metrics)
++        return LossOutputs(loss=loss, metrics=metrics)
+ 
+ 
+ class PPOLoss:
+@@ -387,6 +445,10 @@ def compute_loss(
+     rl_scale: float,
+     ce_scale: float,
+     ref_kl_scale: float,
++    trainer_topk_logprobs: list[Tensor] | None = None,
++    sampler_topk_logprobs: list[Tensor] | None = None,
++    topk_valid: list[Tensor] | None = None,
++    sampler_support_complete: list[Tensor] | None = None,
+ ) -> tuple[Float[Tensor, ""], dict[str, Any]]:
+     """
+     Compute loss for packed sequences (batch size = 1, multiple sequences packed along sequence dimension).
+@@ -434,6 +496,10 @@ def compute_loss(
+         ce_weights = [None] * n
+     if ref_kl_weights is None:
+         ref_kl_weights = [None] * n
++    trainer_topk_logprobs = trainer_topk_logprobs if trainer_topk_logprobs is not None else [None] * n
++    sampler_topk_logprobs = sampler_topk_logprobs if sampler_topk_logprobs is not None else [None] * n
++    topk_valid = topk_valid if topk_valid is not None else [None] * n
++    sampler_support_complete = sampler_support_complete if sampler_support_complete is not None else [None] * n
+ 
+     def run_loss_fn(loss_fn: LossFn, inputs: LossInputs) -> Tensor:
+         result = loss_fn(inputs)
+@@ -448,7 +514,7 @@ def compute_loss(
+     rl_loss = trainer_logprobs[0].sum() * 0.0
+     ce_loss = 0.0
+     ref_kl_loss = 0.0
+-    for t_logp, i_logp, ref_logp, adv, mask, rl_w, ce_w, ref_kl_w in zip(
++    for t_logp, i_logp, ref_logp, adv, mask, rl_w, ce_w, ref_kl_w, t_head, q_head, valid, complete in zip(
+         trainer_logprobs,
+         inference_logprobs,
+         ref_logprobs,
+@@ -457,6 +523,11 @@ def compute_loss(
+         rl_weights,
+         ce_weights,
+         ref_kl_weights,
++        trainer_topk_logprobs,
++        sampler_topk_logprobs,
++        topk_valid,
++        sampler_support_complete,
++        strict=True,
+     ):
+ 
+         def make_inputs(component_mask: Bool[Tensor, " seq"], weights: Float[Tensor, " seq"] | None) -> LossInputs:
+@@ -467,6 +538,10 @@ def compute_loss(
+                 advantages=adv,
+                 loss_mask=component_mask,
+                 loss_weights=weights,
++                trainer_topk_logprobs=t_head,
++                sampler_topk_logprobs=q_head,
++                topk_valid=valid,
++                sampler_support_complete=complete,
+             )
+ 
+         if rl_w is None:
+diff --git a/src/prime_rl/trainer/rl/train.py b/src/prime_rl/trainer/rl/train.py
+index fb7edf90b..cde4cd54d 100644
+--- a/src/prime_rl/trainer/rl/train.py
++++ b/src/prime_rl/trainer/rl/train.py
+@@ -18,7 +18,7 @@ from prime_rl.trainer.ckpt import Progress, setup_ckpt_manager
+ from prime_rl.trainer.optim import setup_optimizer
+ from prime_rl.trainer.scheduler import setup_scheduler
+ from prime_rl.configs.trainer import TrainerConfig
+-from prime_rl.trainer.rl.data import DataLoader, FakeDataLoader, prepare_micro_batch
++from prime_rl.trainer.rl.data import DataLoader, FakeDataLoader, prepare_micro_batch, validate_score_centering_data
+ from prime_rl.utils.cp import (
+     gather_for_cp,
+     gather_for_cp_wo_grad,
+@@ -33,6 +33,7 @@ from prime_rl.trainer.rl.loss import (
+     _mismatch_kl_from_log_ratio,
+     selective_log_softmax,
+     selective_log_softmax_with_sampling_mask,
++    selective_topk_log_softmax,
+     setup_rl_loss_fn,
+     shift_tensor_left,
+     shift_tensor_right,
+@@ -350,6 +351,10 @@ def train(config: TrainerConfig):
+         step_local_num_tokens = 0
+         for micro_step, micro_batch in enumerate(micro_batch_workers(prepare, micro_batches)):
+             step_local_num_tokens += micro_batch["input_ids"].shape[1]
++            score_centering = config.loss.type == "icepop" and config.loss.score_centering
++            if score_centering:
++                vocab_size = getattr(model.config, "vocab_size", None) or model.config.text_config.vocab_size
++                validate_score_centering_data(micro_batch, vocab_size=vocab_size)
+             input_ids = micro_batch["input_ids"].to("cuda")
+             position_ids = micro_batch["position_ids"].to("cuda")
+             advantages = micro_batch["advantages"].to("cuda")
+@@ -377,6 +382,14 @@ def train(config: TrainerConfig):
+             sampling_mask = (
+                 micro_batch["sampling_mask"].to("cuda") if micro_batch["sampling_mask"] is not None else None
+             )
++            sampler_support_complete = (
++                (sampling_mask >= 0).any(-1) if score_centering and sampling_mask is not None else None
++            )
++            topk_ids = micro_batch["top_logprobs_ids"] if score_centering else None
++            sampler_topk = micro_batch["top_logprobs_values"].to("cuda") if topk_ids is not None else None
++            topk_valid = (topk_ids >= 0).to("cuda") if topk_ids is not None else None
++            if topk_ids is not None:
++                topk_ids = topk_ids.to("cuda")
+ 
+             mm_kwargs = micro_batch.pop("mm_kwargs")
+             if mm_kwargs is not None:
+@@ -391,6 +404,8 @@ def train(config: TrainerConfig):
+             seq_lens = micro_batch["seq_lens"].to("cuda")
+ 
+             labels = shift_tensor_left(input_ids)
++            if topk_ids is not None:
++                topk_ids = shift_tensor_left(topk_ids, pad_value=-1)
+             if sampling_mask is not None:
+                 # Sampling masks ride at the sampled token's own position (like inference
+                 # logprobs); shift to align with the label each position predicts.
+@@ -414,6 +429,8 @@ def train(config: TrainerConfig):
+                     )
+                 seq_lens_are_pre_shard = True
+                 labels = shard_for_cp(labels, cp_rank=cp_rank, cp_world_size=cp_size)
++                if topk_ids is not None:
++                    topk_ids = shard_for_cp(topk_ids, cp_rank=cp_rank, cp_world_size=cp_size)
+                 if routed_experts is not None and not defer_vlm_cp_to_model:
+                     routed_experts = shard_for_cp(routed_experts, cp_rank=cp_rank, cp_world_size=cp_size)
+                 if sampling_mask is not None:
+@@ -460,6 +477,7 @@ def train(config: TrainerConfig):
+                     seq_lens_are_pre_shard=seq_lens_are_pre_shard,
+                     routed_experts=routed_experts,
+                     sampling_mask=sampling_mask,
++                    topk_ids=topk_ids,
+                 )
+ 
+             if out.get("logprobs") is None:
+@@ -473,11 +491,15 @@ def train(config: TrainerConfig):
+                 else:
+                     out["logprobs"] = selective_log_softmax(scaled_logits, labels)
+                 out["entropy"] = compute_entropy(scaled_logits)
++                if topk_ids is not None:
++                    out["topk_logprobs"] = selective_topk_log_softmax(scaled_logits, topk_ids, sampling_mask, labels)
+             # else: FusedOutputLinear was used - logprobs already computed with per-token temperatures
+ 
+             if cp_enabled:
+                 out["logprobs"] = gather_for_cp(out["logprobs"], cp_group)
+                 out["entropy"] = gather_for_cp_wo_grad(out["entropy"], cp_size, cp_group)
++                if out.get("topk_logprobs") is not None:
++                    out["topk_logprobs"] = gather_for_cp(out["topk_logprobs"], cp_group)
+ 
+             vocab_size = getattr(model.config, "vocab_size", None) or model.config.text_config.vocab_size
+             # This is not really necessary as the first token should be masked out, but we do it anyway to be sure
+@@ -487,6 +509,9 @@ def train(config: TrainerConfig):
+             out["entropy"] = shift_tensor_right(
+                 out["entropy"], pad_value=torch.log(torch.tensor(float(vocab_size))).item()
+             )
++            trainer_topk = out.get("topk_logprobs")
++            if trainer_topk is not None:
++                trainer_topk = torch.cat([torch.zeros_like(trainer_topk[:, :1]), trainer_topk[:, :-1]], dim=1)
+ 
+             # Compute loss
+             sequence_lengths = micro_batch["sequence_lengths"]
+@@ -503,6 +528,16 @@ def train(config: TrainerConfig):
+                 rl_scale=rl_scale,
+                 ce_scale=ce_scale,
+                 ref_kl_scale=ref_kl_scale,
++                trainer_topk_logprobs=trainer_topk.squeeze(0).split(sequence_lengths)
++                if trainer_topk is not None
++                else None,
++                sampler_topk_logprobs=sampler_topk.squeeze(0).split(sequence_lengths)
++                if sampler_topk is not None
++                else None,
++                topk_valid=topk_valid.squeeze(0).split(sequence_lengths) if topk_valid is not None else None,
++                sampler_support_complete=sampler_support_complete.squeeze(0).split(sequence_lengths)
++                if sampler_support_complete is not None
++                else None,
+             )
+ 
+             # Backward pass
+@@ -678,7 +713,9 @@ def train(config: TrainerConfig):
+             "perf/throughput": throughput,
+             "perf/throughput_per_gpu": throughput / world.world_size,
+             "perf/mfu": mfu,
+-            "perf/gpu_peak_tflops": perf_counter.gpu_peak_flops / 1e12 if perf_counter.gpu_peak_flops is not None else None,
++            "perf/gpu_peak_tflops": perf_counter.gpu_peak_flops / 1e12
++            if perf_counter.gpu_peak_flops is not None
++            else None,
+             "perf/model_flops_per_token": perf_counter.num_flop_per_token,
+             "perf/peak_memory": peak_memory,
+             "step": progress.step,
+diff --git a/src/prime_rl/transports/batch/types.py b/src/prime_rl/transports/batch/types.py
+index 4fe5225dd..2266d5281 100644
+--- a/src/prime_rl/transports/batch/types.py
++++ b/src/prime_rl/transports/batch/types.py
+@@ -21,9 +21,19 @@ class RoutedExperts(msgspec.Struct, array_like=True, gc=False, omit_defaults=Tru
+ 
+ # Sampling masks for top-p/top-k replay: flat int32 token-id bytes plus an
+ # int32 count per token position (0 = no mask); len(ids) == 4 * counts.sum().
++# ``logprobs`` optionally carries the sampler's float32 logprob of each id.
+ class SamplingMask(msgspec.Struct, array_like=True, gc=False, omit_defaults=True):
+     ids: bytes
+     counts: bytes
++    logprobs: bytes | None = None
++
++
++class TopLogprobs(msgspec.Struct, array_like=True, gc=False, omit_defaults=True):
++    """Flat int32 ids, float32 logprobs and int32 row counts (zero for context)."""
++
++    ids: bytes
++    logprobs: bytes
++    counts: bytes
+ 
+ 
+ # Produced by the orchestrator's train sink; consumed in-process by
+@@ -78,6 +88,7 @@ class TrainingSample(msgspec.Struct, array_like=True, gc=False, omit_defaults=Tr
+     # samples (e.g. fake data).
+     trace_id: str | None = None
+     branch_index: int | None = None
++    top_logprobs: TopLogprobs | None = None
+ 
+ 
+ # Orchestrator -> Trainer
+@@ -115,3 +126,4 @@ class MicroBatch(msgspec.Struct, array_like=True, gc=False, omit_defaults=True):
+     # (e.g. a dummy micro batch). ``None`` when no packed sample carried one.
+     trace_ids: list[str] | None = None
+     branch_indices: list[int] | None = None
++    top_logprobs: TopLogprobs | None = None
+diff --git a/tests/unit/inference/test_serving_tokens.py b/tests/unit/inference/test_serving_tokens.py
+index 79cb30769..b163b7886 100644
+--- a/tests/unit/inference/test_serving_tokens.py
++++ b/tests/unit/inference/test_serving_tokens.py
+@@ -12,16 +12,20 @@ deltas here:
+ 
+ from __future__ import annotations
+ 
++import asyncio
+ from types import SimpleNamespace
+ 
+ import numpy as np
+ from vllm.entrypoints.scale_out.token_in_token_out.protocol import (
++    GenerateRequest,
+     GenerateResponse,
+     GenerateResponseChoice,
+     PlaceholderRangeInfo,
+ )
++from vllm.entrypoints.scale_out.token_in_token_out.serving import ServingTokens
+ from vllm.entrypoints.serve.engine.protocol import UsageInfo
+ from vllm.logprobs import FlatLogprobs, Logprob
++from vllm.sampling_params import SamplingParams
+ 
+ from prime_rl.inference.vllm.serving_tokens import (
+     PrimeRlServingTokens,
+@@ -40,10 +44,34 @@ def test_subclass_overrides_serve_tokens_full_generator():
+     assert PrimeRlServingTokens.serve_tokens_full_generator is not upstream.serve_tokens_full_generator
+ 
+ 
++def test_serve_tokens_clones_real_vllm_sampling_params(monkeypatch):
++    original = SamplingParams(logprobs=2, extra_args={"prl_replay": True, "prl_compact_logprobs": True})
++    request = GenerateRequest(token_ids=[1], sampling_params=original)
++    seen = {}
++
++    async def serve_tokens(self, cloned_request, raw_request):
++        seen["request"] = cloned_request
++        return SimpleNamespace()
++
++    monkeypatch.setattr(ServingTokens, "serve_tokens", serve_tokens)
++    monkeypatch.setenv("PRL_TOP_P_BEFORE_TOP_K", "1")
++    result = asyncio.run(PrimeRlServingTokens.serve_tokens(object.__new__(PrimeRlServingTokens), request))
++
++    assert isinstance(result, SimpleNamespace)
++    assert seen["request"].sampling_params is not original
++    assert seen["request"].sampling_params.extra_args["prl_paired_capture"] is True
++    assert seen["request"].sampling_params.logprobs is None
++    assert original.extra_args == {"prl_replay": True, "prl_compact_logprobs": True}
++    assert original.logprobs == 2
++
++
+ def test_generate_response_post_process_preserves_prompt_metadata():
+     compact_routed_experts = {"data": "AQID", "shape": [1, 1, 3], "start": 0}
+     capture = _PackedOutputs(
+-        _empty_request_outputs(), SimpleNamespace(sampling_params=SimpleNamespace(routed_experts_prompt_start=0))
++        _empty_request_outputs(),
++        SimpleNamespace(
++            sampling_params=SimpleNamespace(logprobs=None, extra_args=None, routed_experts_prompt_start=0)
++        ),
+     )
+     capture.fields[0] = {"routed_experts": compact_routed_experts}
+     usage = UsageInfo(prompt_tokens=4, completion_tokens=3, total_tokens=7)
+diff --git a/tests/unit/orchestrator/test_algorithms.py b/tests/unit/orchestrator/test_algorithms.py
+index f7bf2c26c..976d5522a 100644
+--- a/tests/unit/orchestrator/test_algorithms.py
++++ b/tests/unit/orchestrator/test_algorithms.py
+@@ -1,6 +1,7 @@
+ import asyncio
+ from unittest.mock import MagicMock
+ 
++import numpy as np
+ import pydantic
+ import pytest
+ import verifiers.v1 as vf
+@@ -10,6 +11,7 @@ from verifiers.v1.types import AssistantMessage, ToolMessage, UserMessage
+ from prime_rl.configs.algorithm import AlgoConfig, FrozenModelConfig
+ from prime_rl.orchestrator.algo import EchoAlgorithm, assign_advantages, stamp_loss_routing
+ from prime_rl.orchestrator.algo.base import iter_trainable_traces
++from prime_rl.orchestrator.algo.routing import is_trainable, scalar_advantage
+ from prime_rl.orchestrator.trajectories import trace_to_samples
+ from prime_rl.transports.batch.types import TrainingSample
+ 
+@@ -237,6 +239,20 @@ def test_assign_advantages_full_length_stream():
+     assert trace_to_samples(trace)[0].advantages == [0.0, 0.0, 0.5, -0.5, 0.0, 1.0]
+ 
+ 
++def test_advantage_routing_handles_numpy_streams():
++    trace = _make_episode().traces[0]
++    trace.nodes[1].advantages = np.array([0.5, -0.25], dtype=np.float32)
++    trace.nodes[3].advantages = np.array([0.75], dtype=np.float32)
++
++    assert scalar_advantage(trace) == pytest.approx(1 / 3)
++    assert is_trainable(trace)
++
++    trace.nodes[1].advantages = np.zeros(2, dtype=np.float32)
++    trace.nodes[3].advantages = np.zeros(1, dtype=np.float32)
++    assert scalar_advantage(trace) == 0.0
++    assert not is_trainable(trace)
++
++
+ def test_compaction_retries_train_only_causally_used_generations():
+     nodes = [
+         MessageNode(
+diff --git a/tests/unit/orchestrator/test_batch.py b/tests/unit/orchestrator/test_batch.py
+index d498d9bb1..c3a410c07 100644
+--- a/tests/unit/orchestrator/test_batch.py
++++ b/tests/unit/orchestrator/test_batch.py
+@@ -10,7 +10,14 @@ from prime_rl.orchestrator.batch import (
+     prepare_batch,
+     prepare_sample,
+ )
+-from prime_rl.transports.batch.types import MicroBatch, MMImageRef, MMRefs, RoutedExperts, TrainingSample
++from prime_rl.transports.batch.types import (
++    MicroBatch,
++    MMImageRef,
++    MMRefs,
++    RoutedExperts,
++    SamplingMask,
++    TrainingSample,
++)
+ 
+ 
+ def _routed_experts(data, dtype=np.uint8):
+@@ -92,6 +99,56 @@ def test_training_sample_requires_env_name():
+         )
+ 
+ 
++def test_prepare_batch_rejects_mixed_sampling_mask_logprobs():
++    counts = np.array([0, 0, 1, 0], dtype=np.int32).tobytes()
++
++    def sample(token: int, logprobs: bytes | None) -> TrainingSample:
++        return TrainingSample(
++            token_ids=[token, token + 1, token + 2, token + 3],
++            mask=[False, False, True, False],
++            logprobs=[0.0, 0.0, -0.1, 0.0],
++            temperatures=[1.0] * 4,
++            advantages=[0.0, 0.0, 1.0, 0.0],
++            env_name="test-env",
++            sampling_mask=SamplingMask(
++                ids=np.array([token + 2], dtype=np.int32).tobytes(),
++                counts=counts,
++                logprobs=logprobs,
++            ),
++        )
++
++    with pytest.raises(ValueError, match="mixed missing sampler logprobs"):
++        prepare_batch(
++            [sample(10, np.array([-0.1], dtype=np.float32).tobytes()), sample(20, None)],
++            seq_len=8,
++            num_train_workers=1,
++            bin_cost=build_bin_cost(None),
++        )
++
++
++def test_prepare_sample_truncates_sampling_mask_logprobs_with_ids():
++    ids = np.array([5, 6, 7, 8], dtype=np.int32).tobytes()
++    logprobs = np.array([-0.1, -0.2, -0.3, -0.4], dtype=np.float32).tobytes()
++    sample = TrainingSample(
++        token_ids=[1, 2, 3, 4],
++        mask=[False, True, True, True],
++        logprobs=[0.0, -0.1, -0.2, -0.3],
++        temperatures=[1.0] * 4,
++        advantages=[0.0, 1.0, 1.0, 1.0],
++        env_name="test-env",
++        sampling_mask=SamplingMask(
++            ids=ids,
++            counts=np.array([1, 2, 0, 1], dtype=np.int32).tobytes(),
++            logprobs=logprobs,
++        ),
++    )
++
++    micro_batch = prepare_sample(sample, seq_len=3)
++
++    assert micro_batch.sampling_mask is not None
++    assert micro_batch.sampling_mask.ids == ids[:12]
++    assert micro_batch.sampling_mask.logprobs == logprobs[:12]
++
+ @pytest.mark.parametrize(
+     ("rollout_count", "num_train_workers", "expected_batches_per_worker"), [(4, 2, 2), (5, 2, 3), (7, 1, 7), (11, 4, 3)]
+ )
+diff --git a/tests/unit/orchestrator/test_curriculum.py b/tests/unit/orchestrator/test_curriculum.py
+index ac7be300f..1e90a7016 100644
+--- a/tests/unit/orchestrator/test_curriculum.py
++++ b/tests/unit/orchestrator/test_curriculum.py
+@@ -2,6 +2,7 @@ import uuid
+ from collections.abc import Iterator
+ from types import SimpleNamespace
+ 
++import numpy as np
+ import pytest
+ import verifiers.v1 as vf
+ 
+@@ -194,3 +195,12 @@ def test_advantage_range_gate_generalizes_zero_advantage_rejection() -> None:
+ 
+     positive_gate = AdvRangeGate(AdvRangeGateConfig(reject_min=0.5, reject_max=0.5))
+     assert positive_gate.admit(make_rollout(task, advantages=[0.5])) is False
++
++
++def test_advantage_range_gate_accepts_numpy_advantage_streams() -> None:
++    task = make_task(0)
++    gate = AdvRangeGate(AdvRangeGateConfig())
++    group = make_rollout(task, advantages=[0.0, 0.0])
++    group[0].traces[0].nodes[0].advantages = np.array([0.0, 0.0], dtype=np.float32)
++
++    assert gate.admit(group) is False
+diff --git a/tests/unit/orchestrator/test_metrics.py b/tests/unit/orchestrator/test_metrics.py
+index bcb35b9bb..c8149d76c 100644
+--- a/tests/unit/orchestrator/test_metrics.py
++++ b/tests/unit/orchestrator/test_metrics.py
+@@ -2,6 +2,7 @@ import math
+ from itertools import count
+ from types import SimpleNamespace
+ 
++import numpy as np
+ import pytest
+ import verifiers.v1 as vf
+ 
+@@ -220,6 +221,19 @@ def test_boolean_rates_and_error_breakdown_all_only():
+     assert not any(k.endswith("/has_error/mean") or "/error/" in k for k in eff)
+ 
+ 
++def test_sampling_support_size_ignores_empty_rows():
++    episode = mk()
++    episode.traces[0].nodes = [
++        SimpleNamespace(
++            advantages=[1.0],
++            sampling_mask=SimpleNamespace(counts=np.array([2, 0, 3], dtype=np.int32)),
++        ),
++        SimpleNamespace(advantages=[1.0], sampling_mask=None),
++    ]
++    out = train_episodes([episode]).metrics.to_wandb(prefix="train/agg", subset="all")
++    assert out["train/agg/all/agent/sampling_support/size/mean"] == pytest.approx(5 / 2)
++
++
+ def test_solve_rates():
+     groups = {"A": [1.0, 1.0], "B": [0.0, 0.0], "C": [1.0, 0.0], "D": [1.0, 0.0]}  # all / none / some / some
+     out = train_wandb([mk(reward=r, group_id=g) for g, rs in groups.items() for r in rs])
+diff --git a/tests/unit/orchestrator/test_train_sink.py b/tests/unit/orchestrator/test_train_sink.py
+index 469c28cf2..0eeb77672 100644
+--- a/tests/unit/orchestrator/test_train_sink.py
++++ b/tests/unit/orchestrator/test_train_sink.py
+@@ -10,13 +10,17 @@ import verifiers.v1 as vf
+ from verifiers.v1.graph import MessageNode
+ from verifiers.v1.trace import ModelCall
+ from verifiers.v1.types import AssistantMessage, Tool, ToolMessage, Usage, UserMessage
++from verifiers.v1.types import TopLogprobs as VfTopLogprobs
+ 
+ from prime_rl.configs.algorithm import GRPOAlgoConfig
+ from prime_rl.configs.orchestrator import OrchestratorConfig
+ from prime_rl.orchestrator.algo.base import Algorithm
++from prime_rl.orchestrator.batch import build_bin_cost, prepare_batch
+ from prime_rl.orchestrator.train_sink import TrainSink
+ from prime_rl.orchestrator.trajectories import trace_to_samples
+ from prime_rl.orchestrator.types import DispatchFailure, GroupCancellation, Progress
++from prime_rl.trainer.rl.data import DataLoader
++from prime_rl.transports.batch.types import MicroBatch
+ from prime_rl.utils.logger import setup_logger
+ 
+ setup_logger("warning")
+@@ -69,11 +73,68 @@ def episode(traces, *, group="g", version=0):
+     )
+ 
+ 
++def test_numpy_trace_evidence_roundtrips_prepared_batch_wire():
++    rollout = trace()
++    node = rollout.nodes[-1]
++    node.sampling_mask = vf.SamplingMask(
++        ids=np.array([3, 4], dtype=np.int32),
++        counts=np.array([1, 1], dtype=np.int32),
++    )
++    node.top_logprobs = VfTopLogprobs(
++        ids=np.array([3, 4], dtype=np.int32),
++        logprobs=np.array([-0.1, -0.2], dtype=np.float32),
++        counts=np.array([1, 1], dtype=np.int32),
++    )
++    rollout.nodes.append(
++        MessageNode(
++            parent=len(rollout.nodes) - 1,
++            message=AssistantMessage(content="followup"),
++            sampled=True,
++            token_ids=np.array([5], dtype=np.int32),
++            mask=np.array([True], dtype=np.bool_),
++            logprobs=np.array([-0.3], dtype=np.float32),
++            advantages=np.array([0.5], dtype=np.float32),
++            top_logprobs=VfTopLogprobs(
++                ids=np.array([5, 8], dtype=np.int32),
++                logprobs=np.array([-0.3, -1.2], dtype=np.float32),
++                counts=np.array([2], dtype=np.int32),
++            ),
++        )
++    )
++
++    sample = trace_to_samples(rollout, env_name="test")[0]
++    sample.temperatures = [1.0] * len(sample.token_ids)
++    assert type(sample.token_ids[0]) is int
++    assert type(sample.logprobs[0]) is float
++    assert type(sample.advantages[0]) is float
++
++    grid = prepare_batch(
++        [sample], seq_len=8, num_train_workers=1, bin_cost=build_bin_cost(None), pad_to_multiple_of=8
++    )
++    payload = msgspec.msgpack.encode(grid)
++    decoded = msgspec.msgpack.Decoder(type=list[list[MicroBatch]]).decode(payload)
++    batch = decoded[0][0]
++
++    assert batch.sampling_mask is not None
++    assert batch.top_logprobs is not None
++    assert len(batch.input_ids) == len(batch.inference_logprobs) == len(batch.advantages)
++    assert batch.sampling_mask.logprobs == np.array([-0.1, -0.2], dtype=np.float32).tobytes()
++
++    tensor_batch = DataLoader.__new__(DataLoader)._micro_batch_to_tensor(batch)
++    assert tensor_batch["top_logprobs_ids"] is not None
++    assert tensor_batch["top_logprobs_values"] is not None
++    np.testing.assert_array_equal(tensor_batch["top_logprobs_ids"][0, 2:5].numpy(), [[3, -1], [4, -1], [5, 8]])
++    np.testing.assert_allclose(
++        tensor_batch["top_logprobs_values"][0, 2:5].numpy(), [[-0.1, 0.0], [-0.2, 0.0], [-0.3, -1.2]]
++    )
++
++
+ def sink(*, constant=True, admitted=True, batch_size=100):
+     config = OrchestratorConfig(batch_size=batch_size, constant_trainer_batch_size=constant, max_off_policy_steps=1)
+     env = SimpleNamespace(
+         config=SimpleNamespace(group_size=1, sampling=SimpleNamespace(temperature=1.0)),
+         requires_sampling_masks=False,
++        requires_top_logprobs=False,
+         algorithm=Algorithm(GRPOAlgoConfig(), None),
+     )
+     return TrainSink(
+@@ -128,7 +189,7 @@ def test_queued_trace_does_not_own_discarded_siblings():
+         s = sink()
+         before = msgspec.msgpack.encode(trace_to_samples(kept, env_name="test"))
+         assert await s.add(ep) is None
+-        assert all(t.nodes[2].token_ids == [3, 4] for t in discarded)
++        assert all(np.array_equal(t.nodes[2].token_ids, [3, 4]) for t in discarded)
+         del discarded, ep
+         gc.collect()
+         assert all(ref() is None for ref in refs)
+@@ -171,7 +232,7 @@ def test_deferred_pruning_and_multiple_batches_preserve_episode_boundaries():
+         assert len(batch.samples) == 1 and batch.samples[0].trace_id == kept.id
+         assert len(batch.cohort) == 1 and batch.cohort.episodes[0].id == ep_id
+         assert sibling.id in s.pending_batch
+-        assert zero.nodes[2].token_ids == [3, 4]
++        assert np.array_equal(zero.nodes[2].token_ids, [3, 4])
+         batch = await s.take_batch()
+         assert len(batch.samples) == 2
+         assert len(batch.cohort) == 1 and batch.cohort.num_traces == 2
+diff --git a/tests/unit/test_configs.py b/tests/unit/test_configs.py
+index b3b92d804..9636d5f5d 100644
+--- a/tests/unit/test_configs.py
++++ b/tests/unit/test_configs.py
+@@ -126,6 +126,34 @@ def test_defaults():
+     assert config.variant.alpha == 0.1
+ 
+ 
++def test_rl_launcher_config_roundtrip(tmp_path):
++    from prime_rl.entrypoints.rl import write_config
++
++    config = cli(
++        RLConfig,
++        args=[
++            "@",
++            "examples/basic/reverse-text/rl.toml",
++            "--output-dir",
++            str(tmp_path / "outputs"),
++            "--run.name",
++            "roundtrip",
++            "--trainer.loss.type",
++            "icepop",
++            "--trainer.loss.score-centering",
++            "--trainer.loss.score-centering-topk",
++            "4",
++        ],
++    )
++    write_config(config, tmp_path, exclude={"slurm", "dry_run", "clean"})
++    reloaded = cli(RLConfig, args=["@", str(tmp_path / "rl.json")])
++    assert reloaded.run_dir == config.run_dir
++    assert reloaded.trainer.weight_broadcast == config.trainer.weight_broadcast
++    assert reloaded.orchestrator.train.source[0].sampling.logprobs == 4
++    assert reloaded.inference.vllm.max_logprobs >= 6
++    assert reloaded.orchestrator.train.source[0].sampling.top_k is None
++
++
+ def test_toml_partial_nested_override(tmp_path):
+     """Partially overriding a nested model preserves unset field defaults."""
+     write_toml(tmp_path / "cfg.toml", {"nested": {"lr": 3e-4}})
+@@ -237,6 +265,16 @@ def test_icepop_is_an_optional_loss_with_validated_ratio_bounds():
+ 
+     config = TrainerConfig.model_validate({"loss": {"type": "icepop", "ratio_low": 0.2, "ratio_high": 5.0}})
+     assert config.loss.type == "icepop"
++    assert config.loss.score_centering_topk == 128
++    assert not config.loss.score_centering
++    for unsupported in (
++        {"type": "ipo_tis"},
++        {"type": "score_centering"},
++        {"type": "ipo", "score_centering": True},
++        {"type": "icepop", "score_centering_topk": None},
++    ):
++        with pytest.raises(ValidationError):
++            TrainerConfig.model_validate({"loss": unsupported})
+     assert config.loss.ratio_low == 0.2
+     assert config.loss.ratio_high == 5.0
+ 
+diff --git a/tests/unit/train/rl/test_fused_lm_head.py b/tests/unit/train/rl/test_fused_lm_head.py
+index 32d332508..b3868dc0b 100644
+--- a/tests/unit/train/rl/test_fused_lm_head.py
++++ b/tests/unit/train/rl/test_fused_lm_head.py
+@@ -1,11 +1,25 @@
++import msgspec
++import numpy as np
+ import pytest
+ import torch
+ from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
+ 
++from prime_rl.configs.trainer import IcePopLossConfig
++from prime_rl.orchestrator.batch import build_bin_cost, prepare_batch
+ from prime_rl.trainer.models import cast_float_and_contiguous
+ from prime_rl.trainer.models.layers.lm_head import FusedOutputLinear, VanillaOutputLinear, inject_prime_lm_head
+ from prime_rl.trainer.models.qwen3 import Qwen3ForCausalLM
+-from prime_rl.trainer.rl.loss import compute_entropy, shift_tensor_left, shift_tensor_right
++from prime_rl.trainer.rl.data import DataLoader, validate_score_centering_data
++from prime_rl.trainer.rl.loss import (
++    IcePopLoss,
++    LossInputs,
++    compute_entropy,
++    compute_loss,
++    selective_topk_log_softmax,
++    shift_tensor_left,
++    shift_tensor_right,
++)
++from prime_rl.transports.batch.types import MicroBatch, SamplingMask, TopLogprobs, TrainingSample
+ from prime_rl.utils.utils import default_dtype
+ 
+ 
+@@ -88,6 +102,223 @@ def test_fused_lm_head_frozen_weight_backward_cpu():
+     assert lm.weight.grad is None
+ 
+ 
++def test_fused_lm_head_topk_logprobs_forward_and_backward_cpu():
++    torch.manual_seed(22)
++    batch, seq, hidden_size, vocab, head = 2, 3, 5, 11, 4
++    hidden0 = torch.randn(batch, seq, hidden_size, requires_grad=True)
++    weight0 = torch.randn(vocab, hidden_size, requires_grad=True)
++    labels = torch.randint(vocab, (batch, seq))
++    topk_ids = torch.randint(vocab, (batch, seq, head))
++    temperature = torch.linspace(0.8, 1.5, batch * seq).reshape(batch, seq)
++
++    logits0 = hidden0 @ weight0.t() / temperature.unsqueeze(-1)
++    logprobs0 = logits0.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
++    topk0 = logits0.log_softmax(-1).gather(-1, topk_ids)
++    (logprobs0.sum() + topk0.sum()).backward()
++    expected_hidden_grad = hidden0.grad.detach().clone()
++    expected_weight_grad = weight0.grad.detach().clone()
++
++    hidden1 = hidden0.detach().clone().requires_grad_(True)
++    lm = FusedOutputLinear(hidden_size, vocab, chunk_size=2)
++    lm.weight = torch.nn.Parameter(weight0.detach().clone())
++    out = lm(hidden1, labels, temperature=temperature, topk_ids=topk_ids)
++    assert out["topk_logprobs"].shape == (batch, seq, head)
++    torch.testing.assert_close(out["logprobs"], logprobs0.detach(), rtol=0, atol=1e-5)
++    torch.testing.assert_close(out["topk_logprobs"], topk0.detach(), rtol=0, atol=1e-5)
++    (out["logprobs"].sum() + out["topk_logprobs"].sum()).backward()
++    torch.testing.assert_close(hidden1.grad, expected_hidden_grad, rtol=0, atol=1e-5)
++    torch.testing.assert_close(lm.weight.grad, expected_weight_grad, rtol=0, atol=1e-5)
++
++
++def test_fused_lm_head_topk_replay_normalization_and_backward_cpu():
++    torch.manual_seed(23)
++    batch, seq, hidden_size, vocab = 1, 2, 4, 7
++    hidden0 = torch.randn(batch, seq, hidden_size, requires_grad=True)
++    weight0 = torch.randn(vocab, hidden_size, requires_grad=True)
++    labels = torch.tensor([[2, 5]])
++    support = torch.tensor([[1, 2, 4, 5]])
++    sampling_mask = support.expand(batch, seq, -1)
++    topk_ids = sampling_mask.clone()
++    temperature = torch.ones(batch, seq)
++
++    baseline_scaled = (hidden0 @ weight0.t()) / temperature.unsqueeze(-1)
++    baseline_masked = torch.full_like(baseline_scaled, -torch.inf).scatter(
++        -1, sampling_mask, baseline_scaled.gather(-1, sampling_mask)
++    )
++    baseline_logp = baseline_masked.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
++    baseline_head = baseline_masked.log_softmax(-1).gather(-1, topk_ids)
++    (baseline_logp.sum() + baseline_head.sum()).backward()
++    expected_hidden_grad = hidden0.grad.detach().clone()
++    expected_weight_grad = weight0.grad.detach().clone()
++
++    hidden = hidden0.detach().clone().requires_grad_(True)
++    lm = FusedOutputLinear(hidden_size, vocab, chunk_size=1)
++    lm.weight = torch.nn.Parameter(weight0.detach().clone())
++    out = lm(hidden, labels, temperature=temperature, sampling_mask=sampling_mask, topk_ids=topk_ids)
++    scaled = (hidden @ lm.weight.t()) / temperature.unsqueeze(-1)
++    masked = torch.full_like(scaled, -torch.inf).scatter(-1, sampling_mask, scaled.gather(-1, sampling_mask))
++    expected_logp = masked.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
++    expected_topk = masked.log_softmax(-1).gather(-1, topk_ids)
++    torch.testing.assert_close(out["logprobs"], expected_logp, rtol=0, atol=1e-5)
++    torch.testing.assert_close(out["topk_logprobs"], expected_topk, rtol=0, atol=1e-5)
++    (out["logprobs"].sum() + out["topk_logprobs"].sum()).backward()
++    torch.testing.assert_close(hidden.grad, expected_hidden_grad, rtol=0, atol=1e-5)
++    torch.testing.assert_close(lm.weight.grad, expected_weight_grad, rtol=0, atol=1e-5)
++
++
++def test_selective_topk_log_softmax_uses_replay_normalizer_cpu():
++    logits = torch.tensor([[[0.5, 1.0, -0.4, 0.2]]])
++    labels = torch.tensor([[2]])
++    sampling_mask = torch.tensor([[[0, 2, -1]]])
++    topk_ids = torch.tensor([[[0, 2, -1]]])
++    actual = selective_topk_log_softmax(logits, topk_ids, sampling_mask, labels)
++    expected = torch.log_softmax(torch.tensor([[0.5, -0.4]]), dim=-1)
++    torch.testing.assert_close(actual[0, 0, :2], expected[0])
++    assert actual[0, 0, 2] == 0
++
++
++def test_score_centering_data_validation_mixed_replay_and_untruncated_rows_cpu():
++    q = torch.tensor([[0.75, 0.25], [0.6, 0.3]])
++    batch = {
++        "loss_mask": torch.tensor([[True, True]]),
++        "rl_weights": None,
++        "top_logprobs_ids": torch.tensor([[[5, 6], [1, 2]]]),
++        "top_logprobs_values": q.log().unsqueeze(0),
++        "sampling_mask": torch.tensor([[[5, 6], [-1, -1]]]),
++        "input_ids": torch.tensor([[5, 8]]),
++    }
++    validate_score_centering_data(batch, vocab_size=10)
++    bad = {**batch, "input_ids": torch.tensor([[7, 8]])}
++    with pytest.raises(ValueError, match="Sampled token is missing"):
++        validate_score_centering_data(bad, vocab_size=10)
++
++
++def test_data_loader_merges_replay_probabilities_and_untruncated_heads_cpu():
++    sampler_probs = np.array([0.75, 0.25], dtype=np.float32)
++    head_probs = np.array([0.6, 0.3], dtype=np.float32)
++    sampling_mask = SamplingMask(
++        ids=np.array([5, 6], dtype=np.int32).tobytes(),
++        counts=np.array([2, 0], dtype=np.int32).tobytes(),
++        logprobs=np.log(sampler_probs).tobytes(),
++    )
++    top_logprobs = TopLogprobs(
++        ids=np.array([1, 2], dtype=np.int32).tobytes(),
++        logprobs=np.log(head_probs).tobytes(),
++        counts=np.array([0, 2], dtype=np.int32).tobytes(),
++    )
++    sample = TrainingSample(
++        token_ids=[5, 8],
++        mask=[True, True],
++        logprobs=[float(np.log(sampler_probs[0])), float(np.log(head_probs[0]))],
++        temperatures=[1.0, 1.0],
++        env_name="env",
++        advantages=[1.0, 1.0],
++        sampling_mask=sampling_mask,
++        top_logprobs=top_logprobs,
++    )
++    grid = prepare_batch([sample], seq_len=2, num_train_workers=1, bin_cost=build_bin_cost(None))
++    payload = msgspec.msgpack.encode(grid)
++    batch = msgspec.msgpack.Decoder(type=list[list[MicroBatch]]).decode(payload)[0][0]
++    assert batch.sampling_mask is not None
++    assert batch.sampling_mask.logprobs == sampling_mask.logprobs
++    assert batch.top_logprobs is not None
++
++    tensor_batch = DataLoader._micro_batch_to_tensor(object.__new__(DataLoader), batch)
++    torch.testing.assert_close(tensor_batch["top_logprobs_ids"], torch.tensor([[[5, 6], [1, 2]]], dtype=torch.int32))
++    torch.testing.assert_close(
++        tensor_batch["top_logprobs_values"],
++        torch.tensor([[sampler_probs.tolist(), head_probs.tolist()]]).log(),
++    )
++    validate_score_centering_data(tensor_batch, vocab_size=10)
++
++
++def test_icepop_score_centering_partial_head_matches_dense_gradient_cpu():
++    logits = torch.tensor([0.3, -0.4, 0.1, -0.9], requires_grad=True)
++    logp = logits.log_softmax(-1)
++    p = logp.detach().exp()
++    head_size = 2
++    head_ids = torch.arange(head_size)
++    sampler_head = torch.tensor([0.2, 0.6])
++    q = torch.cat((sampler_head, (1 - sampler_head.sum()) * p[head_size:] / p[head_size:].sum()))
++    advantages = torch.tensor([1.3, -0.7, 0.2, -1.0])
++    top_ids = head_ids.expand(logits.numel(), -1)
++    inputs = LossInputs(
++        trainer_logprobs=logp,
++        inference_logprobs=q.log(),
++        ref_logprobs=None,
++        advantages=advantages,
++        loss_mask=torch.ones_like(q, dtype=torch.bool),
++        loss_weights=q,
++        trainer_topk_logprobs=logp[head_ids].expand(logits.numel(), -1),
++        sampler_topk_logprobs=q[head_ids].log().expand(logits.numel(), -1),
++        topk_valid=torch.ones_like(top_ids, dtype=torch.bool),
++    )
++    config = IcePopLossConfig(ratio_low=0.5, ratio_high=2.0, score_centering=True, score_centering_topk=head_size)
++    actual, metrics = compute_loss(
++        trainer_logprobs=[logp],
++        inference_logprobs=[q.log()],
++        ref_logprobs=None,
++        advantages=[advantages],
++        loss_mask=[inputs.loss_mask],
++        rl_weights=[q],
++        ce_weights=None,
++        ref_kl_weights=None,
++        rl_loss_fn=IcePopLoss(config),
++        rl_scale=1.0,
++        ce_scale=1.0,
++        ref_kl_scale=1.0,
++        trainer_topk_logprobs=[inputs.trainer_topk_logprobs],
++        sampler_topk_logprobs=[inputs.sampler_topk_logprobs],
++        topk_valid=[inputs.topk_valid],
++    )
++    ratio = p / q
++    weight = ratio * ((ratio >= config.ratio_low) & (ratio <= config.ratio_high))
++    assert (weight > 0).tolist() == [True, False, False, False]
++    baseline = (q * weight * logp).sum()
++    oracle = -(q * advantages * (weight * logp - baseline)).sum()
++    torch.testing.assert_close(
++        torch.autograd.grad(actual, logits, retain_graph=True)[0],
++        torch.autograd.grad(oracle, logits)[0],
++        atol=2e-7,
++        rtol=2e-6,
++    )
++    assert "score_centering/tail_scale" in metrics
++    assert not metrics["score_centering/tail_scale"].bool().any()
++
++
++def test_icepop_score_centering_complete_support_replay_gradient_cpu():
++    logits = torch.tensor([0.2, -0.3, 0.7, -0.2], requires_grad=True)
++    support = torch.tensor([0, 2, 3])
++    masked_logits = torch.full_like(logits, -torch.inf).scatter(0, support, logits[support])
++    logp = masked_logits.log_softmax(-1)
++    q = torch.tensor([0.4, 0.0, 0.35, 0.25])
++    advantages = torch.tensor([1.0, 0.0, -0.5, 2.0])
++    inputs = LossInputs(
++        trainer_logprobs=logp[support],
++        inference_logprobs=q[support].log(),
++        ref_logprobs=None,
++        advantages=advantages[support],
++        loss_mask=torch.ones(support.numel(), dtype=torch.bool),
++        loss_weights=q[support],
++        trainer_topk_logprobs=logp[support].expand(support.numel(), -1),
++        sampler_topk_logprobs=q[support].log().expand(support.numel(), -1),
++        topk_valid=torch.ones((support.numel(), support.numel()), dtype=torch.bool),
++        sampler_support_complete=torch.ones(support.numel(), dtype=torch.bool),
++    )
++    config = IcePopLossConfig(ratio_low=0.5, ratio_high=2.0, score_centering=True)
++    output = IcePopLoss(config).loss(inputs)
++    actual = output.loss
++    ratio = logp[support].detach().exp() / q[support]
++    weight = ratio * ((ratio >= config.ratio_low) & (ratio <= config.ratio_high))
++    baseline = (q[support] * weight * logp[support]).sum()
++    oracle = -(q[support] * advantages[support] * (weight * logp[support] - baseline)).sum()
++    actual_grad = torch.autograd.grad(actual, logits, retain_graph=True)[0]
++    oracle_grad = torch.autograd.grad(oracle, logits)[0]
++    torch.testing.assert_close(actual_grad, oracle_grad, atol=2e-7, rtol=2e-6)
++    assert actual_grad[1] == 0
++    assert torch.equal(output.metrics["score_centering/tail_scale"], torch.zeros(support.numel()))
++
++
+ def test_backward_epilogue_receives_contiguous_broadcast_upstream_grad_cpu():
+     torch.manual_seed(4)
+     rows, hidden_size, vocab = 4, 5, 17
+@@ -114,9 +345,7 @@ def test_backward_epilogue_receives_contiguous_broadcast_upstream_grad_cpu():
+         grad_logits.scatter_add_(1, local, (grad_logprobs * in_range).unsqueeze(-1))
+         return grad_logits * inv_temperature.float().unsqueeze(-1)
+ 
+-    lm = FusedOutputLinear(
+-        hidden_size, vocab, chunk_size=rows, backward_epilogue_fn=backward_epilogue
+-    )
++    lm = FusedOutputLinear(hidden_size, vocab, chunk_size=rows, backward_epilogue_fn=backward_epilogue)
+     lm.weight = torch.nn.Parameter(weight.detach().clone())
+     out = lm(hidden, labels, temperature=temperature)
+     output_gradient_strides = []
+diff --git a/src/prime_rl/inference/vllm/compact_logprobs.py b/src/prime_rl/inference/vllm/compact_logprobs.py
+new file mode 100644
+index 000000000..5898275ed
+--- /dev/null
++++ b/src/prime_rl/inference/vllm/compact_logprobs.py
+@@ -0,0 +1,41 @@
++"""Numeric logprob transport for non-streaming token generation."""
++
++from typing import Any
++
++import numpy as np
++import pybase64
++from vllm.logprobs import FlatLogprobs, SampleLogprobs
++
++
++def serialize_compact_logprobs(
++    logprobs: SampleLogprobs, num_top_logprobs: int, drop_filtered: bool = False
++) -> dict[str, Any]:
++    """Pack ragged rows as little-endian uint32 IDs followed by float32 logprobs.
++
++    ``drop_filtered`` omits -inf candidates, leaving the exact truncated support.
++    """
++    if isinstance(logprobs, FlatLogprobs):
++        starts, ends = logprobs.start_indices, logprobs.end_indices
++        ids = np.asarray(logprobs.token_ids, dtype="<u4")
++        values = np.asarray(logprobs.logprobs, dtype="<f4")
++        lengths = np.asarray(ends, dtype=np.int64) - np.asarray(starts, dtype=np.int64)
++        if starts != [0, *ends[:-1]] or (ends and ends[-1] != len(ids)):
++            ids = np.concatenate([ids[start:end] for start, end in zip(starts, ends)]) if starts else ids[:0]
++            values = np.concatenate([values[start:end] for start, end in zip(starts, ends)]) if starts else values[:0]
++    else:
++        lengths = np.asarray([len(row) for row in logprobs], dtype=np.int64)
++        ids = np.asarray([token_id for row in logprobs for token_id in row], dtype="<u4")
++        values = np.asarray([item.logprob for row in logprobs for item in row.values()], dtype="<f4")
++
++    if drop_filtered:
++        kept = values > -np.inf
++        rows = np.repeat(np.arange(len(lengths)), lengths)
++        ids, values = ids[kept], values[kept]
++        lengths = np.bincount(rows[kept], minlength=len(lengths))
++    values = np.maximum(values, -9999.0)
++    return {
++        "data": pybase64.b64encode(ids.tobytes() + values.tobytes()).decode("ascii"),
++        "format": "u32-f32-le-v1",
++        "offsets": [0, *np.cumsum(lengths).tolist()],
++        "num_top_logprobs": num_top_logprobs,
++    }
+diff --git a/src/prime_rl/inference/vllm/paired_capture.py b/src/prime_rl/inference/vllm/paired_capture.py
+new file mode 100644
+index 000000000..5b11d7a52
+--- /dev/null
++++ b/src/prime_rl/inference/vllm/paired_capture.py
+@@ -0,0 +1,39 @@
++"""Paired sampler-support IDs and normalized logprobs for vLLM 0.31."""
++
++import numpy as np
++import pybase64
++import torch
++
++NEG_INF_BITS = -8388608  # IEEE float32 -inf; plain IDs decode to missing evidence.
++
++
++def pack_support_logprobs(tensors, logits, paired):
++    ids = tensors.token_ids.long().clamp(0, logits.shape[-1] - 1)
++    rows = torch.arange(len(ids), device=logits.device)
++    valid = torch.arange(ids.shape[-1], device=logits.device)[None, :] < tensors.counts[:, None]
++    values = logits[rows.unsqueeze(-1), ids].float().masked_fill(~valid, -torch.inf)
++    values = values.log_softmax(-1)
++    order = values.argsort(dim=-1, descending=True, stable=True)
++    ids = ids.gather(-1, order)
++    values = values.gather(-1, order)
++    bits = values.contiguous().view(torch.int32) ^ NEG_INF_BITS
++    enabled = torch.as_tensor(paired, device=logits.device).unsqueeze(-1)
++    packed_ids = torch.where(enabled, ids, tensors.token_ids.long())
++    packed = (torch.where(enabled, bits, 0).long() << 32) | packed_ids
++    return tensors._replace(token_ids=packed)
++
++
++def serialize_paired_support(packed, counts):
++    """Return aligned mask IDs and the existing compact-logprob wire format."""
++    bits = np.asarray(packed, dtype=np.uint64)
++    ids = (bits & np.uint64(0xFFFFFFFF)).astype("<u4")
++    values = ((bits >> np.uint64(32)).astype(np.uint32).view(np.int32) ^ NEG_INF_BITS).view("<f4")
++    counts = np.asarray(counts, dtype=np.int32)
++    if int(counts.sum()) != len(ids) or (counts <= 0).any() or not np.isfinite(values).all():
++        raise ValueError("Incomplete paired sampling-support evidence")
++    return ids.astype(np.int32, copy=False), {
++        "data": pybase64.b64encode(ids.tobytes() + values.tobytes()).decode("ascii"),
++        "format": "u32-f32-le-v1",
++        "offsets": [0, *np.cumsum(counts).tolist()],
++        "num_top_logprobs": int(counts.max(initial=0)),
++    }
+diff --git a/src/prime_rl/inference/vllm/request_replay.py b/src/prime_rl/inference/vllm/request_replay.py
+new file mode 100644
+index 000000000..63941208d
+--- /dev/null
++++ b/src/prime_rl/inference/vllm/request_replay.py
+@@ -0,0 +1,119 @@
++"""Request-scoped sampling support capture for vLLM 0.31's V2 sampler."""
++
++from contextvars import ContextVar
++from copy import copy
++from functools import wraps
++
++import numpy as np
++import torch
++
++REPLAY_KEY = "prl_replay"
++PAIRED_CAPTURE_KEY = "prl_paired_capture"
++_paired: ContextVar[np.ndarray | None] = ContextVar("prl_paired", default=None)
++_capture: ContextVar[tuple[np.ndarray, np.ndarray] | None] = ContextVar("prl_capture", default=None)
++
++
++def wants_replay(params) -> bool:
++    return params is not None and (params.extra_args or {}).get(REPLAY_KEY, False) is True
++
++
++def capture_selected_supports(original, logits, num_sampled_tokens, max_num_kept):
++    selection = _capture.get()
++    if selection is None:
++        return original(logits, num_sampled_tokens, max_num_kept)
++    enabled, top_k = selection
++    if not enabled.any():
++        return None
++    keep = torch.as_tensor(enabled, device=num_sampled_tokens.device)
++    committed = torch.where(keep, num_sampled_tokens, 0)
++    tensors = original(logits, committed, int(top_k[enabled].max()))
++    paired = _paired.get()
++    if paired is not None and paired.any():
++        from prime_rl.inference.vllm.paired_capture import pack_support_logprobs
++
++        tensors = pack_support_logprobs(tensors, logits, paired & enabled)
++    return tensors
++
++
++def patch_request_replay():
++    """Backport request-scoped capture using vLLM 0.31's three-argument mask API."""
++    from vllm.sampling_params import SamplingParams
++    from vllm.v1.engine.input_processor import InputProcessor
++    from vllm.v1.engine.output_processor import RequestState
++    from vllm.v1.worker.gpu.sample.output import SamplingMaskTensors
++    from vllm.v1.worker.gpu.sample.sampler import Sampler
++
++    if getattr(Sampler, "_prime_request_replay", False):
++        return
++
++    validate = InputProcessor._validate_params
++
++    @wraps(validate)
++    def validate_params(self, params, supported_tasks):
++        if isinstance(params, SamplingParams):
++            if self.model_config.return_sampling_mask and self.speculative_config is not None:
++                raise ValueError("Request-scoped sampling replay does not support speculative decoding")
++            if wants_replay(params):
++                if not self.model_config.return_sampling_mask:
++                    raise ValueError("Replay requests require enable_return_sampling_mask")
++            else:
++                # vLLM 0.31 validates the engine-wide flag before admission. Validate against
++                # a private view for eval/untruncated requests without mutating shared config.
++                self = copy(self)
++                self.model_config = copy(self.model_config)
++                self.model_config.return_sampling_mask = False
++        return validate(self, params, supported_tasks)
++
++    add_request = Sampler.add_request
++
++    @wraps(add_request)
++    def add(self, req_idx, sampling_params):
++        if not hasattr(self, "_prime_capture"):
++            self._prime_capture = np.zeros(self.sampling_states.max_num_reqs, dtype=bool)
++            self._prime_paired = np.zeros(self.sampling_states.max_num_reqs, dtype=bool)
++        self._prime_capture[req_idx] = wants_replay(sampling_params)
++        self._prime_paired[req_idx] = (sampling_params.extra_args or {}).get(PAIRED_CAPTURE_KEY, False)
++        return add_request(self, req_idx, sampling_params)
++
++    call = Sampler.__call__
++
++    @wraps(call)
++    def sample(self, logits, input_batch):
++        indices = input_batch.idx_mapping_np
++        enabled = getattr(self, "_prime_capture", np.zeros(self.sampling_states.max_num_reqs, dtype=bool))
++        token = _capture.set((enabled[indices], self.sampling_states.top_k.np[indices]))
++        paired = getattr(self, "_prime_paired", None)
++        paired_token = _paired.set(paired[indices] if paired is not None else None)
++        try:
++            return call(self, logits, input_batch)
++        finally:
++            _capture.reset(token)
++            _paired.reset(paired_token)
++
++    from_logits = SamplingMaskTensors.from_logits
++
++    @classmethod
++    @wraps(from_logits)
++    def capture(cls, logits, num_sampled_tokens, max_num_kept):
++        return capture_selected_supports(from_logits, logits, num_sampled_tokens, max_num_kept)
++
++    class DiscardChunks(list):
++        def append(self, chunk):
++            pass
++
++    from_new_request = RequestState.from_new_request.__func__
++
++    @classmethod
++    @wraps(from_new_request)
++    def new_request(cls, tokenizer, request, *args, **kwargs):
++        state = from_new_request(cls, tokenizer, request, *args, **kwargs)
++        if not wants_replay(request.sampling_params):
++            state.sampling_mask_chunks = DiscardChunks()
++        return state
++
++    InputProcessor._validate_params = validate_params
++    Sampler.add_request = add
++    Sampler.__call__ = sample
++    SamplingMaskTensors.from_logits = capture
++    RequestState.from_new_request = new_request
++    Sampler._prime_request_replay = True
+diff --git a/src/prime_rl/inference/vllm/sampling_order.py b/src/prime_rl/inference/vllm/sampling_order.py
+new file mode 100644
+index 000000000..9b5e814ec
+--- /dev/null
++++ b/src/prime_rl/inference/vllm/sampling_order.py
+@@ -0,0 +1,57 @@
++"""Sampler ordering patch for full-distribution top-p followed by a top-k cap."""
++
++import torch
++from torch import Tensor
++
++
++def reference_top_p_then_top_k(logits: Tensor, k: Tensor | None, p: Tensor | None) -> Tensor:
++    """Select the full-distribution nucleus, then cap its size, including ties."""
++    if k is None and p is None:
++        return logits
++    sorted_logits, indices = logits.sort(dim=-1, stable=True)
++    remove = torch.zeros_like(sorted_logits, dtype=torch.bool)
++    if p is not None:
++        cumulative = sorted_logits.softmax(dim=-1).cumsum(dim=-1)
++        remove = cumulative <= 1 - p.unsqueeze(-1)
++        remove[:, -1] = False
++    if k is not None:
++        ranks = torch.arange(logits.shape[-1], device=logits.device)
++        remove |= (k.unsqueeze(-1) != -1) & (ranks.unsqueeze(0) < logits.shape[-1] - k.unsqueeze(-1))
++    sorted_logits.masked_fill_(remove, -torch.inf)
++    return logits.scatter_(dim=-1, index=indices, src=sorted_logits)
++
++
++def apply_top_p_then_top_k(logits: Tensor, k: Tensor | None, p: Tensor | None) -> Tensor:
++    """Compute nucleus mass over all tokens while sorting only bounded candidates."""
++    if k is None or logits.shape[0] == 1:
++        return reference_top_p_then_top_k(logits, k, p)
++    k = torch.where(k == -1, logits.shape[-1], k)
++    width = int(k.max().item())
++    if width >= logits.shape[-1]:
++        return reference_top_p_then_top_k(logits, k, p)
++    values, ids = logits.topk(width + 1, dim=-1)
++    if (values[:, width - 1] == values[:, width]).any().item():
++        return reference_top_p_then_top_k(logits, k, p)
++    values, ids = values[:, :width], ids[:, :width]
++    by_id = ids.argsort(dim=-1, descending=True)
++    ids, values = ids.gather(-1, by_id), values.gather(-1, by_id)
++    by_value = values.argsort(dim=-1, descending=True, stable=True)
++    ids, values = ids.gather(-1, by_value), values.gather(-1, by_value)
++    remove = torch.arange(width, device=logits.device).unsqueeze(0) >= k.unsqueeze(-1)
++    if p is not None:
++        probs = (values - logits.logsumexp(dim=-1, keepdim=True)).exp()
++        before = torch.cat((torch.zeros_like(probs[:, :1]), probs.cumsum(-1)[:, :-1]), dim=-1)
++        remove |= (before >= p.unsqueeze(-1)) & (p.unsqueeze(-1) < 1)
++    values = values.masked_fill(remove, -torch.inf)
++    logits.fill_(-torch.inf)
++    return logits.scatter_(dim=-1, index=ids, src=values)
++
++
++def patch_top_p_then_top_k() -> None:
++    from vllm.v1.sample.ops import topk_topp_sampler
++    from vllm.v1.worker.gpu.sample import sampler, states
++
++    # vLLM 0.31 imports this callable by value in all three modules.
++    topk_topp_sampler.apply_top_k_top_p = apply_top_p_then_top_k
++    states.apply_top_k_top_p = apply_top_p_then_top_k
++    sampler.apply_top_k_top_p = apply_top_p_then_top_k
+diff --git a/tests/unit/inference/test_compact_logprobs.py b/tests/unit/inference/test_compact_logprobs.py
+new file mode 100644
+index 000000000..530a4f81b
+--- /dev/null
++++ b/tests/unit/inference/test_compact_logprobs.py
+@@ -0,0 +1,21 @@
++import numpy as np
++import pybase64
++from vllm.logprobs import FlatLogprobs, Logprob
++
++from prime_rl.inference.vllm.compact_logprobs import serialize_compact_logprobs
++
++
++def test_compact_logprobs_keeps_exact_finite_support_rows():
++    logprobs = FlatLogprobs()
++    logprobs.append({5: Logprob(-0.2, 0, None), 7: Logprob(float("-inf"), 1, None)})
++    logprobs.append({3: Logprob(-0.4, 2, None)})
++
++    packed = serialize_compact_logprobs(logprobs, num_top_logprobs=2, drop_filtered=True)
++    data = pybase64.b64decode(packed["data"])
++    ids = np.frombuffer(data[:8], dtype="<u4")
++    values = np.frombuffer(data[8:], dtype="<f4")
++
++    assert packed["format"] == "u32-f32-le-v1"
++    assert packed["offsets"] == [0, 1, 2]
++    np.testing.assert_array_equal(ids, [5, 3])
++    np.testing.assert_allclose(values, [-0.2, -0.4])
+diff --git a/tests/unit/inference/test_sampling_order.py b/tests/unit/inference/test_sampling_order.py
+new file mode 100644
+index 000000000..2bed728c3
+--- /dev/null
++++ b/tests/unit/inference/test_sampling_order.py
+@@ -0,0 +1,26 @@
++import torch
++
++from prime_rl.inference.vllm.sampling_order import apply_top_p_then_top_k, reference_top_p_then_top_k
++
++
++def test_bounded_top_p_then_top_k_matches_full_sort():
++    torch.manual_seed(7)
++    source = torch.randn(4, 128)
++    k = torch.tensor([8, 16, 32, 48])
++    p = torch.tensor([0.8, 0.9, 0.95, 0.99])
++
++    expected = reference_top_p_then_top_k(source.clone(), k, p)
++    actual = apply_top_p_then_top_k(source.clone(), k, p)
++
++    torch.testing.assert_close(actual, expected)
++
++
++def test_top_p_then_top_k_falls_back_at_candidate_tie():
++    source = torch.tensor([[5.0, 4.0, 4.0, 3.0], [2.0, 1.0, 0.0, -1.0]])
++    k = torch.tensor([1, 2])
++    p = torch.tensor([0.7, 0.8])
++
++    expected = reference_top_p_then_top_k(source.clone(), k, p)
++    actual = apply_top_p_then_top_k(source.clone(), k, p)
++
++    torch.testing.assert_close(actual, expected)
