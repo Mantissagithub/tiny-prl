@@ -21,6 +21,14 @@
       "failure_detail": "Exact Python-float list comparisons expected 0.7 but received float32 value 0.699999988079071. The failure is in unchanged advantage-test behavior, outside the score-centering implementation."
     },
     {
+      "name": "trainer-rl-and-orchestrator-float32-assertion-update",
+      "command_file": "commands.txt#part1-retry",
+      "stdout": "part1-trainer-orchestrator-fixed.stdout.txt",
+      "exit_code": 0,
+      "summary": "126 passed, 23 deselected, 22 warnings, 13.86s",
+      "change": "Only tests/unit/orchestrator/test_advantage.py changed: two exact list comparisons now use pytest.approx(abs=1e-7), matching the float32 output precision. No production math or score-centering tests were relaxed."
+    },
+    {
       "name": "inference-and-config-initial",
       "command_file": "commands.txt#part2-initial",
       "stdout": "part2-inference-config.stdout.txt",
@@ -38,8 +46,8 @@
     }
   ],
   "overall": {
-    "distinct_requested_suite_result": "315 passed, 2 failed, 108 deselected across the successful corrected suite runs",
-    "preexisting_or_environmental_failures": "2 exact-float advantage assertions in unchanged tests; the first config invocation's 39 missing-taskset import failures were resolved by adding the verifier environment package roots to PYTHONPATH",
+    "distinct_requested_suite_result": "317 passed, 0 failed, 108 deselected across the final corrected suite runs",
+    "preexisting_or_environmental_failures": "The first trainer/orchestrator run exposed two exact-float assertions that were updated for float32 precision. The first config invocation's 39 missing-taskset import failures were resolved by adding the verifier environment package roots to PYTHONPATH. Both earlier stdout files remain preserved.",
     "score_centering_specific_failures": 0,
     "gpu_tests_run": 0
   }

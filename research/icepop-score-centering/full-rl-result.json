@@ -79,5 +79,5 @@
   },
   "frozen_source_files": 34,
   "source_hash_mismatches": [],
-  "limitations": "No matched wall-time/reward improvement claim. loss/std metric was dropped as non-finite; per-update loss/KL/gradient norm were finite. Broad CPU suite retains two precision assertion failures."
+  "limitations": "No matched wall-time/reward improvement claim. loss/std was dropped as non-finite; per-update loss/KL/gradient norm were finite. Final relevant CPU sweep:317 passed,108 deselected."
 }

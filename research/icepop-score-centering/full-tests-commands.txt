@@ -8,6 +8,16 @@ bash -o pipefail -c 'systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax
 
 Result: exit 1; 124 passed, 2 failed, 23 deselected. Full stdout: `part1-trainer-orchestrator.stdout.txt`.
 
+## Part 1 corrected retry
+
+Before retrying, only the two scalar-broadcast expected-value assertions in `tests/unit/orchestrator/test_advantage.py` were changed to `pytest.approx(..., abs=1e-7)` to account for float32 output. No production math or score-centering assertions changed.
+
+```sh
+bash -o pipefail -c 'systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0 -p RuntimeMaxSec=180s env CUDA_VISIBLE_DEVICES="" PYTHONPATH="/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/worktree/packages/prime-rl-configs/src:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/renderers:/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-port-r1/dependency-overlays/verifiers:/home/pradheep/tiny-prl/prime-rl/deps/prime-kernels:/home/pradheep/tiny-prl/prime-rl/deps/verifiers/environments/alphabet_sort" uv run --offline --no-project --python /home/pradheep/.venv/bin/python -m pytest tests/unit/train/rl tests/unit/orchestrator -m "not gpu" -q 2>&1 | tee /home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/icepop-full-tests-r1/part1-trainer-orchestrator-fixed.stdout.txt'
+```
+
+Result: exit 0; 126 passed, 23 deselected. Full stdout: `part1-trainer-orchestrator-fixed.stdout.txt`.
+
 ## Part 2 initial attempt
 
 ```sh

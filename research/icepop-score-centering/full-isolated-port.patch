@@ -1526,6 +1526,28 @@ index 79cb30769..b163b7886 100644
      )
      capture.fields[0] = {"routed_experts": compact_routed_experts}
      usage = UsageInfo(prompt_tokens=4, completion_tokens=3, total_tokens=7)
+diff --git a/tests/unit/orchestrator/test_advantage.py b/tests/unit/orchestrator/test_advantage.py
+index e3b58ea5d..ca0a4d8be 100644
+--- a/tests/unit/orchestrator/test_advantage.py
++++ b/tests/unit/orchestrator/test_advantage.py
+@@ -287,7 +287,7 @@ def test_assign_advantages_broadcasts_scalar():
+     trace = episode.traces[0]
+     # one user prompt token (masked) + 2 sampled tokens (trainable)
+     assign_advantages(trace, 0.7)
+-    assert trace_to_samples(trace)[0].advantages == [0.0, 0.7, 0.7]
++    assert trace_to_samples(trace)[0].advantages == pytest.approx([0.0, 0.7, 0.7], abs=1e-7)
+ 
+ 
+ def test_assign_advantages_zeros_non_trainable():
+@@ -296,7 +296,7 @@ def test_assign_advantages_zeros_non_trainable():
+     episode = _build_episode(0.0, sampled_lengths=[1], obs_lengths=[1])
+     trace = episode.traces[0]
+     assign_advantages(trace, 0.7)
+-    assert trace_to_samples(trace)[0].advantages == [0.0, 0.7, 0.0]
++    assert trace_to_samples(trace)[0].advantages == pytest.approx([0.0, 0.7, 0.0], abs=1e-7)
+ 
+ 
+ def test_assign_advantages_rejects_misaligned():
 diff --git a/tests/unit/orchestrator/test_algorithms.py b/tests/unit/orchestrator/test_algorithms.py
 index f7bf2c26c..976d5522a 100644
 --- a/tests/unit/orchestrator/test_algorithms.py
