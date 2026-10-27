@@ -254,6 +254,7 @@ EXPERIMENTS = {
     156: (NUM, "rejected"),
     157: (NUM, "validated"),
     158: (TRAIN, "rejected"),
+    159: (TRAIN, "component"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -274,6 +275,7 @@ CALLOUTS = {
     128: ("decode megakernel\n-9..-21% ITL in vLLM", (-95, 48)),
     131: ("R6 vLLM: 5/6 cells faster\nshort −6.8–10.9%; 2048/B1 +1%", (-35, -38)),
     148: ("8k prefix reuse\n4.97× · component only", (-30, -24)),
+    159: ("360M B1 lookahead\n3.15–3.19× · decoder only", (-52, 80)),
 }
 
 MILESTONES = [
