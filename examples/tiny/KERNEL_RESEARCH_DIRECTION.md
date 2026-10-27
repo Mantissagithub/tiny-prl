@@ -11,7 +11,7 @@ The first completed same-harness R4 serving pilot is a regression. Scheduler-inc
 | 128 | 1 | 4.222 ms | 17.527 ms |
 | 128 | 2 | 3.959 ms | 9.373 ms |
 
-These are separate stock-then-candidate pilot sessions with three warmups and seven repeats per shape, not an A-B-B-A acceptance result. Both use the same in-process R4 harness. The measurements include scheduling and the LM head, so they do not establish the decoder kernel's own duration. Evidence: `outputs/megakernel-20261025/decode-baseline-r4/results-r2-stock/stock-r2.json` and `results-r2-candidate/candidate-r2.json`. Token/logprob parity must be audited separately before any serving acceptance.
+These are separate stock-then-candidate pilot sessions with three warmups and seven repeats per shape, not an A-B-B-A acceptance result. Both use the same in-process R4 harness. The measurements include scheduling and the LM head, so they do not establish the decoder kernel's own duration. Evidence: `outputs/megakernel-20261025/decode-baseline-r4/results-r2-stock/stock-r2.json` and `results-r2-candidate/candidate-r2.json`. The cross-arm audit matches all 28 greedy-token trials, but logprob hashes differ in all trials; maximum matched-prefix top-five logprob differences reach 0.3725. This is not probability or RL-quality acceptance.
 
 ## Experiments in order
 
