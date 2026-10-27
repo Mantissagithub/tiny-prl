@@ -253,6 +253,7 @@ EXPERIMENTS = {
     155: (NUM, "validated"),
     156: (NUM, "rejected"),
     157: (NUM, "validated"),
+    158: (TRAIN, "rejected"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
