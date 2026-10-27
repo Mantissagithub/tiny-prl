@@ -1,0 +1,501 @@
+{
+  "title": "R22 private in-process serving pilot",
+  "date": "2026-10-28",
+  "integration_status": "experimental private process override; not promoted to production",
+  "result": "Guarded stock and R22 runs passed, but the approximately 20% direct B1 decoder gain did not translate into faster serving versus stock in this pilot. B1 medians were near stock and B2 was roughly 2.0-2.2x slower.",
+  "scope": {
+    "model_id": "smollm2-360m",
+    "model_snapshot": "/home/pradheep/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/snapshots/a10cc1512eabd3dde888204e902eca88bddb4951",
+    "model_config_sha256": "224f72354f10d617a359cc82ad15a3c96e866b9b2ffadb81997eeea9e88e22ee",
+    "dtype": "auto (benchmark engine setting)",
+    "max_model_len": 512,
+    "input_token_lengths": [
+      32,
+      128
+    ],
+    "batch_sizes": [
+      1,
+      2
+    ],
+    "max_new_tokens": 16,
+    "warmups": 3,
+    "repeats": 7,
+    "sampling": {
+      "temperature": 0,
+      "top_p": 1,
+      "seed": 7
+    },
+    "entrypoint": "vllm.LLM + LLM.generate(TokensPrompt dict, SamplingParams)",
+    "process_mode": {
+      "VLLM_ENABLE_V1_MULTIPROCESSING": "0",
+      "expected_executor": "UniProcExecutor",
+      "expected_client": "InprocClient",
+      "parent_pid": 486093,
+      "engine_class": "LLMEngine",
+      "executor_class": "UniProcExecutor",
+      "client_class": "InprocClient",
+      "worker_pids_before_warmup": [
+        486093
+      ],
+      "same_process_worker_rpc_before_warmup": true,
+      "worker_pids_after_warmup": [
+        486093
+      ],
+      "same_process_worker_rpc_after_warmup": true
+    },
+    "resolved_model_dtype": "torch.bfloat16"
+  },
+  "provenance": {
+    "r22_source_sha256": "180be7870c87b5993f02529d89546b8f771b261398af59608d35ab3fc12003f8",
+    "r22_include_sha256": "4c1a684303d0329238ab5f3058c7f4058ae0fe36c9b13a44adc3dbb649d8be55",
+    "r22_library_sha256": "6c614aafb4907dea94b3c599c9bf97936e60027e447330838e9ba5a094fcfcec",
+    "canonical_prime_kernels_wrapper_sha256": "65feaa5b2cdd30b60882491536399dfbde9753d511dc71169f1c30acb43875c5",
+    "benchmark_sha256_used_for_both_gpu_runs": "17e1794d3e44bea0d055c3243dc0c334701883ef71b0733b362ad8a6a980bc0f",
+    "compare_script_sha256": "f0774ade16452f8d9d59398ac7a05b693302e9b0939da04363ba8231ab0b76ae",
+    "runtime": {
+      "python": "3.12.14 (main, Sep  1 2026, 14:16:52) [Clang 22.1.3 ]",
+      "torch": "2.13.0+cu130",
+      "torch_cuda": "13.0",
+      "vllm": "0.31.0",
+      "transformers": "5.6.2",
+      "uv": "uv 0.11.1 (x86_64-unknown-linux-gnu)",
+      "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU, 8.9, 580.159.03, 8188 MiB",
+      "git_commit": "4bd44857a8fa04b5addeabc7443cb205682544ce",
+      "uv_lock_sha256": "8cbbebed90ec02ae522a315f491918eae3b10c72b7134c6d7b4526596c999dfc"
+    },
+    "kernel_route_proof": {
+      "candidate_status": "private_serving_pilot_diagnostic_only",
+      "source_sha256": "180be7870c87b5993f02529d89546b8f771b261398af59608d35ab3fc12003f8",
+      "include_sha256": "4c1a684303d0329238ab5f3058c7f4058ae0fe36c9b13a44adc3dbb649d8be55",
+      "library_sha256": "6c614aafb4907dea94b3c599c9bf97936e60027e447330838e9ba5a094fcfcec",
+      "abi_argument_count": 28,
+      "torch_cuda_initialized_after_cpu_setup": false,
+      "worker_backend_before_warmup": [
+        {
+          "worker_pid": 486301,
+          "decode_backend_source": "/home/pradheep/tiny-prl/prime-rl/src/prime_rl/inference/vllm/decode_backend.py",
+          "forward_patched": true,
+          "selected_model_kernel": "decode_megakernel_360m",
+          "stats": {
+            "stock_not_pure_decode": 2,
+            "backend_decode": 11
+          },
+          "model_class": "LlamaModel",
+          "model_config": {
+            "hidden_size": 960,
+            "intermediate_size": 2560,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 15,
+            "num_key_value_heads": 5,
+            "head_dim": 64,
+            "rms_norm_eps": 1e-05
+          },
+          "cache_layout": {
+            "shape": [
+              1820,
+              5,
+              16,
+              128
+            ],
+            "stride": [
+              10240,
+              128,
+              640,
+              1
+            ],
+            "dtype": "torch.bfloat16",
+            "device": "cuda:0",
+            "layer_count": 32,
+            "all_layers_same_shape_stride_dtype": true
+          },
+          "kernel_source": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360.cu",
+          "kernel_source_sha256": "180be7870c87b5993f02529d89546b8f771b261398af59608d35ab3fc12003f8",
+          "kernel_include": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360_kernel.inc",
+          "kernel_include_sha256": "4c1a684303d0329238ab5f3058c7f4058ae0fe36c9b13a44adc3dbb649d8be55",
+          "kernel_module": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/decode_megakernel_360m/__init__.py",
+          "prime_kernels_source": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/__init__.py",
+          "r22_worker_rpc_proof": {
+            "module_file": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/decode_megakernel_360m/__init__.py",
+            "canonical_wrapper_realpath": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/__init__.py",
+            "canonical_wrapper_sha256": "65feaa5b2cdd30b60882491536399dfbde9753d511dc71169f1c30acb43875c5",
+            "source_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360.cu",
+            "source_sha256": "180be7870c87b5993f02529d89546b8f771b261398af59608d35ab3fc12003f8",
+            "include_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360_kernel.inc",
+            "include_sha256": "4c1a684303d0329238ab5f3058c7f4058ae0fe36c9b13a44adc3dbb649d8be55",
+            "library_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/build/libdecode360_r22_tail8.so",
+            "library_sha256": "6c614aafb4907dea94b3c599c9bf97936e60027e447330838e9ba5a094fcfcec",
+            "abi_argument_count": 28,
+            "workspace_bytes": 536320,
+            "debug_bytes": 3857920,
+            "runtime_cache_empty_before_engine": true,
+            "candidate_status": "private_serving_pilot_diagnostic_only",
+            "torch_cuda_initialized_after_cpu_setup": false,
+            "worker_library_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/build/libdecode360_r22_tail8.so",
+            "worker_module_is_registry_module": true,
+            "worker_routed_decode_step_is_module_decode_step": true,
+            "runtime_cache_size": 1,
+            "runtime_cache_empty": false
+          }
+        }
+      ],
+      "worker_backend_after_warmup": [
+        {
+          "worker_pid": 486301,
+          "decode_backend_source": "/home/pradheep/tiny-prl/prime-rl/src/prime_rl/inference/vllm/decode_backend.py",
+          "forward_patched": true,
+          "selected_model_kernel": "decode_megakernel_360m",
+          "stats": {
+            "stock_not_pure_decode": 14,
+            "backend_decode": 11
+          },
+          "model_class": "LlamaModel",
+          "model_config": {
+            "hidden_size": 960,
+            "intermediate_size": 2560,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 15,
+            "num_key_value_heads": 5,
+            "head_dim": 64,
+            "rms_norm_eps": 1e-05
+          },
+          "cache_layout": {
+            "shape": [
+              1820,
+              5,
+              16,
+              128
+            ],
+            "stride": [
+              10240,
+              128,
+              640,
+              1
+            ],
+            "dtype": "torch.bfloat16",
+            "device": "cuda:0",
+            "layer_count": 32,
+            "all_layers_same_shape_stride_dtype": true
+          },
+          "kernel_source": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360.cu",
+          "kernel_source_sha256": "180be7870c87b5993f02529d89546b8f771b261398af59608d35ab3fc12003f8",
+          "kernel_include": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360_kernel.inc",
+          "kernel_include_sha256": "4c1a684303d0329238ab5f3058c7f4058ae0fe36c9b13a44adc3dbb649d8be55",
+          "kernel_module": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/decode_megakernel_360m/__init__.py",
+          "prime_kernels_source": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/__init__.py",
+          "r22_worker_rpc_proof": {
+            "module_file": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/decode_megakernel_360m/__init__.py",
+            "canonical_wrapper_realpath": "/home/pradheep/tiny-prl/prime-kernels/prime_kernels/__init__.py",
+            "canonical_wrapper_sha256": "65feaa5b2cdd30b60882491536399dfbde9753d511dc71169f1c30acb43875c5",
+            "source_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360.cu",
+            "source_sha256": "180be7870c87b5993f02529d89546b8f771b261398af59608d35ab3fc12003f8",
+            "include_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/block360_kernel.inc",
+            "include_sha256": "4c1a684303d0329238ab5f3058c7f4058ae0fe36c9b13a44adc3dbb649d8be55",
+            "library_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/build/libdecode360_r22_tail8.so",
+            "library_sha256": "6c614aafb4907dea94b3c599c9bf97936e60027e447330838e9ba5a094fcfcec",
+            "abi_argument_count": 28,
+            "workspace_bytes": 536320,
+            "debug_bytes": 3857920,
+            "runtime_cache_empty_before_engine": true,
+            "candidate_status": "private_serving_pilot_diagnostic_only",
+            "torch_cuda_initialized_after_cpu_setup": false,
+            "worker_library_realpath": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/decode-360-cuda-r22-tail8/build/libdecode360_r22_tail8.so",
+            "worker_module_is_registry_module": true,
+            "worker_routed_decode_step_is_module_decode_step": true,
+            "runtime_cache_size": 1,
+            "runtime_cache_empty": false
+          }
+        }
+      ]
+    },
+    "measured_benchmark_path": "outputs/megakernel-20261025/r22-serving-pilot/benchmark-used-r1.py",
+    "profile_enabled_benchmark_path": "outputs/megakernel-20261025/r22-serving-pilot/benchmark-profile-r1.py",
+    "profile_enabled_benchmark_sha256": "b62956a12cffc0b0dfe18cd604612747b579e86135d01f8adcebbbf1c3a771e8"
+  },
+  "serving_results": {
+    "input32_batch1": {
+      "stock": {
+        "prompt_to_first_token_median_seconds": 0.006878460000734776,
+        "request_wall_median_seconds": 0.07048940198728815,
+        "request_seconds_per_output_token_including_prefill_median": 0.004405587624205509,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.004198384333479529,
+        "output_tokens_per_request": 16
+      },
+      "r22": {
+        "prompt_to_first_token_median_seconds": 0.007149909011786804,
+        "request_wall_median_seconds": 0.07104052600334398,
+        "request_seconds_per_output_token_including_prefill_median": 0.004440032875208999,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.004240594332804904,
+        "output_tokens_per_request": 16
+      },
+      "r22_change_percent": {
+        "scheduler_inclusive_intertoken": 1.005386738626468,
+        "request_wall": 0.7818537262597625
+      },
+      "parity": {
+        "generated_sequence_count": 7,
+        "generated_token_mismatches": 0,
+        "max_matched_top5_logprob_delta": {
+          "delta": 0.2194979190826416,
+          "trial": 1,
+          "sequence": 0,
+          "step": 2,
+          "token_id": 2,
+          "reference": -2.3807411193847656,
+          "candidate": -2.161243200302124
+        },
+        "max_generated_token_logprob_delta": {
+          "delta": 0.041897475719451904,
+          "trial": 1,
+          "sequence": 0,
+          "step": 3,
+          "token_id": 36971,
+          "reference": -0.9613385796546936,
+          "candidate": -1.0032360553741455
+        },
+        "candidate_set_different_positions": 0
+      }
+    },
+    "input32_batch2": {
+      "stock": {
+        "prompt_to_first_token_median_seconds": 0.007121661998098716,
+        "request_wall_median_seconds": 0.06642078200820833,
+        "request_seconds_per_output_token_including_prefill_median": 0.0020756494377565105,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.0039325217328344785,
+        "output_tokens_per_request": 16
+      },
+      "r22": {
+        "prompt_to_first_token_median_seconds": 0.007334274996537715,
+        "request_wall_median_seconds": 0.13647309300722554,
+        "request_seconds_per_output_token_including_prefill_median": 0.004264784156475798,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.008577654999680818,
+        "output_tokens_per_request": 16
+      },
+      "r22_change_percent": {
+        "scheduler_inclusive_intertoken": 118.12098145731609,
+        "request_wall": 105.46745895036298
+      },
+      "parity": {
+        "generated_sequence_count": 14,
+        "generated_token_mismatches": 0,
+        "max_matched_top5_logprob_delta": {
+          "delta": 0.24982261657714844,
+          "trial": 2,
+          "sequence": 0,
+          "step": 6,
+          "token_id": 2821,
+          "reference": -8.626002311706543,
+          "candidate": -8.875824928283691
+        },
+        "max_generated_token_logprob_delta": {
+          "delta": 0.012564361095428467,
+          "trial": 2,
+          "sequence": 0,
+          "step": 10,
+          "token_id": 36971,
+          "reference": -0.4476584792137146,
+          "candidate": -0.46022284030914307
+        },
+        "candidate_set_different_positions": 14
+      }
+    },
+    "input128_batch1": {
+      "stock": {
+        "prompt_to_first_token_median_seconds": 0.007638196024345234,
+        "request_wall_median_seconds": 0.07087825101916678,
+        "request_seconds_per_output_token_including_prefill_median": 0.004429890688697924,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.004209051999108245,
+        "output_tokens_per_request": 16
+      },
+      "r22": {
+        "prompt_to_first_token_median_seconds": 0.007806818000972271,
+        "request_wall_median_seconds": 0.0730082280060742,
+        "request_seconds_per_output_token_including_prefill_median": 0.004563014250379638,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.004361425066599622,
+        "output_tokens_per_request": 16
+      },
+      "r22_change_percent": {
+        "scheduler_inclusive_intertoken": 3.620127941485629,
+        "request_wall": 3.005120691157348
+      },
+      "parity": {
+        "generated_sequence_count": 7,
+        "generated_token_mismatches": 0,
+        "max_matched_top5_logprob_delta": {
+          "delta": 0.3724675178527832,
+          "trial": 7,
+          "sequence": 0,
+          "step": 5,
+          "token_id": 16374,
+          "reference": -5.2621965408325195,
+          "candidate": -5.634664058685303
+        },
+        "max_generated_token_logprob_delta": {
+          "delta": 0.004849568009376526,
+          "trial": 7,
+          "sequence": 0,
+          "step": 4,
+          "token_id": 216,
+          "reference": -0.04884268343448639,
+          "candidate": -0.04399311542510986
+        },
+        "candidate_set_different_positions": 21
+      }
+    },
+    "input128_batch2": {
+      "stock": {
+        "prompt_to_first_token_median_seconds": 0.01107986000715755,
+        "request_wall_median_seconds": 0.07023924199165776,
+        "request_seconds_per_output_token_including_prefill_median": 0.002194976312239305,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.003963133667518074,
+        "output_tokens_per_request": 16
+      },
+      "r22": {
+        "prompt_to_first_token_median_seconds": 0.01116203298442997,
+        "request_wall_median_seconds": 0.14271204499527812,
+        "request_seconds_per_output_token_including_prefill_median": 0.004459751406102441,
+        "scheduler_inclusive_seconds_per_intertoken_median": 0.008779814666680371,
+        "output_tokens_per_request": 16
+      },
+      "r22_change_percent": {
+        "scheduler_inclusive_intertoken": 121.53718252401914,
+        "request_wall": 103.17993325188199
+      },
+      "parity": {
+        "generated_sequence_count": 14,
+        "generated_token_mismatches": 0,
+        "max_matched_top5_logprob_delta": {
+          "delta": 0.3686103820800781,
+          "trial": 0,
+          "sequence": 0,
+          "step": 11,
+          "token_id": 2,
+          "reference": -5.6627278327941895,
+          "candidate": -5.294117450714111
+        },
+        "max_generated_token_logprob_delta": {
+          "delta": 0.006390068680047989,
+          "trial": 0,
+          "sequence": 0,
+          "step": 11,
+          "token_id": 216,
+          "reference": -0.037727613002061844,
+          "candidate": -0.04411768168210983
+        },
+        "candidate_set_different_positions": 14
+      }
+    }
+  },
+  "parity_caveats": {
+    "generated_token_mismatches_total": 0,
+    "generated_sequences_total": 42,
+    "first_token_ids_equal": true,
+    "exact_logprob_acceptance": "unresolved; top-5 logprobs and candidate sets differ. HF-vLLM RoPE discrepancy remains a separate known cross-runtime caveat.",
+    "historical_r13_comparison": {
+      "current_stock_records_match_historical_r13_pilot_stock": true,
+      "current_r22_records_match_historical_r13_pilot_candidate": true,
+      "meaning": "Observed cross-backend parity deltas and top-5 set differences predate R22 in this serving harness comparison.",
+      "historical_r13_candidate_summary": {
+        "input32_batch1": {
+          "prompt_to_first_token_median_seconds": 0.007281058002263308,
+          "request_wall_median_seconds": 0.09600020200014114,
+          "request_seconds_per_output_token_including_prefill_median": 0.0060000126250088215,
+          "scheduler_inclusive_seconds_per_intertoken_median": 0.005894716733018867,
+          "output_tokens_per_request": 16
+        },
+        "input32_batch2": {
+          "prompt_to_first_token_median_seconds": 0.007385990000329912,
+          "request_wall_median_seconds": 0.14518583999597467,
+          "request_seconds_per_output_token_including_prefill_median": 0.004537057499874209,
+          "scheduler_inclusive_seconds_per_intertoken_median": 0.009155894132951896,
+          "output_tokens_per_request": 16
+        },
+        "input128_batch1": {
+          "prompt_to_first_token_median_seconds": 0.007978982001077384,
+          "request_wall_median_seconds": 0.09778016999189276,
+          "request_seconds_per_output_token_including_prefill_median": 0.006111260624493298,
+          "scheduler_inclusive_seconds_per_intertoken_median": 0.0060213370665830246,
+          "output_tokens_per_request": 16
+        },
+        "input128_batch2": {
+          "prompt_to_first_token_median_seconds": 0.011432637998950668,
+          "request_wall_median_seconds": 0.15168797899968922,
+          "request_seconds_per_output_token_including_prefill_median": 0.004740249343740288,
+          "scheduler_inclusive_seconds_per_intertoken_median": 0.009367000465863385,
+          "output_tokens_per_request": 16
+        }
+      }
+    }
+  },
+  "guard_evidence": {
+    "runner": "outputs/megakernel-20261025/runtime/run_gpu.sh",
+    "limits": {
+      "memory_max": "7G",
+      "memory_swap_max": "0",
+      "runtime_max_seconds": 600,
+      "available_ram_floor": "2 GiB"
+    },
+    "stock": {
+      "command": [
+        "/home/pradheep/.venv/bin/python",
+        "outputs/megakernel-20261025/r22-serving-pilot/benchmark.py",
+        "--model",
+        "smollm2-360m",
+        "--output",
+        "outputs/megakernel-20261025/r22-serving-pilot/stock.json"
+      ],
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 16.880846896005096,
+      "minimum_available_bytes": 4736897024,
+      "peak_cgroup_bytes": 3053268992,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 2065,
+      "disk_free_before_bytes": 9073123328,
+      "minimum_disk_free_bytes": 9072390144
+    },
+    "r22": {
+      "command": [
+        "/home/pradheep/.venv/bin/python",
+        "outputs/megakernel-20261025/r22-serving-pilot/benchmark.py",
+        "--model",
+        "smollm2-360m",
+        "--decode-r22-inproc",
+        "--output",
+        "outputs/megakernel-20261025/r22-serving-pilot/r22.json"
+      ],
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 17.289156840008218,
+      "minimum_available_bytes": 5473153024,
+      "peak_cgroup_bytes": 2111389696,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 2065,
+      "disk_free_before_bytes": 9072193536,
+      "minimum_disk_free_bytes": 9071325184
+    }
+  },
+  "artifacts": {
+    "details_report": "outputs/megakernel-20261025/r22-serving-pilot/REPORT.md",
+    "stock_result": "outputs/megakernel-20261025/r22-serving-pilot/stock.json",
+    "r22_result": "outputs/megakernel-20261025/r22-serving-pilot/r22.json",
+    "comparison_script": "outputs/megakernel-20261025/r22-serving-pilot/compare_outputs.py",
+    "profile_readiness": {
+      "supported_by_benchmark_flag": "--profile <dir>",
+      "profiles_captured": false,
+      "intent": "Inspect request GPU event totals and visibility-limited annotation gaps for B1 orchestration/head work and B2 kernel time.",
+      "benchmark_path": "outputs/megakernel-20261025/r22-serving-pilot/benchmark-profile-r1.py"
+    }
+  },
+  "commands": {
+    "stock": "bash outputs/megakernel-20261025/runtime/run_gpu.sh tiny-prl-r22-stock-20261028 outputs/megakernel-20261025/r22-serving-pilot/guard-stock outputs/megakernel-20261025/r22-serving-pilot/benchmark.py --model smollm2-360m --output outputs/megakernel-20261025/r22-serving-pilot/stock.json",
+    "r22": "bash outputs/megakernel-20261025/runtime/run_gpu.sh tiny-prl-r22-candidate-20261028 outputs/megakernel-20261025/r22-serving-pilot/guard-r22 outputs/megakernel-20261025/r22-serving-pilot/benchmark.py --model smollm2-360m --decode-r22-inproc --output outputs/megakernel-20261025/r22-serving-pilot/r22.json"
+  },
+  "constraints": "No product source, global venv, dependencies, dtype settings, validation gates, or commits were changed.",
+  "comparison_design": {
+    "ordering": "single-session serial stock then R22",
+    "paired_design": false,
+    "abba": false,
+    "interpretation": "Directional pilot; timings can include order and session effects.",
+    "r21_serving_timing_comparison": "not collected"
+  }
+}
