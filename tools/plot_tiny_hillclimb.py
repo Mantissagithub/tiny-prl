@@ -255,6 +255,18 @@ EXPERIMENTS = {
     157: (NUM, "validated"),
     158: (TRAIN, "rejected"),
     159: (TRAIN, "component"),
+    160: (NUM, "parity"),
+    161: (NUM, "parity"),
+    162: (TRAIN, "none"),
+    163: (TRAIN, "component"),
+    164: (TRAIN, "rejected"),
+    165: (NUM, "none"),
+    166: (TRAIN, "component"),
+    167: (NUM, "parity"),
+    168: (TRAIN, "component"),
+    169: (NUM, "none"),
+    170: (TRAIN, "component"),
+    171: (NUM, "parity"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -276,6 +288,9 @@ CALLOUTS = {
     131: ("R6 vLLM: 5/6 cells faster\nshort −6.8–10.9%; 2048/B1 +1%", (-35, -38)),
     148: ("8k prefix reuse\n4.97× · component only", (-30, -24)),
     159: ("360M B1 lookahead\n3.15–3.19× · decoder only", (-52, 80)),
+    163: ("360M B2 cp.async\n−5.6–5.9% · decoder only", (-40, 40)),
+    166: ("8-load B1 follow-up\n−13.4–13.7% · decoder only", (-95, -22)),
+    170: ("composed 360M decode\nB1 3.64–3.70×; B2 −5.8–6.0%", (-200, 50)),
 }
 
 MILESTONES = [
