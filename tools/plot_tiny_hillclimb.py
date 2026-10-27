@@ -267,6 +267,7 @@ EXPERIMENTS = {
     169: (NUM, "none"),
     170: (TRAIN, "component"),
     171: (NUM, "parity"),
+    172: (TRAIN, "component"),
 }
 # Callout text with (dx, dy) offsets in points, staggered so neighbours do not collide.
 CALLOUTS = {
@@ -291,6 +292,7 @@ CALLOUTS = {
     163: ("360M B2 cp.async\n−5.6–5.9% · decoder only", (-40, 40)),
     166: ("8-load B1 follow-up\n−13.4–13.7% · decoder only", (-95, -22)),
     170: ("composed 360M decode\nB1 3.64–3.70×; B2 −5.8–6.0%", (-200, 50)),
+    172: ("R22 tail loads\nB1 −20.1%/−19.7%; decoder only", (-270, 80)),
 }
 
 MILESTONES = [
