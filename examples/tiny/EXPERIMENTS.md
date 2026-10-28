@@ -1485,3 +1485,15 @@ A twelve-step trainer A-B-B-A on the Qwen3-0.6B LoRA fixture (rank 8, `triton_ke
 ## Experiment 176: the Triton LM head still fails strict gradient parity at SmolLM2-135M
 
 The 135M dims parity check (V = 49,152, H = 576; 512 and 511 rows, FP32 inverse temperatures, full gradients, non-default stream) for `lm_head_triton_online_update` had failed on 10-20. The earlier record said the run never completed, which was wrong. It was rerun against the current trainer LM head, with only the reference-source hash re-pinned and the tolerances unchanged. Logprobs (3.8e-6) and entropy (1.9e-5) were within tolerance. The hidden-gradient error of 9.8e-4 and the weight-gradient error of 4.9e-4 failed the gradient tolerance (rtol 1e-2, atol 1e-4) on the 512-row case, matching the original failure. The kernel stays rejected and opt-in only, and the trainer default remains `torch`. Evidence: `outputs/tiny-kernel-20261020/triton/lm_head_135m/{parity_bench.py,parity_bench_r2.py,parity-guard/,parity-guard-r3/}`.
+
+## Experiment 177: Triton RoPE and RMSNorm still give no attributable RL wall-time gain after the cleanup fix
+
+Two A-B-B-A blocks repeated the end-to-end comparison from Experiment 55 on the current SmolLM2-135M full-parameter CUDA IPC profile, which includes the Experiment 137 early child cleanup. A used `triton_kernels = []`; B used `["rope", "rmsnorm"]`. Each run completed ten finite-loss updates, with 116–122 rollout attempts per run and mismatch KL of 0.0012–0.0021 in both arms. A first attempt was stopped by the guard's 2 GiB host-RAM floor before any work started; RAM held by the desktop shell was then released, and all eight runs completed.
+
+| Measure | Torch median | Triton median | Change | Blocks where both B beat both A |
+|---|---:|---:|---:|---:|
+| Trainer warm forward/backward | 0.216 s | 0.200 s | −7.1% | 1 of 2 |
+| Orchestrator loop | 31.35 s | 31.20 s | −0.5% | 0 of 2 |
+| Full-process wall | 60.36 s | 59.83 s | −0.9% | 0 of 2 |
+
+The kernels remain a trainer-component gain. About 0.15 s of saved trainer time across ten updates is well inside the roughly 2 s run-to-run wall spread, so no RL wall-time gain is attributed. All guards returned 0. Evidence: `outputs/rollout-overhead-20261025/triton-rl-abba-r1/{A1..A4,B1..B4}.toml,guard-*/result.json,output/,failed-ram-r0/`.
