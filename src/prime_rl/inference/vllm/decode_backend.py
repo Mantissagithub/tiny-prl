@@ -1,8 +1,8 @@
-"""Opt-in fused decode path for SmolLM2-shaped Llama on vLLM's FLASH_ATTN backend.
+"""Opt-in fused decode path for supported SmolLM2 Llama geometries.
 
-Pure decode batches of 1 to 4 requests compute the final hidden states with one decode-step
-call instead of vLLM's layer stack. lm_head, logits processing and sampling stay in vLLM.
-Every other step runs vLLM's stock forward.
+Pure decode batches compute final hidden states with one decode-step call instead of vLLM's
+layer stack. lm_head, logits processing and sampling stay in vLLM. Unsupported steps fall
+through to vLLM's stock forward.
 """
 
 import importlib.util
@@ -19,8 +19,13 @@ from vllm.model_executor.models.llama import LlamaModel
 logger = init_logger("vllm.prime_rl.decode_backend")
 
 REFERENCE_ENV = "PRIME_DECODE_REFERENCE"
-KERNEL_NAME = "decode_megakernel"
+KERNEL_NAME_135M = "decode_megakernel"
+KERNEL_NAME_360M = "decode_megakernel_360m"
+KERNEL_NAME = KERNEL_NAME_135M
 MAX_BATCH = 4
+MAX_BATCH_BY_KERNEL = {KERNEL_NAME_135M: MAX_BATCH, KERNEL_NAME_360M: 2}
+BLOCK_SIZE_360M = 16
+MAX_SEQ_360M = 8192
 
 HIDDEN_SIZE = 576
 INTERMEDIATE_SIZE = 1536
@@ -29,6 +34,12 @@ NUM_HEADS = 9
 NUM_KV_HEADS = 3
 HEAD_DIM = 64
 RMS_EPS = 1e-5
+
+HIDDEN_SIZE_360M = 960
+INTERMEDIATE_SIZE_360M = 2560
+NUM_LAYERS_360M = 32
+NUM_HEADS_360M = 15
+NUM_KV_HEADS_360M = 5
 
 stats: Counter[str] = Counter()
 
@@ -40,38 +51,104 @@ def _load_reference(path: str):
     return module.decode_step
 
 
-def _resolve_decode_step():
+def _resolve_decode_steps():
     if os.environ.get(REFERENCE_ENV):
-        return _load_reference(os.environ[REFERENCE_ENV])
+        reference = _load_reference(os.environ[REFERENCE_ENV])
+        return {KERNEL_NAME_135M: reference}
     import prime_kernels
 
-    if KERNEL_NAME in prime_kernels.KERNELS and prime_kernels.is_available(KERNEL_NAME):
-        # Resolved once here; the call site takes the same keyword arguments as the reference.
-        return prime_kernels.load(KERNEL_NAME).decode_step
+    return {
+        name: prime_kernels.load(name).decode_step
+        for name in (KERNEL_NAME_135M, KERNEL_NAME_360M)
+        if name in prime_kernels.KERNELS and prime_kernels.is_available(name)
+    }
+
+
+def _kernel_name_for_config(config) -> str | None:
+    head_dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
+    geometry = (
+        config.hidden_size,
+        config.intermediate_size,
+        config.num_hidden_layers,
+        config.num_attention_heads,
+        config.num_key_value_heads,
+        head_dim,
+        config.rms_norm_eps,
+    )
+    if geometry == (HIDDEN_SIZE, INTERMEDIATE_SIZE, NUM_LAYERS, NUM_HEADS, NUM_KV_HEADS, HEAD_DIM, RMS_EPS):
+        return KERNEL_NAME_135M
+    if geometry == (
+        HIDDEN_SIZE_360M,
+        INTERMEDIATE_SIZE_360M,
+        NUM_LAYERS_360M,
+        NUM_HEADS_360M,
+        NUM_KV_HEADS_360M,
+        HEAD_DIM,
+        RMS_EPS,
+    ):
+        return KERNEL_NAME_360M
     return None
 
 
-def _model_eligible(model: LlamaModel) -> bool:
-    """Checks that depend only on the loaded model, not on the batch."""
-    config = model.config
-    head_dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
+def _model_kernel_name(model: LlamaModel) -> str | None:
+    """Checks model-only eligibility and selects an exact supported geometry."""
     if type(model) is not LlamaModel or model.aux_hidden_state_layers:
-        return False
+        return None
+    if get_tensor_model_parallel_world_size() != 1 or get_pp_group().world_size != 1:
+        return None
+    if model.embed_tokens.weight.dtype != torch.bfloat16:
+        return None
+    if type(model.layers[0].self_attn.qkv_proj) is not QKVParallelLinear:
+        return None
+    return _kernel_name_for_config(model.config)
+
+
+def _model_eligible(model: LlamaModel) -> bool:
+    """Compatibility alias for the original 135M eligibility predicate."""
+    return _model_kernel_name(model) == KERNEL_NAME_135M
+
+
+def _metadata_eligible(meta, model: LlamaModel, kernel_name: str, batch: int) -> bool:
     if (
-        config.hidden_size != HIDDEN_SIZE
-        or config.intermediate_size != INTERMEDIATE_SIZE
-        or config.num_hidden_layers != NUM_LAYERS
-        or config.num_attention_heads != NUM_HEADS
-        or config.num_key_value_heads != NUM_KV_HEADS
-        or head_dim != HEAD_DIM
-        or config.rms_norm_eps != RMS_EPS
+        type(meta).__name__ != "FlashAttentionMetadata"
+        or meta.max_query_len != 1
+        or meta.num_actual_tokens != batch
+        or batch > MAX_BATCH_BY_KERNEL[kernel_name]
     ):
         return False
-    if get_tensor_model_parallel_world_size() != 1 or get_pp_group().world_size != 1:
-        return False
-    if model.embed_tokens.weight.dtype != torch.bfloat16:
-        return False
-    return type(model.layers[0].self_attn.qkv_proj) is QKVParallelLinear
+    if kernel_name == KERNEL_NAME_360M:
+        caches = [layer.self_attn.attn.kv_cache for layer in model.layers]
+        first = caches[0]
+        if (
+            first.dtype != torch.bfloat16
+            or first.ndim != 4
+            or first.shape[1] != NUM_KV_HEADS_360M
+            or first.shape[2] != BLOCK_SIZE_360M
+            or first.shape[3] != 2 * HEAD_DIM
+            or first.stride(3) != 1
+            or meta.block_table.dtype != torch.int32
+            or meta.block_table.shape[0] < batch
+            or meta.block_table.stride(1) != 1
+            or meta.block_table.shape[1] < 1
+            or meta.block_table.shape[1] * BLOCK_SIZE_360M > MAX_SEQ_360M
+        ):
+            return False
+        return all(
+            kv.dtype == first.dtype and kv.shape == first.shape and kv.stride() == first.stride() for kv in caches
+        )
+    return True
+
+
+def _select_decode_step(decode_steps, model: LlamaModel, kernel_name: str | None, meta, batch: int):
+    if (
+        kernel_name is None
+        or kernel_name not in decode_steps
+        or not 0 < batch <= MAX_BATCH_BY_KERNEL[kernel_name]
+        or meta is None
+        or not _metadata_eligible(meta, model, kernel_name, batch)
+    ):
+        return None
+    return decode_steps[kernel_name]
 
 
 def _decode_metadata(model: LlamaModel):
@@ -121,27 +198,34 @@ def monkey_patch_decode_backend() -> None:
     """
     if getattr(LlamaModel.forward, "_prime_rl_decode_backend", False):
         return
-    decode_step = _resolve_decode_step()
-    if decode_step is None:
+    decode_steps = _resolve_decode_steps()
+    if not decode_steps:
         return
 
     original_forward = LlamaModel.forward
 
     def forward(self, input_ids, positions, intermediate_tensors, inputs_embeds=None, **kwargs):
-        if inputs_embeds is None and _model_eligible(self):
+        kernel_name = _model_kernel_name(self) if inputs_embeds is None else None
+        if kernel_name is not None and kernel_name in decode_steps:
             meta = _decode_metadata(self)
             batch = input_ids.shape[0]
             if meta is None:
                 stats["stock_not_pure_decode"] += 1
-            elif 0 < batch <= MAX_BATCH and meta.num_actual_tokens == batch:
-                stats["backend_decode"] += 1
-                return _decode_hidden_states(self, decode_step, input_ids, positions, meta)
-            else:
+            elif batch > MAX_BATCH_BY_KERNEL[kernel_name] or meta.num_actual_tokens != batch:
                 stats["stock_decode_over_max_batch"] += 1
-        else:
+            else:
+                decode_step = _select_decode_step(decode_steps, self, kernel_name, meta, batch)
+                if decode_step is None:
+                    stats["stock_unsupported_metadata"] += 1
+                else:
+                    stats["backend_decode"] += 1
+                    return _decode_hidden_states(self, decode_step, input_ids, positions, meta)
+        elif kernel_name is None or inputs_embeds is not None:
             stats["stock_ineligible"] += 1
+        else:
+            stats["stock_kernel_unavailable"] += 1
         return original_forward(self, input_ids, positions, intermediate_tensors, inputs_embeds, **kwargs)
 
     forward._prime_rl_decode_backend = True
     LlamaModel.forward = forward
-    logger.info("Decode backend installed for SmolLM2-shaped Llama")
+    logger.info("Decode backend installed for supported SmolLM2 geometries: %s", sorted(decode_steps))
