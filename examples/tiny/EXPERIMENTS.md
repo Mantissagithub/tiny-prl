@@ -1581,3 +1581,21 @@ Stock arms agreed with each other bitwise, as did R25 arms; R25 against stock ma
 IDEAS.md item B1 tried vLLM's draft-free n-gram (prompt-lookup) speculative decoding for rollouts. Sampling in this profile is untruncated (temperature 1, top-p 1) with sampling masks off, so rejection sampling keeps the sampled distribution exact. vLLM requires CUDA-graph capture sizes to be multiples of `num_speculative_tokens + 1`, so B arms capture [4, 8] for three draft tokens. With speculation on, vLLM 0.31 also falls back from the V2 to the V1 model runner and disables async scheduling. A smoke run accepted a mean 2.57 tokens per verification step; one draft token accepted 70.5%. Decode nevertheless took 5.4–6.3 ms per generated token against 2.7–2.9 ms for stock decode at either draft length. A 135M forward is about 2 ms, so the runner and scheduling overhead exceeds the tokens saved.
 
 A guarded A-B-B-A block (A = the Experiment 182 profile; B adds `speculative_config = { method = "ngram", num_speculative_tokens = 3, prompt_lookup_max = 4, prompt_lookup_min = 2 }`) measured full wall 33.9, 38.5, 36.1, 36.7 s and loop 11.6, 15.7, 13.5, 14.0 s. Mismatch KL stayed at 0.0014–0.0018. Speculation is rejected for this profile. It may still pay for larger models or long generations, where a forward costs much more than the runner overhead; draft lengths should then be tuned per batch size, as the earlier RTX 4060 EAGLE-3 sweep in the energy-throttling project found. All guards returned 0. Evidence: `outputs/rollout-overhead-20261025/specdec-r1/{smoke.toml,k1.toml,A1,B1,B2,A2}.toml,guard-*/result.json,output/`.
+
+## Experiment 186: the 360M megakernel is slow because exact cuBLAS order makes its projections latency-bound
+
+A standalone microbenchmark ran the four SmolLM2-360M projection shapes across 32 layers' distinct weights, so every read comes from DRAM: qkv 1600×960, o 960×960, gate/up 5120×960, down 960×2560, about 629 MB per decoder step. It compared R25's two exact-order projection paths with a bandwidth-oriented path and with cuBLAS BF16 `F.linear`.
+
+- **R25 batch-one path (`dots16`):** 2-byte loads and one serial FP32 chain per lane.
+- **R25 batch-two path (`wmma_project_tile`):** one warp per 16-row WMMA tile with only two live A rows, 16-wide K steps in sequence, shared-memory staging and one in-place accumulator chain.
+- **Bandwidth-oriented path:** 16-byte loads, four independent accumulators per lane, weights read once for both requests, autotuned rows per warp and split-K.
+
+| Path | B1 ms/token | B2 ms/token |
+|---|---:|---:|
+| R25 exact `dots16` (B2 as two passes) | 3.23 | 3.21 |
+| R25 exact WMMA tile | — | 7.59 |
+| Bandwidth-oriented | 2.74 | 2.74 |
+| cuBLAS BF16 | 3.28 | 2.86 |
+| Pure-read floor at 250 GB/s | 2.52 | 2.52 |
+
+The exact WMMA tile reaches 24–42% of the read floor. Each 16-wide K step costs about 0.5 µs, about one DRAM round trip, so the path is latency-bound and accounts for 7.59 of R25's 7.96 ms B2 decoder step. The exact `dots16` loop reaches 64–85% of the floor. The bandwidth-oriented path reaches 81–97%, beats cuBLAS at both batch sizes, and matches an FP64 reference to about 1e-7 relative error, but it is not bitwise equal to cuBLAS. Requiring bitwise equality with HF's cuBLAS order therefore caps the 360M serving kernel. At B1, stock CUDA-graph vLLM is already near the same bandwidth (Experiment 184), so the megakernel's removal of launch gaps has little left to win; at B2, the exact WMMA schedule makes it slower than stock. The 135M kernel that does help (Experiments 128–134) used a relaxed gate and vectorised loads. These are standalone projection timings: the projected effect inside the cooperative kernel (about 3.1–3.2 ms per decoder step at both batch sizes) is an estimate. Evidence: `outputs/megakernel-20261025/gemv360-diagnosis-r1/{gemv360.cu,harness.py,results.json,README.md,guard/}`.
