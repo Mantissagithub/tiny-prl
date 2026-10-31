@@ -1497,3 +1497,16 @@ Two A-B-B-A blocks repeated the end-to-end comparison from Experiment 55 on the 
 | Full-process wall | 60.36 s | 59.83 s | −0.9% | 0 of 2 |
 
 The kernels remain a trainer-component gain. About 0.15 s of saved trainer time across ten updates is well inside the roughly 2 s run-to-run wall spread, so no RL wall-time gain is attributed. All guards returned 0. Evidence: `outputs/rollout-overhead-20261025/triton-rl-abba-r1/{A1..A4,B1..B4}.toml,guard-*/result.json,output/,failed-ram-r0/`.
+
+## Experiment 178: two static environment workers do not verify an RL wall-time gain
+
+A guarded A-B-B-A compared the same ten-update SmolLM2-135M full-parameter R6 recipe with the default elastic single environment server (A) and a static two-worker environment pool (B). All four arms completed ten finite loss/KL updates; 40 unique trainer trace IDs per arm joined effective orchestrator annotations and stream records, with four consumed traces per update. All guards returned 0 with no stop reason and zero job-cgroup swap.
+
+| Arm | Guard wall | Trainer loop | Batch wait | Forward/backward | Weight broadcast | Completed stream traces beyond consumed 40 |
+|---|---:|---:|---:|---:|---:|---:|
+| A1 | 73.55 s | 34.52 s | 23.87 s | 4.95 s | 5.20 s | 84 |
+| B1 | 63.10 s | 32.27 s | 23.56 s | 3.16 s | 5.06 s | 80 |
+| B2 | 64.14 s | 33.23 s | 24.73 s | 3.05 s | 4.93 s | 80 |
+| A2 | 63.25 s | 32.89 s | 24.20 s | 3.01 s | 5.14 s | 78 |
+
+The strict repeat criterion failed: both B runs did not beat both A runs; B2 was slower than A2. The recorded work also differed: successful HTTP 200 generation responses were 124/120/120/118 and finalized stream output-token totals were 3,984/3,991/3,931/3,844 for A1/B1/B2/A2. These stream totals may omit canceled or in-flight GPU generation, so exact terminal inference work is unavailable. Periodic metrics are sampled counters, not terminal totals. No matched-work or verified RL mainline speedup is established, and no reward or quality claim follows. Evidence: `outputs/megakernel-20261025/rl-envpool-abba-r1/analysis/results.md`, `analysis/comparison.json`, and `examples/tiny/rl-envpool-abba-summary.json`.

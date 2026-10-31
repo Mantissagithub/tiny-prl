@@ -71,3 +71,9 @@ The short-context R6 smoke is functionally exact for the tested 32 generated IDs
 ## Published checkpoint files
 
 `research/icepop-score-centering/` contains the full replayable port patch, exact dependency manifest, patch/source-hash validation, CPU results/commands, and main integration audit for three 10-update runs. The full 360M decoder archive is in the separate prime-kernels fork under `research/smollm2_360m_decode/`; the original R9 fixtures pass, but the wider-context follow-up fails 7/12 cases. The public wrapper passes four single-step fixtures without establishing engine serving integration. Continue with direct native-versus-candidate QK/PV/reduction diagnosis and validate any changed candidate against the unchanged gates; do not relax them.
+
+## RL environment-pool ABBA checkpoint (2026-10-31)
+
+The prepared R6 environment-pool comparison has now completed in A1/B1/B2/A2 order. A arms used the elastic one-worker server; B arms used the static two-worker pool. Every guard returned 0 with no stop reason and zero job-cgroup swap. Each arm completed ten finite updates and its 40 unique trainer trace IDs join effective orchestrator and stream annotations.
+
+The strict repeated wall-time criterion failed: B2 took 64.14 s versus A2 at 63.25 s. The four runs also differ in successful generation response counts and finalized stream tokens, while terminal total GPU inference work is unavailable. These observations establish no matched-work or mainline RL speed gain. See Experiment 178 in `EXPERIMENTS.md`, the compact audit in `examples/tiny/rl-envpool-abba-summary.json`, and analysis under `outputs/megakernel-20261025/rl-envpool-abba-r1/analysis/`.

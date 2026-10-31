@@ -1,0 +1,292 @@
+{
+  "arms": {
+    "A1": {
+      "guard": {
+        "elapsed_seconds": 73.55469638099999,
+        "minimum_available_bytes": 6343077888,
+        "minimum_disk_free_bytes": 35046707200,
+        "peak_cgroup_bytes": 7516192768,
+        "peak_gpu_mib": 5260,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "inference_observations": {
+        "exact_terminal_total_gpu_inference_work_available": false,
+        "finalized_stream_output_tokens": 3984,
+        "periodic_metric_snapshot": {
+          "generation_tokens_total": 3845.0,
+          "is_terminal_total": false,
+          "request_success_total": 119.0,
+          "sample_time": 1793416274.2078652
+        },
+        "successful_generate_http_200_responses": 124
+      },
+      "trainer": {
+        "all_loss_kl_values_finite": true,
+        "completed_stream_traces": 124,
+        "completed_stream_traces_beyond_consumed": 84,
+        "consumed_input_tokens": 3198,
+        "consumed_output_tokens": 1206,
+        "effective_ship_count_by_step": {
+          "1": 4,
+          "10": 4,
+          "2": 4,
+          "3": 4,
+          "4": 4,
+          "5": 4,
+          "6": 4,
+          "7": 4,
+          "8": 4,
+          "9": 4
+        },
+        "joined_effective_orchestrator_and_stream": true,
+        "step_time_totals_seconds": {
+          "broadcast_weights": 5.198285642000201,
+          "forward_backward": 4.954742570000008,
+          "load_data": 0.004247946999839769,
+          "save_ckpt": 0,
+          "step": 34.522994296000434,
+          "wait_for_batch": 23.867845831000068
+        },
+        "trace_ids_consumed": 40,
+        "unique_trace_ids": 40,
+        "updates": 10
+      },
+      "treatment": "elastic environment server, 1 worker"
+    },
+    "A2": {
+      "guard": {
+        "elapsed_seconds": 63.251367340000115,
+        "minimum_available_bytes": 6295244800,
+        "minimum_disk_free_bytes": 35146301440,
+        "peak_cgroup_bytes": 5693136896,
+        "peak_gpu_mib": 5258,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "inference_observations": {
+        "exact_terminal_total_gpu_inference_work_available": false,
+        "finalized_stream_output_tokens": 3844,
+        "periodic_metric_snapshot": {
+          "generation_tokens_total": 3844.0,
+          "is_terminal_total": false,
+          "request_success_total": 118.0,
+          "sample_time": 1793416466.6329336
+        },
+        "successful_generate_http_200_responses": 118
+      },
+      "trainer": {
+        "all_loss_kl_values_finite": true,
+        "completed_stream_traces": 118,
+        "completed_stream_traces_beyond_consumed": 78,
+        "consumed_input_tokens": 3198,
+        "consumed_output_tokens": 1381,
+        "effective_ship_count_by_step": {
+          "1": 4,
+          "10": 4,
+          "2": 4,
+          "3": 4,
+          "4": 4,
+          "5": 4,
+          "6": 4,
+          "7": 4,
+          "8": 4,
+          "9": 4
+        },
+        "joined_effective_orchestrator_and_stream": true,
+        "step_time_totals_seconds": {
+          "broadcast_weights": 5.142123621000337,
+          "forward_backward": 3.014548795000337,
+          "load_data": 0.00461737999989964,
+          "save_ckpt": 0,
+          "step": 32.89161400800026,
+          "wait_for_batch": 24.20318242699932
+        },
+        "trace_ids_consumed": 40,
+        "unique_trace_ids": 40,
+        "updates": 10
+      },
+      "treatment": "elastic environment server, 1 worker"
+    },
+    "B1": {
+      "guard": {
+        "elapsed_seconds": 63.101759234000156,
+        "minimum_available_bytes": 5964034048,
+        "minimum_disk_free_bytes": 35149619200,
+        "peak_cgroup_bytes": 6537908224,
+        "peak_gpu_mib": 5260,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "inference_observations": {
+        "exact_terminal_total_gpu_inference_work_available": false,
+        "finalized_stream_output_tokens": 3991,
+        "periodic_metric_snapshot": {
+          "generation_tokens_total": 3291.0,
+          "is_terminal_total": false,
+          "request_success_total": 100.0,
+          "sample_time": 1793416334.476029
+        },
+        "successful_generate_http_200_responses": 120
+      },
+      "trainer": {
+        "all_loss_kl_values_finite": true,
+        "completed_stream_traces": 120,
+        "completed_stream_traces_beyond_consumed": 80,
+        "consumed_input_tokens": 3192,
+        "consumed_output_tokens": 1261,
+        "effective_ship_count_by_step": {
+          "1": 4,
+          "10": 4,
+          "2": 4,
+          "3": 4,
+          "4": 4,
+          "5": 4,
+          "6": 4,
+          "7": 4,
+          "8": 4,
+          "9": 4
+        },
+        "joined_effective_orchestrator_and_stream": true,
+        "step_time_totals_seconds": {
+          "broadcast_weights": 5.059933856000043,
+          "forward_backward": 3.1627009339997585,
+          "load_data": 0.003664068999569281,
+          "save_ckpt": 0,
+          "step": 32.27447481799959,
+          "wait_for_batch": 23.56047417500031
+        },
+        "trace_ids_consumed": 40,
+        "unique_trace_ids": 40,
+        "updates": 10
+      },
+      "treatment": "static environment pool, 2 workers"
+    },
+    "B2": {
+      "guard": {
+        "elapsed_seconds": 64.14470151199998,
+        "minimum_available_bytes": 5971406848,
+        "minimum_disk_free_bytes": 35148009472,
+        "peak_cgroup_bytes": 6126317568,
+        "peak_gpu_mib": 5258,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "inference_observations": {
+        "exact_terminal_total_gpu_inference_work_available": false,
+        "finalized_stream_output_tokens": 3931,
+        "periodic_metric_snapshot": {
+          "generation_tokens_total": 3922.0,
+          "is_terminal_total": false,
+          "request_success_total": 119.0,
+          "sample_time": 1793416402.6332047
+        },
+        "successful_generate_http_200_responses": 120
+      },
+      "trainer": {
+        "all_loss_kl_values_finite": true,
+        "completed_stream_traces": 120,
+        "completed_stream_traces_beyond_consumed": 80,
+        "consumed_input_tokens": 3208,
+        "consumed_output_tokens": 1254,
+        "effective_ship_count_by_step": {
+          "1": 4,
+          "10": 4,
+          "2": 4,
+          "3": 4,
+          "4": 4,
+          "5": 4,
+          "6": 4,
+          "7": 4,
+          "8": 4,
+          "9": 4
+        },
+        "joined_effective_orchestrator_and_stream": true,
+        "step_time_totals_seconds": {
+          "broadcast_weights": 4.934589630000119,
+          "forward_backward": 3.047023130999378,
+          "load_data": 0.0035928279999097867,
+          "save_ckpt": 0,
+          "step": 33.228803901999754,
+          "wait_for_batch": 24.73313193999934
+        },
+        "trace_ids_consumed": 40,
+        "unique_trace_ids": 40,
+        "updates": 10
+      },
+      "treatment": "static environment pool, 2 workers"
+    }
+  },
+  "candidate_only_change": "alphabet-sort serve pool: elastic single server -> static num_workers=2",
+  "date": "2026-10-31",
+  "evidence": {
+    "analysis_json": "outputs/megakernel-20261025/rl-envpool-abba-r1/analysis/comparison.json",
+    "analysis_markdown": "outputs/megakernel-20261025/rl-envpool-abba-r1/analysis/results.md",
+    "experiment_package": "outputs/megakernel-20261025/rl-envpool-abba-r1/"
+  },
+  "experiment": 178,
+  "interpretation": "No matched-work RL speedup or reward/quality conclusion. Wall ordering is descriptive; the strict repeated criterion failed.",
+  "matching": {
+    "all_arms_same_recipe_except_pool_treatment": true,
+    "all_arms_ten_finite_updates_and_40_joined_trace_ids": true,
+    "matched_inference_work_established": false,
+    "periodic_metrics_are_terminal": false,
+    "reason": "Successful HTTP responses and finalized stream-token observations differ; finalized streams can omit canceled or in-flight GPU generation, and no exact terminal total counters are available."
+  },
+  "model": "HuggingFaceTB/SmolLM2-135M-Instruct snapshot 12fd25f77366fa6b3b4b768ec3050bf629380bac",
+  "order": [
+    "A1",
+    "B1",
+    "B2",
+    "A2"
+  ],
+  "primary_result": {
+    "both_candidate_runs_beat_both_control_runs": false,
+    "candidate_seconds": {
+      "B1": 63.101759234000156,
+      "B2": 64.14470151199998
+    },
+    "control_seconds": {
+      "A1": 73.55469638099999,
+      "A2": 63.251367340000115
+    },
+    "metric": "full guarded process wall seconds",
+    "verified_RL_mainline_speedup": false
+  },
+  "recipe": {
+    "batch_size": 4,
+    "decode_kernel": "R6",
+    "group_size": 2,
+    "loss": "ipo",
+    "max_completion_tokens": 64,
+    "max_inflight": 4,
+    "model": "HuggingFaceTB/SmolLM2-135M-Instruct snapshot 12fd25f77366fa6b3b4b768ec3050bf629380bac",
+    "pool_treatment": "A: elastic max_workers=1; B: static num_workers=2",
+    "seed": 0,
+    "sequence_length": 512,
+    "updates_per_arm": 10
+  },
+  "resource_gates": {
+    "all_passed": true,
+    "caps_match_manifest_launcher_and_guard": true,
+    "gpu_limit_mib": 7676,
+    "guard_available_ram_floor_bytes": 2147483648,
+    "host_wide_swap_sampled": false,
+    "job_cgroup_swap_peak_bytes": {
+      "A1": 0,
+      "A2": 0,
+      "B1": 0,
+      "B2": 0
+    },
+    "memory_max": "7G",
+    "memory_swap_max": "0",
+    "runtime_max_seconds": 600
+  },
+  "status": "rejected_for_speedup_claim",
+  "title": "Two static environment workers do not verify an RL wall-time gain",
+  "updates_target_per_arm": 10
+}
