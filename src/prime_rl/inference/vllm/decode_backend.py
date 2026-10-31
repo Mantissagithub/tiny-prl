@@ -19,6 +19,7 @@ from vllm.model_executor.models.llama import LlamaModel
 logger = init_logger("vllm.prime_rl.decode_backend")
 
 REFERENCE_ENV = "PRIME_DECODE_REFERENCE"
+ENABLE_360M_ENV = "PRIME_DECODE_MEGAKERNEL_360M"
 KERNEL_NAME_135M = "decode_megakernel"
 KERNEL_NAME_360M = "decode_megakernel_360m"
 KERNEL_NAME = KERNEL_NAME_135M
@@ -57,9 +58,13 @@ def _resolve_decode_steps():
         return {KERNEL_NAME_135M: reference}
     import prime_kernels
 
+    names = [KERNEL_NAME_135M]
+    # The 360M kernel is slower than stock vLLM in serving, so it stays a research opt-in.
+    if os.environ.get(ENABLE_360M_ENV) == "1":
+        names.append(KERNEL_NAME_360M)
     return {
         name: prime_kernels.load(name).decode_step
-        for name in (KERNEL_NAME_135M, KERNEL_NAME_360M)
+        for name in names
         if name in prime_kernels.KERNELS and prime_kernels.is_available(name)
     }
 

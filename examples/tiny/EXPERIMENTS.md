@@ -1556,3 +1556,22 @@ Two guarded A-B-B-A blocks repeated the Experiment 133 comparison of `orchestrat
 On a shared GPU, the launcher started the trainer only after vLLM's liveness endpoint returned 200, so vLLM's memory profiling saw no trainer allocation. A fork-server run's timeline showed vLLM live 15 s after launch, followed by 7 s of trainer imports before its first log line and 1 s of initialization before the orchestrator loop began. The new opt-in `deployment.early_trainer_start` starts the trainer process at launch with the liveness URL in its environment. The trainer waits for that endpoint after parsing its config and before `train()`, which is where CUDA is first initialized. A CPU-only check confirmed that importing the trainer and parsing its config leave CUDA uninitialized.
 
 Two guarded A-B-B-A blocks used the fork-server profile, with B adding `early_trainer_start = true`. Full wall was 42.1, 34.7, 35.9, 42.3 s in block one and 41.9, 36.5, 37.7, 41.5 s in block two (A1, B1, B2, A2 / A3, B3, B4, A4). Both candidates beat both controls in both blocks. Mean wall fell from 41.96 to 36.19 s (−13.7%), and loop time was unchanged (13.45 → 13.65 s). A 500 ms `nvidia-smi` sample showed at most one GPU compute process, the inference engine, before vLLM reported its server start in every run. Rollout attempts (116–120) and mismatch KL (0.0012–0.0018) matched across arms. The SmolLM2 profile now enables the flag; together with Experiment 180, the ten-update run went from 54.0 s to about 36 s. All guards returned 0. Evidence: `outputs/rollout-overhead-20261025/early-trainer-r1/cuda_check.py` and `outputs/rollout-overhead-20261025/early-trainer-abba-r1/{A1..A4,B1..B4}.toml,*-gpuapps.log,guard-*/result.json,output/`.
+
+## Experiment 183: reusing a warm vLLM server across runs is blocked by the shared-GPU contracts
+
+IDEAS.md item A3 proposed keeping one vLLM server alive across consecutive RL runs, so short experiments skip its ~15 s startup. Each run already re-broadcasts the trainer's starting weights (v0), so a warm server's weights would be reset exactly. A run config without `[inference]`, pointed at an external server, fails validation before launch: `cuda_ipc requires an inference configuration`. Three validators reject the combination: CUDA IPC weight broadcast, `share_train_infer_gpu` and `early_trainer_start` each require a launcher-managed inference configuration (`packages/prime-rl-configs/src/prime_rl/configs/rl.py`). Relaxing them would remove the guarantees that the trainer and inference share one GPU in a known startup order. The saving would also apply only to repeated short experiments, not to long training runs where startup is amortised, so the item is not pursued and the validators are unchanged. No GPU work ran. Evidence: `outputs/rollout-overhead-20261025/warm-inference-r1/{README.md,B1-noinf.toml}`.
+
+## Experiment 184: the R25 360M decode kernel is slower than stock vLLM in serving
+
+The experimental `decode_megakernel_360m` package was switched from the archived R9 source to R25 (`prime-kernels` `99eff5a`), which passes all 46 validation fixtures (Experiment 174). In an in-process vLLM serving A-B-B-A (SmolLM2-360M, FULL_DECODE_ONLY graphs, prompts 32/128/1024, batch 1/2, 64 greedy tokens, 3 warmups and 7 repeats), the first attempt hung when the laptop suspended and was rerun cleanly. Each candidate worker asserted the R25 source hash and the route to the 360M kernel.
+
+| Prompt/batch | Stock ITL (A1/A2) | R25 ITL (B1/B2) | Change |
+|---|---:|---:|---:|
+| 32/1 | 4.292 / 4.300 ms | 4.365 / 4.365 ms | +1.6% |
+| 32/2 | 3.992 / 3.997 ms | 8.775 / 8.775 ms | +119.6% |
+| 128/1 | 4.304 / 4.309 ms | 4.604 / 4.606 ms | +6.9% |
+| 128/2 | 4.003 / 4.004 ms | 8.987 / 8.990 ms | +124.5% |
+| 1024/1 | 4.501 / 4.510 ms | 6.912 / 6.915 ms | +53.4% |
+| 1024/2 | 4.404 / 4.412 ms | 11.140 / 11.139 ms | +152.6% |
+
+Stock arms agreed with each other bitwise, as did R25 arms; R25 against stock matched 61–86% of greedy tokens, with generated-token logprob differences up to 0.66. Every arm ran at a 2610 MHz median SM clock. The direct decoder gains in Experiments 159–179 do not carry into serving. The opt-in decode backend therefore no longer routes 360M models to this kernel unless `PRIME_DECODE_MEGAKERNEL_360M=1` is set for research; SmolLM2-135M routing is unchanged. Evidence: `outputs/megakernel-20261025/r25-serving-abba-r1/{bench_serving_r25.py,run_abba.sh,analyze.py,README.md,results.json,attempt1-interrupted/}`.

@@ -4,6 +4,17 @@ This list ranks ideas from public RL systems and kernel work against what this
 laptop actually spends time on. Every expected gain is an estimate until a
 matched A-B-B-A measures it; experiment numbers refer to `EXPERIMENTS.md`.
 
+## Status
+
+| Item | Outcome | Ledger |
+|---|---|---|
+| A1 persistent harness worker (warm fork server) | Verified: RL wall −23.2%, enabled in the SmolLM2 profile | Exp 180 |
+| A5 more rollouts in flight (after A1) | No gain (wall 0.0%); `max_inflight` stays 4 | Exp 181 |
+| A4 overlap trainer init with vLLM startup | Verified: RL wall −13.7%, enabled in the SmolLM2 profile | Exp 182 |
+| A3 warm vLLM across runs | Blocked by the shared-GPU / CUDA IPC config contracts; not pursued | Exp 183 |
+| A2 skip zero-signal prompts | Waiting for approval (changes the training data) | — |
+| B3 360M megakernel in serving | R25 slower than stock in serving; 360M routing is now research-only | Exp 184 |
+
 ## What the measurements say
 
 A ten-update SmolLM2-135M full-parameter RL run takes about 60 s after the
