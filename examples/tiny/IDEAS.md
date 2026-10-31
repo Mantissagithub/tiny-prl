@@ -12,8 +12,19 @@ matched A-B-B-A measures it; experiment numbers refer to `EXPERIMENTS.md`.
 | A5 more rollouts in flight (after A1) | No gain (wall 0.0%); `max_inflight` stays 4 | Exp 181 |
 | A4 overlap trainer init with vLLM startup | Verified: RL wall −13.7%, enabled in the SmolLM2 profile | Exp 182 |
 | A3 warm vLLM across runs | Blocked by the shared-GPU / CUDA IPC config contracts; not pursued | Exp 183 |
-| A2 skip zero-signal prompts | Waiting for approval (changes the training data) | — |
+| A2 skip zero-signal prompts | Not run: changes the training data, outside "task fixed"; needs explicit approval | — |
 | B3 360M megakernel in serving | R25 slower than stock in serving; 360M routing is now research-only | Exp 184 |
+| B1 speculative decoding (n-gram) | Rejected: decode ~2x slower per token (V1 runner, no async scheduling); wall not improved | Exp 185 |
+| B2 partial rollouts | Not run: mixes policy versions inside a sample (algorithm change) and needs long generations | — |
+| B4 135M megakernel R7 | Not run: decode is a few seconds per run and earlier megakernel gains did not move wall time (Exp 129, 134) | — |
+| B5 FP8 rollouts | Not run: changes rollout numerics, outside "algorithm fixed" | — |
+| B6 prefix caching | Already on (vLLM default `enable_prefix_caching`) | — |
+| C1 batch-invariant kernels | Not run: numerics project, not a speed change | — |
+| C2 FP32 LM head | Already on (`enable_fp32_lm_head`) | — |
+| C3 / C4 loss and LoRA changes | Not run: algorithm changes | — |
+| D1 FP16 accumulation | Not run: changes reduction precision | — |
+| D2 / D3 trainer kernels | Not run: trainer kernels do not move wall time here (Exp 175, 177) | — |
+| D4 CUDA Tile IR | Not available: SM89 support starts in CUDA 13.2; the pinned toolkit is 13.0 | — |
 
 ## What the measurements say
 
