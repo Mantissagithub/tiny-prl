@@ -1674,3 +1674,21 @@ Three interleaved blocks per shape, 120 individual CUDA-event samples per arm, p
 | B2/1024 | 3.690496 ms | 3.686400 ms | -0.111% | 3/3 |
 
 Every final hidden state and all 32 layers' K/V match R28 bitwise. All guards returned zero, sampled swap stayed zero, and GPU peaks were 1,317–1,911 MiB. The narrow sub-0.2% B2/1024 change has not been repeated independently and does not offset the B1 regressions. The candidate is rejected; no serving or RL benefit is claimed. Evidence: `outputs/megakernel-20261025/r29-proj-prefetch/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`.
+
+
+## Experiment 192: phase-ahead PTX prefetch speeds up the fast R28 decoder
+
+R30 ports the existing 135M kernel's phase-ahead `prefetch.global.L2` pattern to Opus's fast R28. Weight-row hints are issued before the preceding cooperative barrier: O weights after QKV, gate/up after O, down after gate/up, and next-layer QKV after down. Every row is bounded and the last layer skips next-layer hints. Unlike Experiment 191, this gives the requests a phase of lead time without changing the projection helper. Arithmetic, cache writes, workspace and ABI remain unchanged. ptxas reports 241/245 registers for B1/B2, zero stack or spills, and unchanged static shared memory.
+
+Six separate guarded processes compared R28 and R30 with three alternating ABBA/BAAB blocks, three warmups and 120 individual CUDA-event samples per arm. These pooled raw-event medians cover the decoder only, excluding the LM head:
+
+| Batch/context | R28 median | R30 median | Change | Both-beat-both blocks |
+|---|---:|---:|---:|---:|
+| B1/32 | 2.988032 ms | 2.888704 ms | -3.324% | 3/3 |
+| B1/128 | 3.038208 ms | 2.945024 ms | -3.067% | 3/3 |
+| B1/1024 | 3.341312 ms | 3.239936 ms | -3.034% | 3/3 |
+| B2/32 | 3.155104 ms | 3.130192 ms | -0.790% | 3/3 |
+| B2/128 | 3.240960 ms | 3.209216 ms | -0.979% | 3/3 |
+| B2/1024 | 3.690496 ms | 3.665024 ms | -0.690% | 2/3 |
+
+All six cases' final hidden states and every layer's K/V match R28 bitwise. The B1 gains and B2 short-context gains pass all three blocks; B2/1024 remains overlapping in one block. All guards returned zero, sampled swap was zero, and canonical GPU guard peaks were 1,315–1,869 MiB, while the independent cap watcher recorded a maximum of 1,991 MiB. This is a decoder-component result. Serving validation is pending; it does not establish RL wall-time improvement or resolve R28's numerical acceptance misses. Evidence: `outputs/megakernel-20261025/r30-phase-prefetch/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`.
