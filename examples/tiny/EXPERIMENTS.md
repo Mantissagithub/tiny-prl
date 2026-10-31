@@ -1768,3 +1768,21 @@ Three interleaved blocks, 120 individual CUDA-event samples per arm, give pooled
 | B2/1024 | 3.665920 ms | 3.649920 ms | -0.436% | 3/3 |
 
 Every case's final hidden state and all 32 layers' K/V match R30 bitwise. All guards return zero, sampled GPU peaks are 1,317–1,869 MiB, and sampled cgroup swap is zero. R32 is not adopted globally because it regresses B1 throughout. B2's small component gain motivates a compile-time batch-specific follow-up, keeping R30's original hint timing for B1. No serving or RL gain is established by these direct timings. Evidence: `outputs/megakernel-20261025/r32-early-gate-prefetch/{source-preflight-r1.json,candidate/,build/,result_summary.json,results/,guard-*/result.json}`.
+
+
+## Experiment 197: compile-time prefetch placement keeps B1 neutral, with a small unverified B2 gain
+
+R33 specializes Experiment 196 by batch size. `if constexpr` selects R30's original post-O gate/up hints for B1 and R32's earlier pre-O hints for B2. Each instantiation executes one hint block, with no runtime branch, arithmetic/ABI change or duplicated hints. ptxas matches R30 at 241/245 registers, 36,644/43,056 bytes shared memory and zero stack/spills.
+
+Six guarded three-block direct comparisons, 120 raw samples per arm, yield:
+
+| Batch/context | R30 median | R33 median | Change | Both-beat-both blocks |
+|---|---:|---:|---:|---:|
+| B1/32 | 2.886656 ms | 2.886656 ms | 0.000% | 0/3 |
+| B1/128 | 2.939904 ms | 2.941136 ms | +0.042% | 0/3 |
+| B1/1024 | 3.243008 ms | 3.241984 ms | -0.032% | 1/3 |
+| B2/32 | 3.130352 ms | 3.116032 ms | -0.457% | 2/3 |
+| B2/128 | 3.213168 ms | 3.197952 ms | -0.474% | 2/3 |
+| B2/1024 | 3.666944 ms | 3.651584 ms | -0.419% | 2/3 |
+
+All cases match R30's final hidden and every layer's K/V bitwise, with successful guards and 1,317–1,869 MiB sampled GPU peaks. The B2 medians repeat the direction of R32, but overlap in one block per shape; this is not a verified component gain and R33 is not adopted. B1 stays effectively neutral. An independent serving comparison is prepared to test whether the small B2 difference survives the actual vLLM path, with the serving both-beat-both criterion unchanged. No RL gain is claimed. Evidence: `outputs/megakernel-20261025/r33-batch-gate-prefetch/{candidate/,source-preflight-r1.json,build/,result_summary.json,results/,guard-*/result.json}`.
