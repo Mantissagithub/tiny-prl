@@ -1627,3 +1627,21 @@ Six separate guarded processes compared R28 and the candidate in three alternati
 | B2/1024 | 3.688688 ms | 3.688448 ms | -0.007% | 1/3 |
 
 Every case's final hidden state and all 32 layers' K/V match R28 bitwise. All guards returned zero, with GPU peaks of 1,315–1,869 MiB. The latency changes are effectively neutral; this candidate is not adopted as a speed improvement. R28's numerical acceptance and RL mismatch-KL comparison remain outstanding. Evidence: `outputs/megakernel-20261025/r29-b1-smem/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`. Opus's R27/R28 sources are now archived in the personal `prime-kernels` fork at `4d26e70`; its packaged 360M kernel remains R25.
+
+
+## Experiment 189: merging attention once slows the decoder at context 1024
+
+An isolated R29 variant keeps the R28 merge arithmetic but executes it only on CTA 0 when any batch member has at least 1024 sequence tokens. It writes the already BF16-rounded attention vector into dead QKV scratch, performs an additional cooperative grid barrier, and copies that vector into every CTA's shared memory before the O projection. Shorter contexts retain the all-CTA merge. This removes repeated merge instructions and logical partial reads; the partials fit in L2, so their aggregate read volume is not a DRAM-bandwidth estimate. Workspace size and ABI are unchanged.
+
+The same six-case, three-block interleaved direct-decoder comparison as Experiment 188 produced:
+
+| Batch/context | R28 median | Candidate median | Change | Both-beat-both blocks |
+|---|---:|---:|---:|---:|
+| B1/32 | 2.985984 ms | 2.983936 ms | -0.069% | 3/3 |
+| B1/128 | 3.035136 ms | 3.038208 ms | +0.101% | 0/3 |
+| B1/1024 | 3.341280 ms | 3.352576 ms | +0.338% | 0/3 |
+| B2/32 | 3.154944 ms | 3.155968 ms | +0.032% | 0/3 |
+| B2/128 | 3.241648 ms | 3.243008 ms | +0.042% | 0/3 |
+| B2/1024 | 3.686400 ms | 3.708928 ms | +0.611% | 0/3 |
+
+The changed path loses at both tested batches; the sub-0.1% B1/32 change occurs on the unchanged short-context path and is not an adopted gain. Final hidden and every layer's K/V match R28 bitwise in all six cases. ptxas reports zero spills, B1 unchanged at 249 registers, B2 rising from 236 to 245. All guards returned zero, GPU peaks stayed at 1,315–1,869 MiB, and sampled cgroup swap remained zero. The candidate is rejected for the measured workload; no longer-context, serving or RL benefit has been established. Evidence: `outputs/megakernel-20261025/r29-singlemerge/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`.
