@@ -1609,3 +1609,21 @@ Direct decoder medians, R25 → R27 → R28: B1 at context 32, 3.65 → 3.26 →
 In an in-process vLLM serving A-B-B-A against stock, R28's inter-token latency fell 18.2% and 17.4% at B1 for prompts of 32 and 128 tokens, and 15.2% at prompt 1024. At B2 it fell 7.7%, 6.5% and 5.7% at the same prompt lengths. Both R28 arms beat both stock arms at every shape. R27 alone was faster than stock only at B1 with short prompts, and 45–48% slower at prompt 1024.
 
 Numerics use the relaxed, RL-relevant gate rather than bitwise equality. Across 46 native fixtures, greedy agreement was 100%. Mean max |Δlogit| was 0.206 against a native B1-versus-B2 floor of 0.220, but only 29 of 46 cases fell inside their own floor, and one B1 context-2048 case had a mean |Δlogprob| of 0.057 against a floor of 0.026. A synthetic FP32-reference check from 1 to 8192 tokens showed no growth with context and no NaN. R28 is therefore a strong serving candidate, but it is not yet accepted: the per-case misses need more prompts, and an RL `mismatch_kl` A-B-B-A is still required before the package moves from R25 to R28. Some validation jobs exceeded the 3 GB GPU guideline because of the harness's native captures. Evidence: `outputs/megakernel-20261025/{r27-fast-proj,r28-flash-decode}/` (READMEs, results, serving/, guard logs).
+
+
+## Experiment 188: smaller B1 shared arrays do not speed up the R28 decoder
+
+A source-isolated R29 candidate specializes four shared-array extents to the compile-time batch size. Against Opus's fast R28, ptxas reports B1 static shared memory falling from 36,644 to 21,784 bytes, with registers unchanged at 249; B2 remains at 43,056 bytes and 236 registers. Both kernels have zero spills. The one-CTA-per-SM register limit remains.
+
+Six separate guarded processes compared R28 and the candidate in three alternating ABBA/BAAB blocks, with three warmups and 20 samples per placement. These are direct decoder CUDA-event timings, excluding the LM head, serving and RL:
+
+| Batch/context | R28 median | Candidate median | Change | Both-beat-both blocks |
+|---|---:|---:|---:|---:|
+| B1/32 | 2.985984 ms | 2.985104 ms | -0.029% | 0/3 |
+| B1/128 | 3.035136 ms | 3.038208 ms | +0.101% | 0/3 |
+| B1/1024 | 3.343360 ms | 3.341312 ms | -0.061% | 2/3 |
+| B2/32 | 3.152896 ms | 3.151872 ms | -0.032% | 2/3 |
+| B2/128 | 3.239872 ms | 3.240960 ms | +0.034% | 0/3 |
+| B2/1024 | 3.688688 ms | 3.688448 ms | -0.007% | 1/3 |
+
+Every case's final hidden state and all 32 layers' K/V match R28 bitwise. All guards returned zero, with GPU peaks of 1,315–1,869 MiB. The latency changes are effectively neutral; this candidate is not adopted as a speed improvement. R28's numerical acceptance and RL mismatch-KL comparison remain outstanding. Evidence: `outputs/megakernel-20261025/r29-b1-smem/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`. Opus's R27/R28 sources are now archived in the personal `prime-kernels` fork at `4d26e70`; its packaged 360M kernel remains R25.
