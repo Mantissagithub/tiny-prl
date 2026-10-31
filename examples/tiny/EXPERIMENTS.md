@@ -1510,3 +1510,20 @@ A guarded A-B-B-A compared the same ten-update SmolLM2-135M full-parameter R6 re
 | A2 | 63.25 s | 32.89 s | 24.20 s | 3.01 s | 5.14 s | 78 |
 
 The strict repeat criterion failed: both B runs did not beat both A runs; B2 was slower than A2. The recorded work also differed: successful HTTP 200 generation responses were 124/120/120/118 and finalized stream output-token totals were 3,984/3,991/3,931/3,844 for A1/B1/B2/A2. These stream totals may omit canceled or in-flight GPU generation, so exact terminal inference work is unavailable. Periodic metrics are sampled counters, not terminal totals. No matched-work or verified RL mainline speedup is established, and no reward or quality claim follows. Evidence: `outputs/megakernel-20261025/rl-envpool-abba-r1/analysis/results.md`, `analysis/comparison.json`, and `examples/tiny/rl-envpool-abba-summary.json`.
+
+## Experiment 179: R26 A-fragment preload trims B2 decoder-component time
+
+R26 changes only A-fragment timing in the projection pipeline: it loads the next A fragment before waiting for the prefetched B tile. The increasing-K K16 MMA order, B buffers, async waits, barriers, conversion, and R25 PV64 include remain unchanged. The full unchanged decoder gate passes 46/46 cases (initial 4/4, held-out 30/30, wide 12/12), with all 472 recorded gate values true and the same case IDs as R25.
+
+| Fixture | Run | R25 median | R26 median | Change | Strict both-beat-both blocks |
+|---|---|---:|---:|---:|---:|
+| B1, ctx32 | Oct 28 | 3.657728 ms | 3.657808 ms | +0.0022% | 0/3 |
+| B1, ctx32 | Oct 31 | 3.644928 ms | 3.643392 ms | −0.0421% | 2/3 |
+| B1, ctx128 | Oct 28 | 3.749376 ms | 3.748864 ms | −0.0137% | 1/3 |
+| B1, ctx128 | Oct 31 | 3.734544 ms | 3.735040 ms | +0.0133% | 1/3 |
+| B2, ctx32 | Oct 28 | 7.921232 ms | 7.837776 ms | −1.0536% | 3/3 |
+| B2, ctx32 | Oct 31 | 7.902720 ms | 7.821712 ms | −1.0251% | 3/3 |
+| B2, ctx128 | Oct 28 | 8.165968 ms | 8.084992 ms | −0.9916% | 3/3 |
+| B2, ctx128 | Oct 31 | 8.146432 ms | 8.066880 ms | −0.9765% | 3/3 |
+
+Two bounded runs each used three alternating ABBA/BAAB blocks, three warmups, and 20 CUDA-event samples per placement. B2 reductions repeat at 0.98–1.05%, with all six blocks per shape meeting the strict both-beat-both criterion across the two runs. B1 remains neutral: neither shape meets that strict criterion in both runs. For each fixture in each run, native R25, native R26, and R25/R26 cross-candidate hidden/KV checks each passed 65/65 values bitwise at 0 ULP. The Oct 31 run's first B2 ctx32 block crossed a telemetry-reported clock state from 2250/7001 to 2625/8001; later blocks remained at the latter state, so the result is not clock-controlled. PTXAS reports zero spills; B2 uses four more registers per thread than R25 (156 vs 152). This is a decoder-component result only. It establishes no vLLM serving, full-RL, or broad performance gain. Evidence and source archive: `prime-kernels/research/smollm2_360m_decode/experiments/r26-a-before-wait/`; guarded outputs and timing data: `outputs/megakernel-20261025/decode-360-cuda-r26-a-before-wait/results-r1/` and `results-r2/`.
