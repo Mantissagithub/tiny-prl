@@ -202,3 +202,15 @@ laptop, decode inter-token latency was 9–21% lower at inputs of 128–7000 tok
 In ten-update RL runs, inference/trainer mismatch KL stayed within the stock
 range. Short-completion RL runs spend little time in decode, so wall time does
 not improve there; the gain applies to long generations.
+
+## Warm fork server for environment programs
+
+The SmolLM2-135M profile sets `env.agent.runtime.fork_server = true`. With the
+subprocess runtime, each rollout's harness program then runs as a forked child
+of a warm interpreter that has already imported the program's dependencies,
+instead of a fresh Python process. Each rollout still gets its own process
+group, argv, environment, working directory and output streams; only
+interpreter startup and imports are skipped. Programs must keep side effects
+under `if __name__ == "__main__"`, because the warm interpreter imports them
+once. On the tested laptop, this cut the time from rollout start to the first
+model request from about 0.33 s to 0.05 s and ten-update RL wall time by 23%.

@@ -73,6 +73,7 @@ env.taskset.max_names_per_turn = 2
 env.taskset.task.power_per_turn = false
 env.agent.harness.id = "null"
 env.agent.runtime.type = "subprocess"
+env.agent.runtime.fork_server = true
 
 [orchestrator.renderer]
 name = "default"

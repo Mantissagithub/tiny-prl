@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-179);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-180);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -42,6 +42,9 @@ RUN_126 = {"startup": 34.4, "loop": 35.0, "shutdown": 17.4}
 # Exp 137 B-arm mean after the fix (full process wall); Exp 177 Torch median.
 AFTER_FIX_137 = 62.8
 AFTER_FIX_177 = 60.4
+# Exp 180 fork-server B-arm mean (full process wall) and its A-arm mean.
+FORK_180 = 41.45
+FORK_180_CONTROL = 53.97
 
 # Exp 128: decode inter-token latency inside vLLM (ms). Percent labels are the
 # ledger's own. B2 at 7000 is a range: 3.34-3.86 ms stock.
@@ -101,7 +104,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 179 experiments.
+# Experiment index. Outcome codes and lanes for all 180 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -112,7 +115,7 @@ OUTCOMES = {
     "D": "diagnostic",
 }
 CODES = {
-    "V": [6, 63, 74, 97, 101, 106, 128, 129, 131, 134, 137],
+    "V": [6, 63, 74, 97, 101, 106, 128, 129, 131, 134, 137, 180],
     "C": [
         1,
         4,
@@ -301,6 +304,7 @@ LANES = [
             149,
             150,
             178,
+            180,
         ],
     ),
     (
@@ -468,6 +472,7 @@ LANES = [
 CALLOUTS = [
     (6, "R", "6  CUDA graphs, -12.6%", 1.5, 0.55, "left"),
     (137, "R", "137  cleanup, -12.2%", -1.5, 0.55, "right"),
+    (180, "R", "180  fork server, -23.2%", -1.5, -0.6, "right"),
     (19, "F", "19  host-RAM floor", 1.5, -0.6, "left"),
     (36, "F", "36  10 updates, checkpoint OOM", 1.5, 0.55, "left"),
     (94, "F", "94  Qwen bounded slices", 1.5, 0.55, "left"),
@@ -501,8 +506,8 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert sorted(codes_of) == list(range(1, 180)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 180)), "every experiment needs exactly one lane"
+    assert sorted(codes_of) == list(range(1, 181)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 181)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -579,13 +584,27 @@ def clean_axes(ax):
 def draw_run_bars(pg):
     ax = pg.axes(2.35, 4.45, PAGE_W - GUTTER - 2.35, 1.45)
     ax.set_xlim(0, 95)
-    ax.set_ylim(-0.55, 1.6)
+    ax.set_ylim(-1.55, 1.6)
     startup, loop, shutdown = RUN_126["startup"], RUN_126["loop"], RUN_126["shutdown"]
     seam = dict(edgecolor="white", linewidth=1.5)
     ax.barh(1, startup, left=0, height=0.5, color=PALE, **seam)
     ax.barh(1, loop, left=startup, height=0.5, color=ACCENT_TINT, **seam)
     ax.barh(1, shutdown, left=startup + loop, height=0.5, color=PALE, **seam)
     ax.barh(0, AFTER_FIX_137, left=0, height=0.5, color=ACCENT, **seam)
+    ax.barh(-1, FORK_180, left=0, height=0.5, color=ACCENT, **seam)
+    ax.text(
+        FORK_180 / 2, -1, f"{FORK_180:.1f} s", ha="center", va="center", fontsize=8.6, color="white", fontfamily=pg.mono
+    )
+    ax.text(
+        FORK_180 + 1.2,
+        -1,
+        f"vs {FORK_180_CONTROL:.1f} s control mean, -23.2%",
+        ha="left",
+        va="center",
+        fontsize=7.3,
+        color=SUB,
+        fontfamily=pg.prose,
+    )
     for left, width, name, value in [
         (0, startup, "startup", startup),
         (startup, loop, "rollout loop", loop),
@@ -616,9 +635,9 @@ def draw_run_bars(pg):
         color=SUB,
         fontfamily=pg.prose,
     )
-    ax.set_yticks([1, 0])
+    ax.set_yticks([1, 0, -1])
     ax.set_yticklabels(
-        ["Exp 126 run\nbefore cleanup fix", "Exp 137 B arms\nafter cleanup fix"],
+        ["Exp 126 run\nbefore cleanup fix", "Exp 137 B arms\nafter cleanup fix", "Exp 180 B arms\nwarm fork server"],
         fontsize=7.6,
         color=INK,
         fontfamily=pg.prose,
@@ -793,7 +812,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 180)
+    ax.set_xlim(0, 181)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -825,7 +844,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 179])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 180])
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
     )
@@ -883,7 +902,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-            "examples/tiny/EXPERIMENTS.md, Experiments 1-179; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-180; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -896,7 +915,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-179", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-180", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -923,10 +942,9 @@ def build(output: Path, prose: str, mono: str) -> None:
             "improve.",
         ),
         (
-            "10 · 10 · 3",
-            "updates: 135M · 360M · Qwen",
-            "SmolLM2-135M: 10 RL updates plus checkpoint and fresh resume (Exp 48). SmolLM2-360M: 10 RL updates, final "
-            "checkpoint OOM (Exp 36). Qwen3-0.6B: 3 trainer updates (Exp 94).",
+            "-23.2%",
+            "Exp 180 · warm fork server",
+            "SmolLM2-135M full-parameter wall: 41.5 s vs 54.0 s mean; loop -43.7%. Verified in both A-B-B-A blocks.",
         ),
     ]
     card_w = (PAGE_W - 2 * GUTTER - 3 * 0.18) / 4
@@ -937,7 +955,7 @@ def build(output: Path, prose: str, mono: str) -> None:
         3.75,
         "01",
         "Where RL wall time goes",
-        "Exp 126 run before the cleanup fix (top) and the Exp 137 B-arm mean after it (bottom), same scale.",
+        "Exp 126 before the cleanup fix, the Exp 137 B-arm mean after it, and the Exp 180 fork-server B-arm mean, same scale.",
     )
     draw_run_bars(pg)
 
@@ -974,7 +992,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 179 experiments",
+        "Index of all 180 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)

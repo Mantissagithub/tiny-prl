@@ -1527,3 +1527,22 @@ R26 changes only A-fragment timing in the projection pipeline: it loads the next
 | B2, ctx128 | Oct 31 | 8.146432 ms | 8.066880 ms | −0.9765% | 3/3 |
 
 Two bounded runs each used three alternating ABBA/BAAB blocks, three warmups, and 20 CUDA-event samples per placement. B2 reductions repeat at 0.98–1.05%, with all six blocks per shape meeting the strict both-beat-both criterion across the two runs. B1 remains neutral: neither shape meets that strict criterion in both runs. For each fixture in each run, native R25, native R26, and R25/R26 cross-candidate hidden/KV checks each passed 65/65 values bitwise at 0 ULP. The Oct 31 run's first B2 ctx32 block crossed a telemetry-reported clock state from 2250/7001 to 2625/8001; later blocks remained at the latter state, so the result is not clock-controlled. PTXAS reports zero spills; B2 uses four more registers per thread than R25 (156 vs 152). This is a decoder-component result only. It establishes no vLLM serving, full-RL, or broad performance gain. Evidence and source archive: `prime-kernels/research/smollm2_360m_decode/experiments/r26-a-before-wait/`; guarded outputs and timing data: `outputs/megakernel-20261025/decode-360-cuda-r26-a-before-wait/results-r1/` and `results-r2/`.
+
+## Experiment 180: a warm fork server for harness programs cuts RL wall time by 23.2%
+
+Rollout traces from Experiment 177 showed that a median 0.611 s of each 0.768 s rollout passed between agent start and the first model request: process spawn, interpreter start, imports and client setup for the `null` harness's chat program. Model calls took 0.085 s and teardown 0.072 s. The new opt-in `verifiers` subprocess-runtime option `fork_server` (fork commit `889612597`) preloads the prepared script once per worker in a warm interpreter and forks a child per rollout. The child runs the same program as `__main__` with its own session, argv, exact environment, working directory and output files; cancellation kills its process group, and a dead server is restarted. A CPU-only harness check against a mock OpenAI server matched exit codes, stdout, stderr and every request body over 20 sequential and 20 concurrent rollouts. The time to the first request fell from 270 to 44 ms sequentially and from 319 to 52 ms at concurrency four.
+
+Two guarded A-B-B-A blocks then ran the SmolLM2-135M full-parameter CUDA IPC profile (Experiment 137 cleanup, Triton RoPE/RMSNorm) for ten updates per arm, with `env.agent.runtime.fork_server = true` only in B:
+
+| Arm | Full wall | Orchestrator loop | Spawn to first model call (median) | Rollout attempts | Mean mismatch KL |
+|---|---:|---:|---:|---:|---:|
+| A1 | 61.32 s | 24.9 s | 0.311 s | 120 | 0.00153 |
+| B1 | 41.89 s | 13.6 s | 0.048 s | 122 | 0.00156 |
+| B2 | 40.89 s | 12.8 s | 0.050 s | 108 | 0.00142 |
+| A2 | 51.15 s | 22.9 s | 0.327 s | 120 | 0.00156 |
+| A3 | 52.70 s | 24.2 s | 0.327 s | 118 | 0.00169 |
+| B3 | 41.30 s | 13.1 s | 0.050 s | 116 | 0.00153 |
+| B4 | 41.70 s | 13.5 s | 0.049 s | 116 | 0.00164 |
+| A4 | 50.69 s | 22.2 s | 0.331 s | 112 | 0.00150 |
+
+In both blocks, both candidate runs beat both controls on wall time and loop time. Mean wall fell from 53.97 s to 41.45 s (−23.2%) and the mean loop from 23.55 s to 13.25 s (−43.7%). The task, reward, algorithm and numerical settings are unchanged; work, mismatch KL and mean rewards (0.026–0.039) stay in the same ranges. This is the third verified RL wall-time win, and the SmolLM2 profile now enables the option. All guards returned 0. Evidence: `outputs/rollout-overhead-20261025/forkserver-r1/{bench.py,results.json,run3.log}` and `outputs/rollout-overhead-20261025/forkserver-abba-r1/{A1..A4,B1..B4}.toml,guard-*/result.json,output/`.
