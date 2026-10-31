@@ -1645,3 +1645,32 @@ The same six-case, three-block interleaved direct-decoder comparison as Experime
 | B2/1024 | 3.686400 ms | 3.708928 ms | +0.611% | 0/3 |
 
 The changed path loses at both tested batches; the sub-0.1% B1/32 change occurs on the unchanged short-context path and is not an adopted gain. Final hidden and every layer's K/V match R28 bitwise in all six cases. ptxas reports zero spills, B1 unchanged at 249 registers, B2 rising from 236 to 245. All guards returned zero, GPU peaks stayed at 1,315–1,869 MiB, and sampled cgroup swap remained zero. The candidate is rejected for the measured workload; no longer-context, serving or RL benefit has been established. Evidence: `outputs/megakernel-20261025/r29-singlemerge/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`.
+
+
+## Experiment 190: serving-native rounding boundaries do not improve R28's sequence agreement
+
+A private variant of Opus's fast R28 removes the extra BF16 round between RMS normalization and weight multiplication, and keeps RoPE products in FP32 through the add/subtract before the final BF16 round. Earlier isolated vLLM captures supported these operation boundaries. The fast projection and flash-attention code remain unchanged; this does not reuse the obsolete exact-projection prototype. ptxas resources match R28: 249/236 registers, 36,644/43,056 bytes shared memory, zero spills.
+
+A guarded stock/R28/variant/variant/R28/stock sequence used identical synthetic prompts at contexts 32/128/1024, batches 1/2, three repeats, and 64 greedy generated tokens. There are 27 generated sequences per arm. The stock repeats match exactly, including every compared logprob; candidate repeats are also deterministic. Both R28 and the variant match 18/27 complete stock sequences. The R28 comparison has 1,288 aligned decode-token positions, versus 1,235 for the variant. Logprob diagnostics omit generated token zero (prefill) and compare only positions before the first token mismatch; nothing after divergence is treated as same-input numerical error.
+
+Across each candidate's own aligned positions, sampled-token mean absolute logprob error is 0.011754 for R28 and 0.012612 for the variant; maximum error rises from 0.237930 to 0.723216. Matched-top-five mean error is 0.039431 versus 0.038560. These means have different prefix coverage, so they are not a paired improvement claim. An independent audit restricted all three arms to the same 981 decode positions: sampled-logprob mean error was 0.012638 for R28 versus 0.012730 for the variant; matched-top-five means were 0.039186 versus 0.039396, with 93 versus 109 top-five set changes. Both repeated blocks gave the same result. The operation-level rounding fixes do not establish better end-to-end quality and are not promoted. This synthetic serving diagnostic does not replace the existing per-case numerical floors or the actual RL mismatch-KL comparison.
+
+All six guards returned zero, GPU peaks stayed at 2,473–2,475 MiB, sampled cgroup swap was zero, and available host RAM stayed above 8.48 GB. Evidence: `outputs/megakernel-20261025/r29-native-boundaries-r1/{source-manifest.json,src/,build/,serving/runs/opus-r29-native-boundaries-20261101/}`; the run contains both raw outputs, route/hash evidence and `comparison.json`. No serving-latency or RL-wall-time gain is claimed.
+
+
+## Experiment 191: next-row L2 projection prefetch slows R28 at batch one
+
+This isolated candidate issues PTX `prefetch.global.L2` hints for each warp's next assigned projection row while loading its current row. It covers QKV, O, both gate/up rows and down, with bounds checks on the last row. The four-accumulator FMA expressions and reduction order remain unchanged. ptxas reports B1/B2 registers of 242/254 versus R28's 249/236, a 48-byte stack frame for both batches, zero spills, and unchanged shared memory. The stack frame is recorded without attributing a specific runtime cost to it.
+
+Three interleaved blocks per shape, 120 individual CUDA-event samples per arm, produced these pooled raw-event medians:
+
+| Batch/context | R28 median | Candidate median | Change | Both-beat-both blocks |
+|---|---:|---:|---:|---:|
+| B1/32 | 2.988032 ms | 3.017728 ms | +0.994% | 0/3 |
+| B1/128 | 3.038208 ms | 3.071872 ms | +1.108% | 0/3 |
+| B1/1024 | 3.343360 ms | 3.367936 ms | +0.735% | 0/3 |
+| B2/32 | 3.155968 ms | 3.160064 ms | +0.130% | 0/3 |
+| B2/128 | 3.241984 ms | 3.245056 ms | +0.095% | 0/3 |
+| B2/1024 | 3.690496 ms | 3.686400 ms | -0.111% | 3/3 |
+
+Every final hidden state and all 32 layers' K/V match R28 bitwise. All guards returned zero, sampled swap stayed zero, and GPU peaks were 1,317–1,911 MiB. The narrow sub-0.2% B2/1024 change has not been repeated independently and does not offset the B1 regressions. The candidate is rejected; no serving or RL benefit is claimed. Evidence: `outputs/megakernel-20261025/r29-proj-prefetch/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`.
