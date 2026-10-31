@@ -1692,3 +1692,23 @@ Six separate guarded processes compared R28 and R30 with three alternating ABBA/
 | B2/1024 | 3.690496 ms | 3.665024 ms | -0.690% | 2/3 |
 
 All six cases' final hidden states and every layer's K/V match R28 bitwise. The B1 gains and B2 short-context gains pass all three blocks; B2/1024 remains overlapping in one block. All guards returned zero, sampled swap was zero, and canonical GPU guard peaks were 1,315–1,869 MiB, while the independent cap watcher recorded a maximum of 1,991 MiB. This is a decoder-component result. Serving validation is pending; it does not establish RL wall-time improvement or resolve R28's numerical acceptance misses. Evidence: `outputs/megakernel-20261025/r30-phase-prefetch/{source-preflight-r1.json,candidate/,build/,results/,guard-*/result.json}`.
+
+
+## Experiment 193: R30's phase-ahead prefetch gain carries into vLLM serving
+
+A private, hash-pinned R28/R30/R30/R28 sequence compares the two experimental DSOs through the same vLLM wrapper. SmolLM2-360M uses FULL_DECODE_ONLY graphs, contexts 32/128/1024, batch 1/2, 64 greedy tokens, three warmups and seven repeats per shape. Per-request ITL is reconstructed from first/last generated-token timestamps divided by 63. Pooled request medians:
+
+| Prompt/batch | R28 ITL | R30 ITL | Change | Both R30 arms beat both R28 arms |
+|---|---:|---:|---:|:---:|
+| 32/1 | 3.495379 ms | 3.398435 ms | -2.773% | yes |
+| 32/2 | 3.667903 ms | 3.644863 ms | -0.628% | yes |
+| 128/1 | 3.537130 ms | 3.439731 ms | -2.754% | yes |
+| 128/2 | 3.729297 ms | 3.706893 ms | -0.601% | yes |
+| 1024/1 | 3.804576 ms | 3.707169 ms | -2.560% | yes |
+| 1024/2 | 4.141633 ms | 4.127140 ms | -0.350% | yes |
+
+R28 and R30 produce identical generated sequences, sampled-token logprobs and top-five entries for all 63 paired requests (4,032 generated tokens) in every cross-arm comparison. Both self-repeat comparisons are exact too. This preserves R28's measured serving outputs; it does not establish agreement with stock vLLM beyond Experiment 187 or resolve its per-case numerical-floor misses. Every worker asserted the intended private DSO/source/include hashes and patched decode route.
+
+All four outer and four inner guards returned zero, GPU peaks were 2,475 MiB, sampled cgroup swap stayed zero, and minimum available host RAM was 7.445 GB. All four arms had a median SM clock of 2610 MHz; the measurement windows included a 2250 MHz minimum and a 2625 MHz maximum in A1 (2610 MHz maximum otherwise), so clocks were not locked. The initial CPU analyzer used incorrect guard filenames; the corrected analyzer validates all eight actual records and fails on missing or unsuccessful guards. The earlier summary is retained with a `.guardpath-bug` suffix.
+
+This is an additional serving gain over the already faster R28, strongest at B1. The small B2 effects have one interleaved serving block of evidence, not independent repeated blocks. No full-RL wall-time gain is claimed, and the packaged 360M kernel remains R25 pending numerical/RL acceptance. Evidence: `outputs/megakernel-20261025/r30-phase-prefetch/serving/{bench_serving_r28_r30.py,analyze_serving_r28_r30.py,*opus-r30-serving-20261101.json,guard-*/result.json}`.
