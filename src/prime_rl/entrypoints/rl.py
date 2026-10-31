@@ -59,17 +59,23 @@ def env_servers(config: RLConfig) -> list[tuple[str, EnvConfig]]:
     return [(split, source) for split, source in config.orchestrator.env_sources if source.serve.address is None]
 
 
-def wait_for_shared_gpu_inference(
-    config: RLConfig, inference_process: subprocess.Popen, processes: ProcessGroup
-) -> None:
-    """Wait for the inference engine to finish startup before trainer GPU allocation."""
+def inference_liveness_url(config: RLConfig) -> str:
     assert config.inference is not None
     server = config.inference.server
     host = server.host
     if host in (None, "0.0.0.0", "::"):
         host = "localhost"
     port = config.inference.backend_port if config.inference.router is not None else server.port
-    url = f"http://{host}:{port}/liveness"
+    return f"http://{host}:{port}/liveness"
+
+
+def wait_for_shared_gpu_inference(
+    config: RLConfig, inference_process: subprocess.Popen, processes: ProcessGroup
+) -> None:
+    """Wait for the inference engine to finish startup before trainer GPU allocation."""
+    assert config.inference is not None
+    server = config.inference.server
+    url = inference_liveness_url(config)
     timeout = config.orchestrator.model.client.wait_for_ready_timeout
     deadline = time.monotonic() + timeout
     get_logger().info(f"Waiting for shared-GPU inference engine at {url} before starting trainer")
@@ -277,57 +283,74 @@ def rl_local(config: RLConfig):
             log_path=log_dir / "orchestrator.log",
         )
 
+        early_trainer_start = config.deployment.share_train_infer_gpu and config.deployment.early_trainer_start
+
+        def start_trainer():
+            logger.info(f"Starting trainer on GPU(s) {' '.join(map(str, trainer_gpu_ids))}")
+            trainer_env = {
+                **os.environ,
+                **DEFAULT_COMMON_ENV_VARS,
+                **DEFAULT_TRAINER_ENV_VARS,
+                "LOGURU_FORCE_COLORS": "1",
+                "WANDB_PROGRAM": "uv run rl",
+                "WANDB_ARGS": json.dumps(start_command),
+                **config.env_vars,
+                **config.trainer.env_vars,
+                **wandb_shared_env,
+                "WANDB_SHARED_LABEL": "trainer",
+                "CUDA_VISIBLE_DEVICES": ",".join(map(str, trainer_gpu_ids)),
+            }
+            if config.deployment.share_train_infer_gpu:
+                from prime_rl.utils.utils import get_free_port
+
+                trainer_cmd = [
+                    sys.executable,
+                    "-m",
+                    "prime_rl.trainer.rl.train",
+                    "@",
+                    (config_dir / TRAINER_CONFIG).as_posix(),
+                ]
+                trainer_env.update(
+                    {
+                        "RANK": "0",
+                        "LOCAL_RANK": "0",
+                        "WORLD_SIZE": "1",
+                        "LOCAL_WORLD_SIZE": "1",
+                        "MASTER_ADDR": "127.0.0.1",
+                        "MASTER_PORT": str(get_free_port()),
+                    }
+                )
+            else:
+                trainer_cmd = torchrun_cmd(
+                    "prime_rl.trainer.rl.train",
+                    config_dir / TRAINER_CONFIG,
+                    len(trainer_gpu_ids),
+                    log_dir,
+                    config.trainer.log.ranks_filter,
+                )
+            if early_trainer_start:
+                trainer_env.update(
+                    {
+                        "PRIME_INFERENCE_LIVENESS_URL": inference_liveness_url(config),
+                        "PRIME_INFERENCE_LIVENESS_TIMEOUT": str(
+                            config.orchestrator.model.client.wait_for_ready_timeout
+                        ),
+                    }
+                )
+            processes.start(
+                "trainer",
+                trainer_cmd,
+                env=trainer_env,
+                log_path=log_dir / "trainer.log",
+            )
+
+        if early_trainer_start:
+            start_trainer()
         if config.deployment.share_train_infer_gpu:
             assert inference_process is not None
             wait_for_shared_gpu_inference(config, inference_process, processes)
-        logger.info(f"Starting trainer on GPU(s) {' '.join(map(str, trainer_gpu_ids))}")
-        trainer_env = {
-            **os.environ,
-            **DEFAULT_COMMON_ENV_VARS,
-            **DEFAULT_TRAINER_ENV_VARS,
-            "LOGURU_FORCE_COLORS": "1",
-            "WANDB_PROGRAM": "uv run rl",
-            "WANDB_ARGS": json.dumps(start_command),
-            **config.env_vars,
-            **config.trainer.env_vars,
-            **wandb_shared_env,
-            "WANDB_SHARED_LABEL": "trainer",
-            "CUDA_VISIBLE_DEVICES": ",".join(map(str, trainer_gpu_ids)),
-        }
-        if config.deployment.share_train_infer_gpu:
-            from prime_rl.utils.utils import get_free_port
-
-            trainer_cmd = [
-                sys.executable,
-                "-m",
-                "prime_rl.trainer.rl.train",
-                "@",
-                (config_dir / TRAINER_CONFIG).as_posix(),
-            ]
-            trainer_env.update(
-                {
-                    "RANK": "0",
-                    "LOCAL_RANK": "0",
-                    "WORLD_SIZE": "1",
-                    "LOCAL_WORLD_SIZE": "1",
-                    "MASTER_ADDR": "127.0.0.1",
-                    "MASTER_PORT": str(get_free_port()),
-                }
-            )
-        else:
-            trainer_cmd = torchrun_cmd(
-                "prime_rl.trainer.rl.train",
-                config_dir / TRAINER_CONFIG,
-                len(trainer_gpu_ids),
-                log_dir,
-                config.trainer.log.ranks_filter,
-            )
-        processes.start(
-            "trainer",
-            trainer_cmd,
-            env=trainer_env,
-            log_path=log_dir / "trainer.log",
-        )
+        if not early_trainer_start:
+            start_trainer()
 
         logger.success("Launcher complete")
         log_dashboard_url(logger, dashboard_url)

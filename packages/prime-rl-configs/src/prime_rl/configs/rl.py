@@ -122,6 +122,15 @@ class SingleNodeDeploymentConfig(BaseDeploymentConfig):
     num_infer_gpus: int = 1
     """GPUs allocated to inference."""
 
+    early_trainer_start: bool = False
+    """Start the trainer process at launch so its imports overlap inference startup. The trainer waits for the inference engine to be live before initializing CUDA. Requires share_train_infer_gpu."""
+
+    @model_validator(mode="after")
+    def validate_early_trainer_start(self):
+        if self.early_trainer_start and not self.share_train_infer_gpu:
+            raise ValueError("deployment.early_trainer_start requires deployment.share_train_infer_gpu = true.")
+        return self
+
     @model_validator(mode="after")
     def validate_gpu_count(self):
         if self.share_train_infer_gpu:

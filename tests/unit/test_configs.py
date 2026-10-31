@@ -809,6 +809,10 @@ def test_cuda_ipc_weight_broadcast_scope():
             {"deployment": {"share_train_infer_gpu": False, "gpus_per_node": 2}},
             "share one physical GPU",
         ),
+        (
+            {"deployment": {"share_train_infer_gpu": False, "gpus_per_node": 2, "early_trainer_start": True}},
+            "requires deployment.share_train_infer_gpu",
+        ),
         ({"inference": {"vllm": {"tensor_parallel_size": 2}}}, "one inference worker"),
         ({"inference": {"vllm": {"quantization": "fp8_per_block"}}}, "unquantized inference"),
         ({"inference": {"vllm": {"api_server_count": 2}}}, "exactly one inference API server"),

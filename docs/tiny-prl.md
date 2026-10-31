@@ -214,3 +214,13 @@ interpreter startup and imports are skipped. Programs must keep side effects
 under `if __name__ == "__main__"`, because the warm interpreter imports them
 once. On the tested laptop, this cut the time from rollout start to the first
 model request from about 0.33 s to 0.05 s and ten-update RL wall time by 23%.
+
+## Early trainer start on a shared GPU
+
+The SmolLM2-135M profile sets `deployment.early_trainer_start = true`. With
+`share_train_infer_gpu`, the launcher then starts the trainer process at launch
+instead of after the inference engine is live. The trainer imports its modules
+and parses its config while vLLM starts. It then waits for the engine's
+liveness endpoint before initializing CUDA, so vLLM's memory profiling still
+sees no trainer allocation. On the tested laptop this saved about 6 s of a
+ten-update run.

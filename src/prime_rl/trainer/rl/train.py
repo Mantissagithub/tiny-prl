@@ -2,6 +2,7 @@ import prime_rl._compat  # noqa: F401 — patch ring_flash_attn compat before im
 
 from contextlib import nullcontext
 from functools import partial
+import os
 import time
 import asyncio
 from datetime import timedelta
@@ -11,6 +12,7 @@ from datetime import timedelta
 
 from prime_rl.transports.weights import prune_broadcasts_beyond, setup_weight_sender
 from prime_rl.utils.act_offloading import maybe_activation_offloading
+import httpx
 import torch
 import torch.distributed as dist
 from torch.profiler import profile, ProfilerActivity, record_function
@@ -795,10 +797,32 @@ def train(config: TrainerConfig):
         control_server.wait()
 
 
+def wait_for_inference_liveness(url: str, timeout: float) -> None:
+    """Block until the shared-GPU inference engine is live, so trainer CUDA init does not race its profiling."""
+    deadline = time.monotonic() + timeout
+    with httpx.Client(trust_env=False) as client:
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Inference engine did not become live at {url} within {timeout} seconds")
+            try:
+                response = client.get(url, timeout=5)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                time.sleep(1)
+                continue
+            if response.status_code == 200:
+                return
+            if response.status_code != 503:
+                raise RuntimeError(f"Inference liveness endpoint returned HTTP {response.status_code}, expected 200")
+            time.sleep(1)
+
+
 def main():
     """Main entry-point for RL trainer. Run using `uv run trainer`"""
     set_proc_title("Trainer")
-    train(cli(TrainerConfig))
+    config = cli(TrainerConfig)
+    if liveness_url := os.environ.get("PRIME_INFERENCE_LIVENESS_URL"):
+        wait_for_inference_liveness(liveness_url, float(os.environ["PRIME_INFERENCE_LIVENESS_TIMEOUT"]))
+    train(config)
 
 
 if __name__ == "__main__":
