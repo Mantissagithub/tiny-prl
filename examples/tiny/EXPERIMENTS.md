@@ -1712,3 +1712,23 @@ R28 and R30 produce identical generated sequences, sampled-token logprobs and to
 All four outer and four inner guards returned zero, GPU peaks were 2,475 MiB, sampled cgroup swap stayed zero, and minimum available host RAM was 7.445 GB. All four arms had a median SM clock of 2610 MHz; the measurement windows included a 2250 MHz minimum and a 2625 MHz maximum in A1 (2610 MHz maximum otherwise), so clocks were not locked. The initial CPU analyzer used incorrect guard filenames; the corrected analyzer validates all eight actual records and fails on missing or unsuccessful guards. The earlier summary is retained with a `.guardpath-bug` suffix.
 
 This is an additional serving gain over the already faster R28, strongest at B1. The small B2 effects have one interleaved serving block of evidence, not independent repeated blocks. No full-RL wall-time gain is claimed, and the packaged 360M kernel remains R25 pending numerical/RL acceptance. Evidence: `outputs/megakernel-20261025/r30-phase-prefetch/serving/{bench_serving_r28_r30.py,analyze_serving_r28_r30.py,*opus-r30-serving-20261101.json,guard-*/result.json}`.
+
+
+## Experiment 194: profiling fast R28 puts the main short-context cost in projections
+
+An isolated clone of Opus's fast R28 records per-CTA `clock64` deltas around norms, projection phases, RoPE/cache writes, split-KV, merge and each existing grid barrier. Thread zero on each CTA measures its own intervals; no timestamps are subtracted across SMs. A separate device timing buffer preserves the 28-argument decode ABI and all model arithmetic. ptxas reports 250/244 registers and 36,824/43,232 bytes static shared memory, with zero stack and spills.
+
+Six independent guarded processes interleave uninstrumented and instrumented R28 in three ABBA/BAAB blocks, 30 individual event samples per arm. Overhead is +1.600%, +0.679%, +0.422%, +0.424%, +0.526% and +0.191% for B1/32, B1/128, B2/32, B2/128, B1/1024 and B2/1024 respectively. Every final hidden state and all 32 layers' K/V match uninstrumented R28 bitwise. Approximate cycle/event coverage checks and clock samples are saved with the results; they are diagnostics rather than calibrated hardware counters.
+
+Selected median same-CTA fractions, summing serial layer intervals on each CTA before taking the median:
+
+| Batch/context | QKV | Gate/up + SwiGLU | Down + residual | Split-KV + merge | Merge alone |
+|---|---:|---:|---:|---:|---:|
+| B1/32 | 14.32% | 43.98% | 22.98% | 4.27% | 1.22% |
+| B1/1024 | 13.19% | 40.08% | 20.83% | 12.81% | 3.83% |
+| B2/32 | 14.26% | 41.79% | 22.42% | 4.87% | 1.77% |
+| B2/1024 | 12.56% | 36.46% | 19.41% | 17.26% | 3.42% |
+
+Projection-family fractions range from 76.29% to 90.15%. Each barrier-ended phase includes that CTA's measured wait; these are not pure arithmetic costs or independently attributable kernel wall-time percentages. The overlapping grid-wait share is 7.10–11.57% and includes inter-CTA and intra-CTA arrival skew, so it cannot all be claimed as removable barrier overhead. Final norm and disabled layer capture are excluded from these fraction denominators.
+
+The profile supports prioritizing projection scheduling and weight reads over more short-context merge changes. In particular, QKV's 1,600 rows and gate/up's 2,560 rows divide unevenly across 192 warps, motivating a bounded assignment experiment rather than an assumed gain. All twelve inner/outer guards returned zero, sampled swap was zero, and the largest sampled inner GPU peak was 1,991 MiB. Evidence: `outputs/megakernel-20261025/r28-fast-stage-profile-r1/{src/,preflight.json,build/,result_summary.json,results/stage-profile-summary.json,results/*ctx*.json}`. This profile is not a speedup or an RL result.
