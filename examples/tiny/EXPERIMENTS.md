@@ -1750,3 +1750,21 @@ Three interleaved blocks with 120 raw events per arm give these pooled medians:
 | B2/1024 | 3.665824 ms | 3.664896 ms | -0.025% | 0/3 |
 
 All final hidden states and all 32 layers' K/V match R30 bitwise; all guards returned zero and sampled GPU peaks were 1,315–1,869 MiB. The effects are below 0.11%, mixed across B1 contexts and not independently repeated. R31 is not adopted; R30 remains the best verified serving candidate. This does not prove row skew is absent, only that this assignment change gives no material gain in the measured workload. Evidence: `outputs/megakernel-20261025/r31-projection-balance/{source-preflight-r1.json,candidate/,result_summary.json,results/,guard-*/result.json}`.
+
+
+## Experiment 196: earlier gate/up prefetch helps B2 but slows B1
+
+R32 isolates the largest phase identified by Experiment 194. It moves R30's existing gate/up weight-prefetch block from after O/residual to immediately before O projection, after attention merge. The same hints are issued once, with unchanged row assignment, arithmetic, barriers, workspace and ABI. The hypothesis is to overlap the gate/up reads with O work; contention is also possible. ptxas matches R30 at 241/245 registers and 36,644/43,056 bytes static shared memory, with zero stack/spills.
+
+Three interleaved blocks, 120 individual CUDA-event samples per arm, give pooled raw-event medians:
+
+| Batch/context | R30 median | R32 median | Change | Both-beat-both blocks |
+|---|---:|---:|---:|---:|
+| B1/32 | 2.889408 ms | 2.915328 ms | +0.897% | 0/3 |
+| B1/128 | 2.940928 ms | 2.968576 ms | +0.940% | 0/3 |
+| B1/1024 | 3.241984 ms | 3.275776 ms | +1.042% | 0/3 |
+| B2/32 | 3.129344 ms | 3.114928 ms | -0.461% | 2/3 |
+| B2/128 | 3.213312 ms | 3.195008 ms | -0.570% | 3/3 |
+| B2/1024 | 3.665920 ms | 3.649920 ms | -0.436% | 3/3 |
+
+Every case's final hidden state and all 32 layers' K/V match R30 bitwise. All guards return zero, sampled GPU peaks are 1,317–1,869 MiB, and sampled cgroup swap is zero. R32 is not adopted globally because it regresses B1 throughout. B2's small component gain motivates a compile-time batch-specific follow-up, keeping R30's original hint timing for B1. No serving or RL gain is established by these direct timings. Evidence: `outputs/megakernel-20261025/r32-early-gate-prefetch/{source-preflight-r1.json,candidate/,build/,result_summary.json,results/,guard-*/result.json}`.
