@@ -1786,3 +1786,67 @@ Six guarded three-block direct comparisons, 120 raw samples per arm, yield:
 | B2/1024 | 3.666944 ms | 3.651584 ms | -0.419% | 2/3 |
 
 All cases match R30's final hidden and every layer's K/V bitwise, with successful guards and 1,317–1,869 MiB sampled GPU peaks. The B2 medians repeat the direction of R32, but overlap in one block per shape; this is not a verified component gain and R33 is not adopted. B1 stays effectively neutral. An independent serving comparison is prepared to test whether the small B2 difference survives the actual vLLM path, with the serving both-beat-both criterion unchanged. No RL gain is claimed. Evidence: `outputs/megakernel-20261025/r33-batch-gate-prefetch/{candidate/,source-preflight-r1.json,build/,result_summary.json,results/,guard-*/result.json}`.
+
+
+## Experiment 198: R33 serving shows a small B2 gain, with one unchanged-B1 overlap
+
+The first R30/R33/R33/R30 serving attempt completed A1 and B1, then refused B2 at the idle-GPU preflight. It is preserved as `opus-r30-r33-serving-20261101-01` and supplies no performance verdict. A runner-only bounded NVML quiescence wait was added before each arm, without job retries or changes to the measurement. Fresh attempt `02` completed all four processes.
+
+The frozen six-shape serving comparison uses 64 greedy tokens, three warmups and seven repeats per shape. Pooled request ITL, reconstructed from token timestamps, is:
+
+| Prompt/batch | R30 ITL | R33 ITL | Change | Both R33 arms beat both R30 arms |
+|---|---:|---:|---:|:---:|
+| 32/1 | 3.395751 ms | 3.395334 ms | -0.012% | no |
+| 32/2 | 3.639092 ms | 3.623145 ms | -0.438% | yes |
+| 128/1 | 3.436455 ms | 3.434121 ms | -0.068% | yes |
+| 128/2 | 3.705424 ms | 3.684264 ms | -0.571% | yes |
+| 1024/1 | 3.708026 ms | 3.707089 ms | -0.025% | yes |
+| 1024/2 | 4.125901 ms | 4.104335 ms | -0.523% | yes |
+
+Batch-one pooled no-regression passes, but the all-six-shape strict gate fails at 32/1. That unchanged-code case overlaps: A1/A2 medians are 3.397719/3.394247 ms and B1/B2 are 3.396519/3.394099 ms. Every B2 shape passes the serving both-beat-both check in this one block, but independently repeated blocks remain missing. R33 is not adopted.
+
+Each self-repeat and cross-arm pairing matches all 63 sequences, all sampled-token logprobs and every top-five entry exactly. All eight guards return zero, sampled swap is zero, inner GPU peaks are 2,475 MiB, and minimum available host RAM is 7.353 GB. Median SM clocks are 2610 MHz in each arm, with unlocked ranges of 2250–2610 MHz. Worker hashes and route assertions match the pinned R30 and R33 DSOs. Evidence: `outputs/megakernel-20261025/r33-batch-gate-prefetch/serving/{results-r30-r33-opus-r30-r33-serving-20261101-02.json,*20261101-02.json,guard-*/result.json,driver-B2-r33-opus-r30-r33-serving-20261101-01.log}`. No RL wall-time gain follows from this serving result.
+
+## Experiment 199: the actual filesystem reload refreshes the tensor consumed by R30
+
+An inference-only API probe loads the private R30 DSO, generates four greedy tokens, reloads a disposable checkpoint through the real `/update_weights` filesystem endpoint, then repeats the same request. The fixture changes only `model.norm.weight` by exact BF16 multiplication by 0.5. The model file is an independent copy, and cached source checkpoint hashes remain unchanged. Completion position zero is excluded from the output-sensitivity check because it comes from prefill.
+
+The same worker records three R30 decode calls before and three after reload. All supplied weight pointers remain identical, including `final_norm`. The raw BF16 live tensor hash changes from `da0b559bcdc1ca28b184debdc94bf314b842652ca6a1babfc7105e6e5307dd3b` to `4bb42dd28bb9cfa838266c9a339a48f8dba5cafa4d3631d4ceba71fbf81f5402`, matching the independently recorded fixture tensor hashes. The Python kernel wrapper passes `final_norm.data_ptr()` directly on each call, so this parameter is not hidden in a stale layer-address table. Four greedy token IDs stay unchanged; shared top-token logprobs at completion positions 1–3 change, with maximum absolute deltas of approximately 2.669, 3.309 and 3.271.
+
+The private-load event records R30 DSO `625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2`, the expected source/include hashes and empty runtime cache before first use. An independent Luna review confirmed the source connects this live parameter to the kernel argument. Automatic Python `sitecustomize` errors can be logged without aborting startup; the probe therefore requires actual private-load/decode events, live hashes and output sensitivity, rather than accepting startup alone.
+
+Both guards return zero. Sampled GPU peak is 1,369 MiB, host cgroup peak is 4,181,872,640 bytes, sampled swap is zero, minimum available host RAM is 6,610,280,448 bytes, and guarded elapsed time is 27.7 seconds. This proves the bounded single-device reload path for the modified final norm. It is not a full-training, numerical-floor acceptance or RL wall-time result. Evidence: `outputs/megakernel-20261025/r30-full-rl-r1/results/refresh-opus-r30-refresh-20261101-01/{result.json,response-before.json,response-after.json,update-response.json,worker-traces/}` and adjacent outer/inner guard records.
+
+## Experiment 200: R30 completes actual full-parameter 360M RL, with unequal work
+
+Stock and private R30 each complete two optimizer updates on SmolLM2-360M-Instruct. Both use full parameters, no LoRA, FP32 optimization and reduction, full activation checkpointing, the same IPO task and admission settings, stream64 filesystem updates, and no checkpoints. R30 records two private-load events and a same-worker first-decode event matching the pinned source and DSO. Both updates have finite losses and nonzero finite gradients.
+
+| Measurement | Stock | R30 |
+|---|---:|---:|
+| Actual `uv rl` child elapsed | 174.079 s | 145.818 s |
+| Successful optimizer updates | 2 | 2 |
+| Completed rollout window counts | 370 | 302 |
+| Window tasks | 185 | 151 |
+| Window tokens | 40,761 | 33,285 |
+| Step 1 mismatch KL mean | 0.00116983 | 0.00086645 |
+| Step 2 mismatch KL mean | 0.00082224 | 0.00081402 |
+| Sampled GPU peak | 7,400 MiB | 7,222 MiB |
+| Minimum available host RAM | 3,853,799,424 B | 3,983,745,024 B |
+
+The observed elapsed reduction is 16.23%, but this single pair performs unequal work and does not establish an RL speedup. Progress counts are summed across the two step windows; trace indexes separately contain 377/308 records including terminal in-flight work. Both arms admit every group and retain four effective trainer samples per update. The `no_signal` counts are 362/294 and are not admission rejections. Both guards return zero with zero sampled cgroup swap. These runs establish execution of this training recipe, not broad numerical acceptance or a comparable point on the verified RL wall-time graph. Evidence and reproducible analysis: `outputs/megakernel-20261025/r30-full-rl-audit-r1/{analyze_pair.py,result.json,README.md}`; raw run records: `outputs/megakernel-20261025/r30-full-rl-r1/results/rl-case-full360-admission-20261101-a2-{stock,r30}/` and matching guards.
+
+## Experiment 201: packed shared activations help selected isolated projections
+
+A microprobe compares R30-style FP32 shared activation staging with packed BF16 staging, using the actual cached 360M checkpoint's four projection weight sets across all 32 layers. Inputs are seeded synthetic BF16 values. Both arms preserve row assignment, FP32 FMA operand and reduction order. Each of two valid processes runs five alternating placements per arm, with five CUDA graph replays per placement and 32 distinct layer calls per replay. Each graph includes staging, so these timings do not isolate shared loads or model the full megakernel's reused shared buffer and occupancy.
+
+| Projection/batch | FP32 to packed, valid run 2 | FP32 to packed, valid run 3 | Interpretation |
+|---|---:|---:|---|
+| QKV / 2 | 15.352 to 14.912 us | 15.360 to 14.944 us | 2.71–2.87% lower; placement ranges separate |
+| O / 2 | 9.888 to 9.408 us | 10.016 to 9.568 us | 4.47–4.85% lower; placement ranges separate |
+| Gate/up / 2 | 42.013 to 41.849 us | 42.048 to 41.888 us | About 0.38%; overlaps in run 3 |
+| Down / 2 | 21.760 to 21.824 us | 21.792 to 21.881 us | Regresses |
+| Down / 1 | 21.437 to 21.216 us | 21.468 to 21.248 us | About 1.03% lower; placement ranges separate |
+
+Batch-one QKV, O and gate/up are neutral or slower. Across the two valid runs, 3,317,760 output elements are checked with exact FP32 values and BF16 bits, and 25,600 timed projection calls execute. After capture, buffers are poisoned with NaNs before replay; all replayed outputs must become finite before timing. Both inner guards pass with zero sampled swap, 791 MiB sampled GPU peaks and at least 9.62 GB available host RAM. Compilation reports zero stack/spills.
+
+The original run 1 is invalid and preserved separately. Its stale stream handle launched kernels outside graph capture, producing implausible sub-microsecond empty-graph timings. No performance claim uses those numbers. Root review also corrected an earlier batch-two output stride and matched the batch-specific warp assignment before the valid measurements. A full batch-two packed-buffer candidate is the next experiment; this microprobe establishes no serving or RL gain. Evidence: `outputs/megakernel-20261025/r34-packed-input-probe/{projection_probe.cu,harness.py,results-valid-r2.json,results-valid-r3.json,results-invalid-empty-graph-r1.json,guard-inner-r2/result.json,guard-inner-r3/result.json,build/ptxas-journal-r1.log}`.

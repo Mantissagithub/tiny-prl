@@ -1,0 +1,385 @@
+{
+  "arms": {
+    "r30": {
+      "admission_rate": 1.0,
+      "arm": "r30",
+      "configuration": {
+        "dry_resolved_report_sha256": "394952e287ee98c719d4e6c7831f02612c289c7eff702c45df6816e7d122fc2c",
+        "live_resolved_files_present": true,
+        "live_resolved_hashes": {
+          "inference.json": "09d2d24a27f3f42fcf26d30b959d52d168d129d0978ae082c8ff83207231df51",
+          "orchestrator.json": "e6e39b626eb7f5dfcfd903dcf3387263304640fd8133d53075bbe4cc5233de2f",
+          "trainer.json": "ba85003ddf07ad685a44b4c90be916696e84c40b80247c898f4febd0b6f56e74"
+        },
+        "live_resolved_paths": {
+          "inference.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-r30/r30-full-rl-fast-r30-2update/configs/attempt_1/resolved/inference.json",
+          "orchestrator.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-r30/r30-full-rl-fast-r30-2update/configs/attempt_1/resolved/orchestrator.json",
+          "trainer.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-r30/r30-full-rl-fast-r30-2update/configs/attempt_1/resolved/trainer.json"
+        },
+        "passing_report_resolved_paths": {
+          "inference.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/r30-full-rl-fast-r30-2update/configs/attempt_1/resolved/inference.json",
+          "orchestrator.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/r30-full-rl-fast-r30-2update/configs/attempt_1/resolved/orchestrator.json",
+          "trainer.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/r30-full-rl-fast-r30-2update/configs/attempt_1/resolved/trainer.json"
+        },
+        "runtime_config_check": {
+          "allowed_differences": {
+            "inference.json": [
+              "/env_vars/PRIME_R30_PRELOAD_TRACE_DIR"
+            ],
+            "orchestrator.json": [
+              "/output_dir"
+            ],
+            "trainer.json": [
+              "/output_dir"
+            ]
+          },
+          "hashes": {
+            "inference.json": "09d2d24a27f3f42fcf26d30b959d52d168d129d0978ae082c8ff83207231df51",
+            "orchestrator.json": "cff0cf728663b62d520f4c161e128c26fd0742cf3017c830d371c5a522421aae",
+            "trainer.json": "4a10def0c901a3bd1b3454a04a4861c43450c7f53bf3bd66a201184fbe172111"
+          },
+          "resolved_dir": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/results/rl-case-full360-admission-20261101-a2-r30/dry-resolved/r30-full-rl-fast-r30-2update/configs/attempt_1/resolved"
+        },
+        "same_passing_report": true,
+        "training_shape": {
+          "checkpoint_config": null,
+          "lora": null,
+          "max_steps": 2,
+          "model_name": "/home/pradheep/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/snapshots/a10cc1512eabd3dde888204e902eca88bddb4951",
+          "optimization_dtype": "float32",
+          "reduce_dtype": "float32",
+          "resume_config": null
+        }
+      },
+      "elapsed_scope": "actual uv rl child only; excludes envelope and config dry-run",
+      "elapsed_seconds": 145.81824422800128,
+      "guard": {
+        "elapsed_seconds": 148.7989236479989,
+        "minimum_available_bytes": 3983745024,
+        "minimum_disk_free_bytes": 52257894400,
+        "peak_cgroup_bytes": 7515979776,
+        "peak_gpu_mib": 7222,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "input_sha256": {
+        "completion_json": "e037cb42f5d703a27fbb8843f2807643b901fef6935b616a235833719f2d1a1e",
+        "guard_result_json": "5b8543d621dd249a11610db9a5265ca2efc5d94e604181e5495ed709b55a0b63",
+        "launch_json": "830e1a1da1f0cbe979b0cf24e0f363127c209eaaf368e42d547a747dea42ad64",
+        "live_resolved_inference.json": "09d2d24a27f3f42fcf26d30b959d52d168d129d0978ae082c8ff83207231df51",
+        "live_resolved_orchestrator.json": "e6e39b626eb7f5dfcfd903dcf3387263304640fd8133d53075bbe4cc5233de2f",
+        "live_resolved_trainer.json": "ba85003ddf07ad685a44b4c90be916696e84c40b80247c898f4febd0b6f56e74",
+        "metrics_jsonl": "be40d27ce4489a2ee23d13d6dc2be381bf3de0f9e48fddfa11459ae35abc5a98",
+        "rl_toml": "ea0bccd8b291c858f27451ba11ca8d0618f821fd3077379fd0a09b05ff461abb",
+        "run_rl_case_py": "e6dc5ef4bdceb1702b0645c8033be663ab10170997b3e290b7ffe2eb430a1744"
+      },
+      "metrics_request_success_total": 308.0,
+      "returncode": 0,
+      "rl_child_returncode": 0,
+      "route_validation": {
+        "matched_dso_sha256": "625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2",
+        "matched_source_sha256": "5e853d1e6b207f199c0cfd27a4d34394f7fa81ab4748ea0e51d3240dd7286638",
+        "private_r30_first_decode_events": 1,
+        "private_r30_loaded_events": 2,
+        "status": "pass",
+        "worker_trace_files": [
+          "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/results/rl-case-full360-admission-20261101-a2-r30/worker-traces/worker-206514.jsonl",
+          "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/results/rl-case-full360-admission-20261101-a2-r30/worker-traces/worker-206649.jsonl"
+        ]
+      },
+      "run_name": "r30-full-rl-fast-r30-2update",
+      "steps": [
+        {
+          "effective_admitted_mean": 1.0,
+          "effective_reward_max": 0.0022660747216720163,
+          "effective_reward_mean": 0.0008089726740244025,
+          "effective_reward_min": 0.0,
+          "gradient_norm": 0.004239622503519058,
+          "loss_mean": -9.071393947124307e-07,
+          "mismatch_kl_all_mean": 0.0008664527558721602,
+          "queued_trace_samples": 4,
+          "step": 1,
+          "time_broadcast_weights_seconds": 1.0342341530049453,
+          "time_forward_backward_seconds": 2.524685727999895,
+          "time_save_checkpoint_seconds": 0,
+          "time_step_seconds": 61.753149072006636,
+          "time_wait_for_batch_seconds": 57.467774509001174,
+          "window_discarded": 172,
+          "window_errored": 0,
+          "window_no_signal": 172,
+          "window_rollouts": 176,
+          "window_tasks": 88,
+          "window_tokens": 19099
+        },
+        {
+          "effective_admitted_mean": 1.0,
+          "effective_reward_max": 0.025600000000000005,
+          "effective_reward_mean": 0.006420567561869798,
+          "effective_reward_min": 0.0,
+          "gradient_norm": 0.04593595489859581,
+          "loss_mean": 1.749485090840608e-05,
+          "mismatch_kl_all_mean": 0.0008140209829434752,
+          "queued_trace_samples": 4,
+          "step": 2,
+          "time_broadcast_weights_seconds": 1.2537558170006378,
+          "time_forward_backward_seconds": 0.6521020959989983,
+          "time_save_checkpoint_seconds": 0,
+          "time_step_seconds": 40.656920270004775,
+          "time_wait_for_batch_seconds": 38.74834594300046,
+          "window_discarded": 122,
+          "window_errored": 0,
+          "window_no_signal": 122,
+          "window_rollouts": 126,
+          "window_tasks": 63,
+          "window_tokens": 14186
+        }
+      ],
+      "trace_index": {
+        "effective_annotations_by_step": {
+          "1": 4,
+          "2": 4
+        },
+        "num_record_errors": 0,
+        "records_by_kind": {
+          "train": 308
+        },
+        "records_in_stream_index_including_terminal_spill": 308,
+        "reward": {
+          "max": 0.025600000000000005,
+          "mean": 9.389013293369092e-05,
+          "min": 0.0,
+          "n": 308,
+          "nonzero_n": 4
+        },
+        "stream_annotation_trace_id_intersection": 8,
+        "stream_annotation_trace_id_unmatched_annotations": 0,
+        "stream_annotation_trace_id_unmatched_stream": 300,
+        "unique_annotation_trace_ids": 8,
+        "unique_trace_ids_referenced_by_stream_index": 308
+      },
+      "two_update_totals": {
+        "queued_trace_samples": 8,
+        "window_discarded": 294,
+        "window_errored": 0,
+        "window_no_signal": 294,
+        "window_rollouts": 302,
+        "window_tasks": 151,
+        "window_tokens": 33285
+      }
+    },
+    "stock": {
+      "admission_rate": 1.0,
+      "arm": "stock",
+      "configuration": {
+        "dry_resolved_report_sha256": "394952e287ee98c719d4e6c7831f02612c289c7eff702c45df6816e7d122fc2c",
+        "live_resolved_files_present": true,
+        "live_resolved_hashes": {
+          "inference.json": "da7eacbb1da5ed01265849f7ec0cd95835be41e65074cb1132a62fb1e0be04fe",
+          "orchestrator.json": "67faff994a254f7cfc50b6d1096fd05f61321955ae47cc142d54082307f118c3",
+          "trainer.json": "da8e67f6fe26199db94d72bf42699b273ca0540ed680906f293e2b9d60d9a868"
+        },
+        "live_resolved_paths": {
+          "inference.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-stock/r30-full-rl-stock-2update/configs/attempt_1/resolved/inference.json",
+          "orchestrator.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-stock/r30-full-rl-stock-2update/configs/attempt_1/resolved/orchestrator.json",
+          "trainer.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-stock/r30-full-rl-stock-2update/configs/attempt_1/resolved/trainer.json"
+        },
+        "passing_report_resolved_paths": {
+          "inference.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/r30-full-rl-stock-2update/configs/attempt_1/resolved/inference.json",
+          "orchestrator.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/r30-full-rl-stock-2update/configs/attempt_1/resolved/orchestrator.json",
+          "trainer.json": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/r30-full-rl-stock-2update/configs/attempt_1/resolved/trainer.json"
+        },
+        "runtime_config_check": {
+          "allowed_differences": {
+            "inference.json": [],
+            "orchestrator.json": [
+              "/output_dir"
+            ],
+            "trainer.json": [
+              "/output_dir"
+            ]
+          },
+          "hashes": {
+            "inference.json": "da7eacbb1da5ed01265849f7ec0cd95835be41e65074cb1132a62fb1e0be04fe",
+            "orchestrator.json": "f3626b7f16b24fdcfd431490a9730e355639d122733f84057585f5d6d288c58f",
+            "trainer.json": "8e306d477a4fb9c3e8995fd25b8dc004a1b41dc2b699a0ea0ad81b718b04adee"
+          },
+          "resolved_dir": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/results/rl-case-full360-admission-20261101-a2-stock/dry-resolved/r30-full-rl-stock-2update/configs/attempt_1/resolved"
+        },
+        "same_passing_report": true,
+        "training_shape": {
+          "checkpoint_config": null,
+          "lora": null,
+          "max_steps": 2,
+          "model_name": "/home/pradheep/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/snapshots/a10cc1512eabd3dde888204e902eca88bddb4951",
+          "optimization_dtype": "float32",
+          "reduce_dtype": "float32",
+          "resume_config": null
+        }
+      },
+      "elapsed_scope": "actual uv rl child only; excludes envelope and config dry-run",
+      "elapsed_seconds": 174.07918685999903,
+      "guard": {
+        "elapsed_seconds": 176.99989486999402,
+        "minimum_available_bytes": 3853799424,
+        "minimum_disk_free_bytes": 53667143680,
+        "peak_cgroup_bytes": 7515000832,
+        "peak_gpu_mib": 7400,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "input_sha256": {
+        "completion_json": "27674b1ae61c45bd0e0aa9bc451c15b2169697967816878cc1331126db175b27",
+        "guard_result_json": "dfd5190ddafd8921935c2c6ee942365f332b12d64a41410cd68001733334cb25",
+        "launch_json": "593a0bfc76305d7d2c044cd4e887cbdc65c4995f69dc0aa8d9a9e2dc776311ab",
+        "live_resolved_inference.json": "da7eacbb1da5ed01265849f7ec0cd95835be41e65074cb1132a62fb1e0be04fe",
+        "live_resolved_orchestrator.json": "67faff994a254f7cfc50b6d1096fd05f61321955ae47cc142d54082307f118c3",
+        "live_resolved_trainer.json": "da8e67f6fe26199db94d72bf42699b273ca0540ed680906f293e2b9d60d9a868",
+        "metrics_jsonl": "05b256093712c44b237bd061ed230ae9703f72a070a684afc36d40c2c412168f",
+        "rl_toml": "ef7f9b9583c1c5e9a871b494903ded8b18ce6b389ed037d95a075120f0dad290",
+        "run_rl_case_py": "e6dc5ef4bdceb1702b0645c8033be663ab10170997b3e290b7ffe2eb430a1744"
+      },
+      "metrics_request_success_total": 377.0,
+      "returncode": 0,
+      "rl_child_returncode": 0,
+      "route_validation": null,
+      "run_name": "r30-full-rl-stock-2update",
+      "steps": [
+        {
+          "effective_admitted_mean": 1.0,
+          "effective_reward_max": 0.025600000000000005,
+          "effective_reward_mean": 0.00694637781919483,
+          "effective_reward_min": 0.0,
+          "gradient_norm": 0.045692820101976395,
+          "loss_mean": -6.0029189626220614e-05,
+          "mismatch_kl_all_mean": 0.0011698335874825716,
+          "queued_trace_samples": 4,
+          "step": 1,
+          "time_broadcast_weights_seconds": 1.8328843740018783,
+          "time_forward_backward_seconds": 2.7420635650050826,
+          "time_save_checkpoint_seconds": 0,
+          "time_step_seconds": 108.99235758899886,
+          "time_wait_for_batch_seconds": 102.3683204350018,
+          "window_discarded": 298,
+          "window_errored": 0,
+          "window_no_signal": 298,
+          "window_rollouts": 302,
+          "window_tasks": 151,
+          "window_tokens": 33087
+        },
+        {
+          "effective_admitted_mean": 1.0,
+          "effective_reward_max": 0.0019643802610477203,
+          "effective_reward_mean": 0.000657880429758494,
+          "effective_reward_min": 0.0,
+          "gradient_norm": 0.003596229711547494,
+          "loss_mean": 6.89848093315959e-07,
+          "mismatch_kl_all_mean": 0.0008222426404245198,
+          "queued_trace_samples": 4,
+          "step": 2,
+          "time_broadcast_weights_seconds": 2.6706892020010855,
+          "time_forward_backward_seconds": 1.233081434002088,
+          "time_save_checkpoint_seconds": 0,
+          "time_step_seconds": 25.676717383001233,
+          "time_wait_for_batch_seconds": 21.769569092000893,
+          "window_discarded": 64,
+          "window_errored": 0,
+          "window_no_signal": 64,
+          "window_rollouts": 68,
+          "window_tasks": 34,
+          "window_tokens": 7674
+        }
+      ],
+      "trace_index": {
+        "effective_annotations_by_step": {
+          "1": 4,
+          "2": 4
+        },
+        "num_record_errors": 0,
+        "records_by_kind": {
+          "train": 377
+        },
+        "records_in_stream_index_including_terminal_spill": 377,
+        "reward": {
+          "max": 0.025600000000000005,
+          "mean": 8.068178513478327e-05,
+          "min": 0.0,
+          "n": 377,
+          "nonzero_n": 4
+        },
+        "stream_annotation_trace_id_intersection": 8,
+        "stream_annotation_trace_id_unmatched_annotations": 0,
+        "stream_annotation_trace_id_unmatched_stream": 369,
+        "unique_annotation_trace_ids": 8,
+        "unique_trace_ids_referenced_by_stream_index": 377
+      },
+      "two_update_totals": {
+        "queued_trace_samples": 8,
+        "window_discarded": 362,
+        "window_errored": 0,
+        "window_no_signal": 362,
+        "window_rollouts": 370,
+        "window_tasks": 185,
+        "window_tokens": 40761
+      }
+    }
+  },
+  "claim": {
+    "classification": "inconclusive as a speedup claim",
+    "normalization_warning": "descriptive only; token composition and model decode configuration differ",
+    "numerics_claim": "not established; no broad acceptance claim because HF floors remain unresolved",
+    "observed_elapsed_change_percent": 16.234532767392952,
+    "reason": "one terminal pair with unequal rollout/task/token work; no repeated alternating runs; no limiter profile",
+    "work_normalized_seconds_per_1000_tokens": {
+      "r30": 4.380899631305431,
+      "stock": 4.270729051299012
+    }
+  },
+  "configuration_diff": [
+    {
+      "file": "trainer.json",
+      "pointer": "/output_dir",
+      "r30": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-r30/r30-full-rl-fast-r30-2update",
+      "stock": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-stock/r30-full-rl-stock-2update"
+    },
+    {
+      "file": "orchestrator.json",
+      "pointer": "/output_dir",
+      "r30": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-r30/r30-full-rl-fast-r30-2update",
+      "stock": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/runs/live-full360-admission-20261101-a2-stock/r30-full-rl-stock-2update"
+    },
+    {
+      "file": "inference.json",
+      "pointer": "/decode_megakernel",
+      "r30": true,
+      "stock": false
+    },
+    {
+      "file": "inference.json",
+      "pointer": "/env_vars/PRIME_DECODE_MEGAKERNEL_360M",
+      "r30": "1",
+      "stock": "0"
+    },
+    {
+      "file": "inference.json",
+      "pointer": "/env_vars/PRIME_R30_PRELOAD_TRACE_DIR",
+      "r30": "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r30-full-rl-r1/results/rl-case-full360-admission-20261101-a2-r30/worker-traces",
+      "stock": "<absent>"
+    },
+    {
+      "file": "inference.json",
+      "pointer": "/env_vars/PRIME_R30_PRIVATE_PRELOAD",
+      "r30": "1",
+      "stock": "<absent>"
+    }
+  ],
+  "configuration_diff_classification": "run/output identity and decode/R30 preload environment only",
+  "schema": "tiny-prl.full-rl-pair-audit.v1",
+  "scope": "CPU-only metadata/metrics/config audit; no checkpoints, model weights, or compressed trace payloads were opened",
+  "source_and_harness": {
+    "audit_script_sha256": "749eb6f0f08ed8391c479be0d696bccb2194e93dbb2c0a354bac35aa9367f8c7",
+    "matched_r30_dso_sha256": "625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2",
+    "matched_r30_source_sha256": "5e853d1e6b207f199c0cfd27a4d34394f7fa81ab4748ea0e51d3240dd7286638"
+  }
+}
