@@ -177,6 +177,28 @@ transfer sent no checkpoint payload to disk. These checks establish correctness
 for this small run, not RL quality or an end-to-end speedup; measure performance
 on the target workload.
 
+## SmolLM2-360M full-parameter pilot
+
+[`examples/tiny/smollm2-360m-full-stream64.toml`](../examples/tiny/smollm2-360m-full-stream64.toml)
+is a two-update full-parameter pilot using FP32 optimization and reduction,
+full activation checkpointing, chunked optimizer state, and 64 MB filesystem
+weight shards. Run it with:
+
+```bash
+uv run --no-sync rl @ examples/tiny/smollm2-360m-full-stream64.toml --no-dashboard --no-ckpt
+```
+
+The two-update stock-vLLM pilot completed on an RTX 4060 Laptop with 8 GiB
+VRAM. It used 7,398 MiB peak sampled GPU memory, had zero sampled swap, and
+recorded a minimum 5,049,802,752 bytes of available host RAM. Both updates had
+finite losses, gradients, and mismatch KL. This validates the bounded pilot on
+that machine, not fit on other hardware or longer runs.
+
+The pilot used a CLI model-path override because the cached Hugging Face model
+snapshot was available offline while the model ID could not resolve. Keep the
+portable model ID in the profile; when running offline with only a cached
+snapshot, pass `--model.name /path/to/cached/snapshot`.
+
 ## Opt-in decode megakernel
 
 On SM 8.9, SmolLM2-135M can decode through one cooperative CUDA launch per step

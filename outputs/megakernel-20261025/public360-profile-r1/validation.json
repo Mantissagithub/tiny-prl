@@ -1,0 +1,63 @@
+{
+  "status": "two-update-pilot-passed",
+  "scope": "validation on one RTX4060 Laptop; not a performance comparison or long-run guarantee",
+  "profile": "examples/tiny/smollm2-360m-full-stream64.toml",
+  "profile_sha256": "11b4cac33b86c51275b8ead7b92848aefa08d237a5182b0eeeb32a545a9b3e94",
+  "model_snapshot": "a10cc1512eabd3dde888204e902eca88bddb4951",
+  "model_name_override": "/home/pradheep/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/snapshots/a10cc1512eabd3dde888204e902eca88bddb4951",
+  "lora": null,
+  "optimization_dtype": "float32",
+  "reduce_dtype": "float32",
+  "inference_private_flags": {},
+  "steps": [
+    {
+      "step": 1,
+      "optim/grad_norm": 0.043473854660987854,
+      "loss/mean": -2.8262420528335497e-05,
+      "mismatch_kl/all/mean": 0.000710437074303627,
+      "progress/rollouts": 304,
+      "progress/tasks": 152,
+      "progress/tokens": 33073
+    },
+    {
+      "step": 2,
+      "optim/grad_norm": 0.15778696537017822,
+      "loss/mean": 0.00010439474135637283,
+      "mismatch_kl/all/mean": 0.00195930409245193,
+      "progress/rollouts": 140,
+      "progress/tasks": 70,
+      "progress/tokens": 15487
+    }
+  ],
+  "guard": {
+    "command": [
+      "/home/pradheep/.venv/bin/python",
+      "-m",
+      "prime_rl.entrypoints.rl",
+      "@",
+      "examples/tiny/smollm2-360m-full-stream64.toml",
+      "--model.name",
+      "/home/pradheep/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/snapshots/a10cc1512eabd3dde888204e902eca88bddb4951",
+      "--output-dir",
+      "outputs/megakernel-20261025/public360-profile-r1/live-r2",
+      "--no-dashboard",
+      "--no-ckpt"
+    ],
+    "returncode": 0,
+    "stop_reason": null,
+    "elapsed_seconds": 85.13833017899015,
+    "minimum_available_bytes": 5049802752,
+    "peak_cgroup_bytes": 7516172288,
+    "peak_swap_bytes": 0,
+    "peak_gpu_mib": 7398,
+    "disk_free_before_bytes": 45669502976,
+    "minimum_disk_free_bytes": 43506257920
+  },
+  "input_sha256": {
+    "guard-r2/result.json": "805a7eb5f12b18c0ae19aa3308648a38a2d94e98665a44367fb78241a2c8706c",
+    "live-r2/smollm2-360m-full-stream64/monitors/file/metrics.jsonl": "37a54487bad9d396ec2652115842d36c754ceb4aa0b361cfc4b2be8ded812807",
+    "live-r2/smollm2-360m-full-stream64/configs/attempt_1/resolved/trainer.json": "a5cf79e56fd3144719cd7c5cfdf5b42ec54ce1509efd47863a56f2a66e19890b",
+    "live-r2/smollm2-360m-full-stream64/configs/attempt_1/resolved/inference.json": "ef6526971956331d5a4a7b19eeafad293bdc2a37cf39037276e4531e9f8e2388"
+  },
+  "offline_alias_attempt": "guard-r1 failed before training: HF cache main ref absent; successful run uses the existing snapshot path"
+}
