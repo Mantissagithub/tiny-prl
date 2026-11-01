@@ -1865,3 +1865,39 @@ R34 carries Experiment 201 into the full 32-layer decoder, retaining FP32 shared
 | B2 / 1024 | 3.669024 ms | 3.689472 ms | +0.557% | 0/3 |
 
 Each case uses three alternating ABBA/BAAB/ABBA blocks with 20 events per placement, or 120 events per arm. Every final hidden state and all 32 layers' K/V match R30 bitwise. The inner guard passes with 1,955 MiB sampled GPU peak, zero swap and at least 8,625,176,576 bytes available host RAM. This first full-kernel process fails the speed gate on every B2 shape, so R34 is not adopted and no serving or RL test is justified. The result shows that smaller shared storage and isolated GEMV gains do not guarantee a faster integrated kernel. The next hypothesis limits packing to QKV/O while retaining R30's FP32 gate/up and down paths. Evidence: `outputs/megakernel-20261025/r34-packed-full/{candidate/,r34build/ptxas.log,results/all-six-r1.json,guard-inner-r1/result.json,guard-outer-r1/result.json}`.
+
+## Experiment 203: selective QKV/O packing remains inconclusive against the unchanged-code control
+
+R35 packs only B2 norm1/attention outputs consumed by QKV/O, keeping gate/up, down, final norm and all B1 operations on R30's FP32 path. The first exploratory version reused float storage through a BF16 pointer and was withheld after an aliasing review. The measured revision uses a separate typed BF16 shared array. B2 compiles to 243 registers and 46,896 bytes shared memory, versus R30's 245/43,056; B1 stays at 241/36,644. Both have zero stack/spills.
+
+Two fresh processes use the same frozen revision and three ABBA/BAAB/ABBA blocks per case, 20 events per placement and 120 raw events per arm. Percent changes below use pooled raw-event medians and are negative when latency falls.
+
+| Case | Run 2 change | Run 3 change | Strict winning blocks, runs 2 / 3 |
+|---|---:|---:|---:|
+| B1 / 32 | +0.041% | -0.004% | 0/3 / 0/3 |
+| B1 / 128 | -0.104% | -0.079% | 3/3 / 3/3 |
+| B2 / 32 | -0.262% | -0.246% | 3/3 / 3/3 |
+| B2 / 128 | -0.096% | -0.064% | 3/3 / 2/3 |
+| B1 / 1024 | -0.245% | -0.221% | 3/3 / 3/3 |
+| B2 / 1024 | -0.251% | -0.279% | 3/3 / 3/3 |
+
+A CPU-only disassembly audit establishes that the embedded B1 instruction bytes are identical between the two libraries: 7,360 instructions, 117,760 encoded bytes, SHA256 `912d14f46ffe8b591a79f7fa26a2e13d22cbb516000c4015874b0c3343919858`. The B2 instruction bytes differ. The unchanged B1 path nevertheless shows timing shifts similar to B2, and B2/context 128 overlaps controls in one repeated block. This prevents attributing these small differences to packing. R35 is not adopted; no serving or RL gain is claimed. Whole-library identity is not implied by the B1 instruction comparison.
+
+All measured final hidden states and all 32 layers' K/V match R30 bitwise. Both processes' inner/outer guards pass, with 1,955 MiB sampled GPU peaks, zero cgroup swap and at least 7,976,484,864 bytes available host RAM. Native 1-ULP diagnostics fail for both arms and remain outside this candidate-control parity claim. The next step profiles R30 and R35's phases separately before another packing change. Evidence: `outputs/megakernel-20261025/r35-selective-packed/{candidate/,bench_r30_r35_r2.py,r35build-r2/ptxas.log,results/all-six-r2.json,results/all-six-r3.json,audit-r2-r3/report.md,audit-r2-r3/reproduce_sass.py,guard-inner-r2/result.json,guard-inner-r3/result.json}`.
+
+## Experiment 204: fork-server 360M RL wall time falls in one ABBA block, with unequal sampled work
+
+The same full-parameter SmolLM2-360M/R30 recipe completes two successful optimizer updates per arm. Resolved configs differ only in Verifiers `fork_server` and run/route/address identities. FP32 optimization and reduction, no LoRA, IPO/task/reward/admission settings, filesystem weight updates and no checkpoints remain fixed. The measured order is off/on/on/off.
+
+| Arm / run | Actual RL child elapsed | Window rollouts | Tasks | Tokens | Successful updates |
+|---|---:|---:|---:|---:|---:|
+| Off / A1 | 134.072745 s | 302 | 151 | 32,851 | 2 |
+| On / B1 | 72.792303 s | 290 | 145 | 31,986 | 2 |
+| On / B2 | 72.546031 s | 282 | 141 | 30,878 | 2 |
+| Off / A2 | 137.827501 s | 290 | 145 | 31,702 | 2 |
+
+Both on times beat both off times. Raw mean child elapsed is 135.950 seconds off versus 72.669 seconds on, 46.55% lower. Total sampled work differs: off collects 592 rollouts/296 tasks/64,553 tokens, versus on's 572/286/62,864. This is one ABBA block with two runs per arm, so the elapsed reduction is an observed workflow result, not a verified equal-work speedup or broad repeatability claim. The existing verified 135M ten-update result is a separate workload and is not replaced by these two-update 360M timings.
+
+All eight updates have finite loss, gradient norm and mismatch KL, with eight effective training traces per run. All four same-worker private R30 load/decode routes match the pinned hashes. Guards return zero with no stop reasons or cgroup swap, GPU peaks of 7,218–7,400 MiB and at least 4,555,190,272 bytes available host RAM. Completed-window errors, cancellations and stale counts are zero. In A1/B1's first update, both arms collect 176 rollouts/88 tasks and nearly identical tokens (19,057/19,063); trainer batch wait falls from 50.289 to 17.317 seconds. That supports further investigation of rollout waiting, but does not isolate process startup or establish causality for the whole gap. The second off control's first update has different work, so the near-match does not extend to every arm.
+
+The initial guard-only attempt `fs360-20261101-a1-off` was rejected before any training because the driver mistook the launcher-created guard directory for a reused run. The driver now checks output/metadata freshness while the shell still preflights all three paths; that failed attempt is excluded and preserved. Evidence: `outputs/megakernel-20261025/r30-full-forkserver-audit-r1/{audit.py,audit-result.json,report.md}`, and `r30-full-forkserver-r1/{configs/,probe/,results/rl-case-fs360-20261101-b-*,results/rl-guard-fs360-20261101-b-*/result.json}`. The audit validates actual runtime config differences, per-step work, finite updates, routes and guard outcomes without loading models.

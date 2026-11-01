@@ -1,0 +1,565 @@
+{
+  "both_on_below_both_off": true,
+  "child_times_seconds": {
+    "off": [
+      134.07274497499748,
+      137.82750084099825
+    ],
+    "on": [
+      72.7923029980011,
+      72.54603129300813
+    ]
+  },
+  "completed_runs": 4,
+  "config_resolution": {
+    "all_invariants_true": true,
+    "frozen_config_sha256": {
+      "off": "51cec5eeefa3098990947cb79d3f8971bd16b12a3aa37651780cf9de2e1e9b02",
+      "on": "2de5b4a08c05266a5bb90182c606f4bce1d8572921b63bf52b3119b24ff33da9"
+    },
+    "pairwise_runtime_resolved": [
+      {
+        "changed_paths": [
+          "trainer.json:/output_dir",
+          "orchestrator.json:/output_dir",
+          "orchestrator.json:/train/source/0/env/agent/runtime/fork_server",
+          "inference.json:/env_vars/PRIME_R30_PRELOAD_TRACE_DIR",
+          "envs/train/alphabet-sort.json:/address_file",
+          "envs/train/alphabet-sort.json:/env/agent/runtime/fork_server"
+        ],
+        "off_run": "fs360-20261101-b-a1",
+        "on_run": "fs360-20261101-b-b1",
+        "status": "pass"
+      },
+      {
+        "changed_paths": [
+          "trainer.json:/output_dir",
+          "orchestrator.json:/output_dir",
+          "orchestrator.json:/train/source/0/env/agent/runtime/fork_server",
+          "inference.json:/env_vars/PRIME_R30_PRELOAD_TRACE_DIR",
+          "envs/train/alphabet-sort.json:/address_file",
+          "envs/train/alphabet-sort.json:/env/agent/runtime/fork_server"
+        ],
+        "off_run": "fs360-20261101-b-a2",
+        "on_run": "fs360-20261101-b-b2",
+        "status": "pass"
+      }
+    ],
+    "report_sha256": "7f68859b13044de8599d4cba79f7ac36cde1ca069c3220bb73fdfab0ce1507ca",
+    "status": "pass"
+  },
+  "descriptive_raw_mean_child_time": {
+    "equal_work_speedup_claim": false,
+    "off_seconds": 135.95012290799787,
+    "on_lower_percent": 46.547185400720565,
+    "on_seconds": 72.66916714550462
+  },
+  "excluded_guard_only_failure": "fs360-20261101-a1-off",
+  "limitations": [
+    "one ABBA block; two runs per arm",
+    "total work differs",
+    "no profiling; limiter unproven"
+  ],
+  "pins": {
+    "r30_dso_sha256": "625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2",
+    "r30_include_sha256": "60b234e7ab6bbd49ff5a7444fb0ff171a97ee37fe31234a72b8f045b3b495e83",
+    "r30_source_sha256": "5e853d1e6b207f199c0cfd27a4d34394f7fa81ab4748ea0e51d3240dd7286638"
+  },
+  "run_count_per_arm": {
+    "off": 2,
+    "on": 2
+  },
+  "runs": [
+    {
+      "arm": "off",
+      "child_returncode": 0,
+      "child_seconds": 134.07274497499748,
+      "frozen_config_sha256": "51cec5eeefa3098990947cb79d3f8971bd16b12a3aa37651780cf9de2e1e9b02",
+      "guard": {
+        "minimum_available_bytes": 4555190272,
+        "peak_cgroup_bytes": 7516180480,
+        "peak_gpu_mib": 7220,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "id": "fs360-20261101-b-a1",
+      "input_hashes": {
+        "completion": "0c0a22c94d5255a675a818ea26f1fc98e1c8ccedd76d5fb1dd19d765e6bb29ab",
+        "guard": "f25edd08015c9a9cdebce4aa15bf79102ccf6013ddf62cf6d3efacc62eab62d4",
+        "launch": "37ef8e72c5ea4d0b085364e4a1396050e7bf65c19c0748d7fc2d711adc11159d",
+        "metrics": "a9c08a225bc8a6f8a2b2741847cb0fef64ef163463e3d3e4df0487edd1bf41cc",
+        "route_validation": "a6761e355ca52ad6ace229065514f5a05697c349c91f7f41e25eb1e725e106e7"
+      },
+      "route_pins": {
+        "dso_sha256": "625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2",
+        "source_sha256": "5e853d1e6b207f199c0cfd27a4d34394f7fa81ab4748ea0e51d3240dd7286638"
+      },
+      "route_status": "pass",
+      "status": "completed",
+      "steps": [
+        {
+          "admitted_traces": 176,
+          "attempts": 176,
+          "broadcast_seconds": 2.3239796519919764,
+          "completed_tasks": 88,
+          "completed_traces": 176,
+          "discarded": 172,
+          "effective_reward_mean": 0.0008089726740244025,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 3.1610232450038893,
+          "grad_norm": 0.004263429902493954,
+          "kl": 0.0008954480290412903,
+          "loss": -1.754044319568493e-06,
+          "no_signal": 172,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 86,
+            "some": 2
+          },
+          "reward_max": 0.0022660747216720163,
+          "reward_mean": 1.8385742591463694e-05,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 176,
+          "step": 1,
+          "step_seconds": 57.23418116700486,
+          "tasks": 88,
+          "tokens": 19057,
+          "total_rollouts": 176,
+          "total_tasks": 88,
+          "total_tokens": 19057,
+          "valid_update": true,
+          "wait_for_batch_seconds": 50.28947884000081
+        },
+        {
+          "admitted_traces": 126,
+          "attempts": 126,
+          "broadcast_seconds": 1.6952245209977264,
+          "completed_tasks": 63,
+          "completed_traces": 126,
+          "discarded": 122,
+          "effective_reward_mean": 0.006412056327160495,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 0.5647098080080468,
+          "grad_norm": 0.0678873136639595,
+          "kl": 0.0009519854211248457,
+          "loss": 5.2255225455155596e-05,
+          "no_signal": 122,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 61,
+            "some": 2
+          },
+          "reward_max": 0.025600000000000005,
+          "reward_mean": 0.0002035573437193808,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 126,
+          "step": 2,
+          "step_seconds": 35.48504746900289,
+          "tasks": 63,
+          "tokens": 13794,
+          "total_rollouts": 302,
+          "total_tasks": 151,
+          "total_tokens": 32851,
+          "valid_update": true,
+          "wait_for_batch_seconds": 33.22243354799866
+        }
+      ],
+      "trainer_annotation_index_rows": 8,
+      "work": {
+        "admitted_traces": 302,
+        "cancelled": 0,
+        "completed_tasks": 151,
+        "completed_traces": 302,
+        "effective_traces": 8,
+        "errors": 0,
+        "rollouts": 302,
+        "stale": 0,
+        "tasks": 151,
+        "tokens": 32851
+      }
+    },
+    {
+      "arm": "on",
+      "child_returncode": 0,
+      "child_seconds": 72.7923029980011,
+      "frozen_config_sha256": "2de5b4a08c05266a5bb90182c606f4bce1d8572921b63bf52b3119b24ff33da9",
+      "guard": {
+        "minimum_available_bytes": 5308489728,
+        "peak_cgroup_bytes": 7516192768,
+        "peak_gpu_mib": 7400,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "id": "fs360-20261101-b-b1",
+      "input_hashes": {
+        "completion": "e2f73750791ee852e734d3d7d5aaaecaca67bbe7e54934c3726087c124c12192",
+        "guard": "33610f50c48d8ffa5bd784d7e3e419f311b0add3f9a412ea01391d20fdfcd7ca",
+        "launch": "82ed77652a3097621deac42d99b5464dd590ab44bd448a92035327efd0f1c7a4",
+        "metrics": "16187720d4d3c242ce4b3580147d5783ee49d745907c107d26f7ec79b6fe668f",
+        "route_validation": "2d7620307f3e95aeca7827022cafbd4e6f81a0bc563b342bfaf76b56c38ef479"
+      },
+      "route_pins": {
+        "dso_sha256": "625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2",
+        "source_sha256": "5e853d1e6b207f199c0cfd27a4d34394f7fa81ab4748ea0e51d3240dd7286638"
+      },
+      "route_status": "pass",
+      "status": "completed",
+      "steps": [
+        {
+          "admitted_traces": 176,
+          "attempts": 176,
+          "broadcast_seconds": 1.012248044993612,
+          "completed_tasks": 88,
+          "completed_traces": 176,
+          "discarded": 172,
+          "effective_reward_mean": 0.0014098417430143755,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 2.273972462004167,
+          "grad_norm": 0.007581379264593124,
+          "kl": 0.0015085814520716667,
+          "loss": -1.9892304408131167e-06,
+          "no_signal": 172,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 86,
+            "some": 2
+          },
+          "reward_max": 0.003453855695278185,
+          "reward_mean": 3.204185779578126e-05,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 176,
+          "step": 1,
+          "step_seconds": 21.561611897996045,
+          "tasks": 88,
+          "tokens": 19063,
+          "total_rollouts": 176,
+          "total_tasks": 88,
+          "total_tokens": 19063,
+          "valid_update": true,
+          "wait_for_batch_seconds": 17.31657132699911
+        },
+        {
+          "admitted_traces": 114,
+          "attempts": 114,
+          "broadcast_seconds": 2.7838951379962964,
+          "completed_tasks": 57,
+          "completed_traces": 114,
+          "discarded": 110,
+          "effective_reward_mean": 0.0009458375761911663,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 0.9769908549933461,
+          "grad_norm": 0.005831178743392229,
+          "kl": 0.0014947884483262897,
+          "loss": -4.936446202918887e-07,
+          "no_signal": 110,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 55,
+            "some": 2
+          },
+          "reward_max": 0.0027745515783403844,
+          "reward_mean": 3.3187283375128646e-05,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 114,
+          "step": 2,
+          "step_seconds": 14.716831091995118,
+          "tasks": 57,
+          "tokens": 12923,
+          "total_rollouts": 290,
+          "total_tasks": 145,
+          "total_tokens": 31986,
+          "valid_update": true,
+          "wait_for_batch_seconds": 10.951518741989275
+        }
+      ],
+      "trainer_annotation_index_rows": 8,
+      "work": {
+        "admitted_traces": 290,
+        "cancelled": 0,
+        "completed_tasks": 145,
+        "completed_traces": 290,
+        "effective_traces": 8,
+        "errors": 0,
+        "rollouts": 290,
+        "stale": 0,
+        "tasks": 145,
+        "tokens": 31986
+      }
+    },
+    {
+      "arm": "on",
+      "child_returncode": 0,
+      "child_seconds": 72.54603129300813,
+      "frozen_config_sha256": "2de5b4a08c05266a5bb90182c606f4bce1d8572921b63bf52b3119b24ff33da9",
+      "guard": {
+        "minimum_available_bytes": 5285974016,
+        "peak_cgroup_bytes": 7516192768,
+        "peak_gpu_mib": 7218,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "id": "fs360-20261101-b-b2",
+      "input_hashes": {
+        "completion": "e8188df363d51487af2cb187f4d434eebf2eb5cc49f5a960d096a7409f3ceeb4",
+        "guard": "c159a59102eaa06f2a205ca4c8fa01e24e535d1f258822f43d1b29d11fdeeeff",
+        "launch": "72417f48ee4cab18908e8a79f16921e1e77f9912b6e2869798db9eccc0251682",
+        "metrics": "b58af8346183672cd88132f9238a31f9375aafcbd4e6a30416e26c0bbcbb01cf",
+        "route_validation": "1105fa978bc49c69b25c6c115a5ab5da25ec33461754e7b57454e7a59fc3f1f9"
+      },
+      "route_pins": {
+        "dso_sha256": "625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2",
+        "source_sha256": "5e853d1e6b207f199c0cfd27a4d34394f7fa81ab4748ea0e51d3240dd7286638"
+      },
+      "route_status": "pass",
+      "status": "completed",
+      "steps": [
+        {
+          "admitted_traces": 176,
+          "attempts": 176,
+          "broadcast_seconds": 2.0551970759988762,
+          "completed_tasks": 88,
+          "completed_traces": 176,
+          "discarded": 172,
+          "effective_reward_mean": 0.0014299826042375504,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 2.5163104999955976,
+          "grad_norm": 0.007557745091617107,
+          "kl": 0.001004337682388723,
+          "loss": -4.775822048941336e-08,
+          "no_signal": 172,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 86,
+            "some": 2
+          },
+          "reward_max": 0.003453855695278185,
+          "reward_mean": 3.249960464176251e-05,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 176,
+          "step": 1,
+          "step_seconds": 24.112616531012463,
+          "tasks": 88,
+          "tokens": 19082,
+          "total_rollouts": 176,
+          "total_tasks": 88,
+          "total_tokens": 19082,
+          "valid_update": true,
+          "wait_for_batch_seconds": 18.805836091007222
+        },
+        {
+          "admitted_traces": 106,
+          "attempts": 106,
+          "broadcast_seconds": 1.287847273008083,
+          "completed_tasks": 53,
+          "completed_traces": 106,
+          "discarded": 102,
+          "effective_reward_mean": 0.0016865400733233576,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 0.8427699369931361,
+          "grad_norm": 0.01546565257012844,
+          "kl": 0.0003396283427719027,
+          "loss": 1.9349215563124744e-06,
+          "no_signal": 102,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 51,
+            "some": 2
+          },
+          "reward_max": 0.006663890045814243,
+          "reward_mean": 6.364302163484368e-05,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 106,
+          "step": 2,
+          "step_seconds": 11.081267914996715,
+          "tasks": 53,
+          "tokens": 11796,
+          "total_rollouts": 282,
+          "total_tasks": 141,
+          "total_tokens": 30878,
+          "valid_update": true,
+          "wait_for_batch_seconds": 8.946843241996248
+        }
+      ],
+      "trainer_annotation_index_rows": 8,
+      "work": {
+        "admitted_traces": 282,
+        "cancelled": 0,
+        "completed_tasks": 141,
+        "completed_traces": 282,
+        "effective_traces": 8,
+        "errors": 0,
+        "rollouts": 282,
+        "stale": 0,
+        "tasks": 141,
+        "tokens": 30878
+      }
+    },
+    {
+      "arm": "off",
+      "child_returncode": 0,
+      "child_seconds": 137.82750084099825,
+      "frozen_config_sha256": "51cec5eeefa3098990947cb79d3f8971bd16b12a3aa37651780cf9de2e1e9b02",
+      "guard": {
+        "minimum_available_bytes": 5520441344,
+        "peak_cgroup_bytes": 7516192768,
+        "peak_gpu_mib": 7398,
+        "peak_swap_bytes": 0,
+        "returncode": 0,
+        "stop_reason": null
+      },
+      "id": "fs360-20261101-b-a2",
+      "input_hashes": {
+        "completion": "c07ccea66102166361b93fe9e479f49f45cea5531e05b74b1b0141fdb638240f",
+        "guard": "c759bc656b2bca4e70f5ed2a10c2e509821b5430b4d2c5dc933e092b5f3d2235",
+        "launch": "5102247a904160e6ceaddbc64615aee28aed3c7cde98a9cee04c3964e98ad606",
+        "metrics": "bb1753a0ad022f7b34e77c6fc69f7d7ddc8f38eefbfabff2ee9595f919bcfe16",
+        "route_validation": "02cc2b69dda2b94c4599a719153c6791c66a8686f185336685419b6b3d2c4c88"
+      },
+      "route_pins": {
+        "dso_sha256": "625f39f978e76a3e0ff01ed469bcd0de0cf65e51929a9597668af9cdff6c4db2",
+        "source_sha256": "5e853d1e6b207f199c0cfd27a4d34394f7fa81ab4748ea0e51d3240dd7286638"
+      },
+      "route_status": "pass",
+      "status": "completed",
+      "steps": [
+        {
+          "admitted_traces": 152,
+          "attempts": 152,
+          "broadcast_seconds": 1.3900796980015002,
+          "completed_tasks": 76,
+          "completed_traces": 152,
+          "discarded": 148,
+          "effective_reward_mean": 0.0011059179174259448,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 2.2257390130107524,
+          "grad_norm": 0.00833112746477127,
+          "kl": 0.0008185271872207522,
+          "loss": -2.2480451207229635e-06,
+          "no_signal": 148,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 74,
+            "some": 2
+          },
+          "reward_max": 0.003453855695278185,
+          "reward_mean": 2.9103103090156443e-05,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 152,
+          "step": 1,
+          "step_seconds": 54.97903067499283,
+          "tasks": 76,
+          "tokens": 16301,
+          "total_rollouts": 152,
+          "total_tasks": 76,
+          "total_tokens": 16301,
+          "valid_update": true,
+          "wait_for_batch_seconds": 49.6307453430054
+        },
+        {
+          "admitted_traces": 138,
+          "attempts": 138,
+          "broadcast_seconds": 1.4171381829946768,
+          "completed_tasks": 69,
+          "completed_traces": 138,
+          "discarded": 134,
+          "effective_reward_mean": 0.0009458375761911663,
+          "effective_traces": 4,
+          "error_traces": 0,
+          "forward_backward_seconds": 0.83433072999469,
+          "grad_norm": 0.0058068567886948586,
+          "kl": 0.0009715360356494784,
+          "loss": 1.853914000093937e-07,
+          "no_signal": 134,
+          "queued_traces": 4.0,
+          "reward_groups": {
+            "all": 0,
+            "none": 67,
+            "some": 2
+          },
+          "reward_max": 0.0027745515783403844,
+          "reward_mean": 2.741558191858453e-05,
+          "reward_min": 0.0,
+          "rollout_cancelled": 0,
+          "rollout_errors": 0,
+          "rollout_stale": 0,
+          "rollouts": 138,
+          "step": 2,
+          "step_seconds": 46.341288941999665,
+          "tasks": 69,
+          "tokens": 15401,
+          "total_rollouts": 290,
+          "total_tasks": 145,
+          "total_tokens": 31702,
+          "valid_update": true,
+          "wait_for_batch_seconds": 44.08649609799613
+        }
+      ],
+      "trainer_annotation_index_rows": 8,
+      "work": {
+        "admitted_traces": 290,
+        "cancelled": 0,
+        "completed_tasks": 145,
+        "completed_traces": 290,
+        "effective_traces": 8,
+        "errors": 0,
+        "rollouts": 290,
+        "stale": 0,
+        "tasks": 145,
+        "tokens": 31702
+      }
+    }
+  ],
+  "sequence_complete": true,
+  "verdict": "inconclusive",
+  "work_totals": {
+    "off": {
+      "completed_tasks": 296,
+      "rollouts": 592,
+      "tokens": 64553
+    },
+    "on": {
+      "completed_tasks": 286,
+      "rollouts": 572,
+      "tokens": 62864
+    }
+  },
+  "work_totals_equal": false
+}
