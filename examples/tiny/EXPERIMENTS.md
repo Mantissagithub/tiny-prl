@@ -1991,3 +1991,14 @@ The two cases match uninstrumented R30's final hidden and all-layer K/V bitwise.
 A CPU-only survey tested the lossless gate/up codec on 64 actual SmolLM2-360M matrices: the gate and up projections from all 32 layers. Every matrix round-tripped bitwise. Across 314,572,800 raw bytes, the encoded tables use 255,569,568 bytes, saving 59,003,232 bytes (18.7566%); 6.2434% of chunks use escapes, and no weights are nonfinite. An independent reviewer verified the source hash and byte accounting, and its self-test permuted the raw table to check ordering. The full CPU unit `lossless-gu-survey-20261101-r2` passed with terminal code 0. This is a storage result only: it establishes no decode speed, RL wall-time improvement, or GPU decoder correctness; no GPU decoder has been tested.
 
 Evidence: `outputs/megakernel-20261025/lossless-gu-codec-survey-r1/results-r2.json` (source SHA256 `b1ed5b9781ddc74102b258e583b003e9f7b49b484cf691940389d887a3c21a36`).
+
+## Experiment 214: reject the lossless GPU decoder for latency
+
+The actual-GPU microprobe compared dense gate/up weights with the lossless codec on the same 32-layer SmolLM2-360M projection workload. Five alternating placements per arm, five graph replays per placement and 32 layers produced 800 timed projection calls per arm. Replay overwrote NaN-poisoned outputs before timing. All 157,286,400 decoded BF16 weight words were bit-exact; all 327,680 checked output elements per arm matched exactly in both FP32 and BF16, with zero validation errors.
+
+| Arm | Median per-layer projection time | Replay sample range | Registers | Shared memory | Spill |
+|---|---:|---:|---:|---:|---:|
+| Dense | 43.125 us | 43.063–43.890 us | 64 | 7,680 B | 0 |
+| Lossless GPU decode | 86.425 us | 86.336–86.592 us | 56 | 7,680 B | 0 |
+
+The candidate takes 2.004x as long (+100.406% latency), so it is rejected and not adopted. Its encoded weights, including CSR metadata, use 256,225,056 bytes versus 314,572,800 dense bytes (18.548% fewer bytes). This is a storage reduction paired with a slower projection microprobe, not an RL or full-decoder result; the probe excludes SwiGLU and surrounding MLP work. Both guarded runs returned zero with no stop reason or swap, 1,019 MiB sampled GPU peak, and at least 9.13 GB available host RAM. Evidence: `outputs/megakernel-20261025/gateup-lossless-probe-r1/results-r1.json`, `guard-inner-r1/result.json`, and `guard-outer-r1/result.json`.
