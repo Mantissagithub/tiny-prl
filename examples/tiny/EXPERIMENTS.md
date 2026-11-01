@@ -1850,3 +1850,18 @@ A microprobe compares R30-style FP32 shared activation staging with packed BF16 
 Batch-one QKV, O and gate/up are neutral or slower. Across the two valid runs, 3,317,760 output elements are checked with exact FP32 values and BF16 bits, and 25,600 timed projection calls execute. After capture, buffers are poisoned with NaNs before replay; all replayed outputs must become finite before timing. Both inner guards pass with zero sampled swap, 791 MiB sampled GPU peaks and at least 9.62 GB available host RAM. Compilation reports zero stack/spills.
 
 The original run 1 is invalid and preserved separately. Its stale stream handle launched kernels outside graph capture, producing implausible sub-microsecond empty-graph timings. No performance claim uses those numbers. Root review also corrected an earlier batch-two output stride and matched the batch-specific warp assignment before the valid measurements. A full batch-two packed-buffer candidate is the next experiment; this microprobe establishes no serving or RL gain. Evidence: `outputs/megakernel-20261025/r34-packed-input-probe/{projection_probe.cu,harness.py,results-valid-r2.json,results-valid-r3.json,results-invalid-empty-graph-r1.json,guard-inner-r2/result.json,guard-inner-r3/result.json,build/ptxas-journal-r1.log}`.
+
+## Experiment 202: full B2 packed shared activations do not improve decode
+
+R34 carries Experiment 201 into the full 32-layer decoder, retaining FP32 shared vectors for B1 and storing B2 vectors as BF16. Norm, attention-merge and activation producers already round to BF16; consumers expand those same values before the unchanged FP32 FMA sequence. There is no extra packing pass, ABI change or workspace growth. Independent source review found no mathematical or layout blocker. Compilation keeps B1 at 241 registers and 36,644 bytes shared memory, and reduces B2 from R30's 245 registers/43,056 bytes to 239/32,816. Neither specialization spills.
+
+| Case | R30 pooled event median | R34 pooled event median | Change | Both-beat-both blocks |
+|---|---:|---:|---:|---:|
+| B1 / 32 | 2.886288 ms | 2.889728 ms | +0.119% | 0/3 |
+| B1 / 128 | 2.941952 ms | 2.939104 ms | -0.097% | 2/3 |
+| B2 / 32 | 3.128320 ms | 3.152832 ms | +0.784% | 0/3 |
+| B2 / 128 | 3.212224 ms | 3.243008 ms | +0.958% | 0/3 |
+| B1 / 1024 | 3.247104 ms | 3.239936 ms | -0.221% | 3/3 |
+| B2 / 1024 | 3.669024 ms | 3.689472 ms | +0.557% | 0/3 |
+
+Each case uses three alternating ABBA/BAAB/ABBA blocks with 20 events per placement, or 120 events per arm. Every final hidden state and all 32 layers' K/V match R30 bitwise. The inner guard passes with 1,955 MiB sampled GPU peak, zero swap and at least 8,625,176,576 bytes available host RAM. This first full-kernel process fails the speed gate on every B2 shape, so R34 is not adopted and no serving or RL test is justified. The result shows that smaller shared storage and isolated GEMV gains do not guarantee a faster integrated kernel. The next hypothesis limits packing to QKV/O while retaining R30's FP32 gate/up and down paths. Evidence: `outputs/megakernel-20261025/r34-packed-full/{candidate/,r34build/ptxas.log,results/all-six-r1.json,guard-inner-r1/result.json,guard-outer-r1/result.json}`.
