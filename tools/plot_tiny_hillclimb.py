@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-186);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-202);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 20.95  # inches; about 4150 px at 200 dpi
+PAGE_H = 25.4  # inches; about 5080 px at 200 dpi
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 186 experiments.
+# Experiment index. Outcome codes and lanes for all 202 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -159,6 +159,12 @@ CODES = {
         173,
         177,
         179,
+        187,
+        192,
+        193,
+        197,
+        198,
+        201,
     ],
     "A": [
         25,
@@ -201,11 +207,20 @@ CODES = {
         155,
         157,
         174,
+        199,
+        200,
     ],
     "X": [
         181,
         184,
         185,
+        188,
+        189,
+        190,
+        191,
+        195,
+        196,
+        202,
         5,
         9,
         11,
@@ -266,7 +281,7 @@ CODES = {
         176,
     ],
     "B": [183, 2, 19, 22, 27, 29, 30, 36, 41, 42, 45, 46, 56, 88, 91],
-    "D": [3, 13, 24, 26, 31, 32, 33, 44, 49, 58, 67, 102, 115, 117, 125, 126, 162, 165, 169, 186],
+    "D": [3, 13, 24, 26, 31, 32, 33, 44, 49, 58, 67, 102, 115, 117, 125, 126, 162, 165, 169, 186, 194],
 }
 LANES = [
     (
@@ -416,6 +431,7 @@ LANES = [
             109,
             110,
             113,
+            200,
         ],
     ),
     (
@@ -477,6 +493,21 @@ LANES = [
             179,
             184,
             186,
+            187,
+            188,
+            189,
+            190,
+            191,
+            192,
+            193,
+            194,
+            195,
+            196,
+            197,
+            198,
+            199,
+            201,
+            202,
         ],
     ),
 ]
@@ -511,16 +542,20 @@ def register_fonts() -> tuple[str, str]:
         for path in list(font_dir.glob("*.ttf")) + list(font_dir.glob("*.otf")):
             font_manager.fontManager.addfont(str(path))
     names = {font.name for font in font_manager.fontManager.ttflist}
-    prose = "Lexend" if "Lexend" in names else "DejaVu Sans"
-    mono = "IBM Plex Mono" if "IBM Plex Mono" in names else "DejaVu Sans Mono"
+    if "Lexend" not in names or "IBM Plex Mono" not in names:
+        raise RuntimeError("TINY_PRL_FONT_DIR must contain Lexend and IBM Plex Mono fonts")
+    prose = "Lexend"
+    mono = "IBM Plex Mono"
     return prose, mono
 
 
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert sorted(codes_of) == list(range(1, 187)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 187)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 202
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 202
+    assert sorted(codes_of) == list(range(1, 203)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 203)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -851,7 +886,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 187)
+    ax.set_xlim(0, 203)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -883,7 +918,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 186])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 202])
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
     )
@@ -925,7 +960,7 @@ def draw_serving(pg, y):
     for label, ((s1, s2), (c1, c2)) in SERVING.items():
         parts.append(f"{label}: B1 {c1:.1f} vs stock {s1:.1f} ms, B2 {c2:.1f} vs stock {s2:.1f} ms")
     text = (
-        "Serving still trails stock (in-process vLLM, scheduler-inclusive ITL, prompt 32). "
+        "Early serving pilots trail stock (in-process vLLM, scheduler-inclusive ITL, prompt 32). "
         + "; ".join(parts)
         + ". Greedy tokens match in all paired trials; exact logprob hashes match in none."
     )
@@ -941,7 +976,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-            "examples/tiny/EXPERIMENTS.md, Experiments 1-186; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-202; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -950,11 +985,56 @@ def draw_footer(pg, y):
     )
 
 
+def draw_recent_serving(pg):
+    comparisons = [
+        ("Exp 187 · R28 vs stock", -18.2, -7.7),
+        ("Exp 193 · R30 vs R28", -2.773, -0.628),
+        ("Exp 202 · R34 vs R30 decoder", +0.119, +0.784),
+    ]
+    ax = pg.axes(3.45, 21.25, 3.8, 1.2)
+    ax.set_xlim(-20, 2.5)
+    ax.set_ylim(len(comparisons) - 0.5, -0.5)
+    ax.axvline(0, color=INK, linewidth=0.6)
+    for i, (label, b1, b2) in enumerate(comparisons):
+        rejected = i == 2
+        ax.hlines(i, min(0, b1), max(0, b1), color=PALE if rejected else ACCENT, linewidth=2.2, zorder=1)
+        if rejected:
+            ax.scatter([b1, b2], [i, i], s=24, marker="x", color=INK, linewidths=1.0, zorder=3)
+        else:
+            ax.scatter([b1], [i], s=25, facecolor=ACCENT, edgecolor=ACCENT, zorder=3)
+            ax.scatter([b2], [i], s=25, facecolor="white", edgecolor=ACCENT, linewidths=0.9, zorder=3)
+        b1_label_x = b1 + 0.35 if b1 < -16 else b1 - 0.35
+        b1_align = "left" if b1_label_x > b1 else "right"
+        ax.text(b1_label_x, i - 0.12, f"B1 {b1:+.1f}%", ha=b1_align, va="bottom", fontsize=6.3, color=INK, fontfamily=pg.mono)
+        b2_label_x = b2 - 0.35 if b2 > -1 else b2 + 0.35
+        b2_align = "right" if b2_label_x < b2 else "left"
+        ax.text(b2_label_x, i + 0.13, f"B2 {b2:+.1f}%", ha=b2_align, va="top", fontsize=6.3, color=INK, fontfamily=pg.mono)
+    ax.set_yticks(range(len(comparisons)))
+    ax.set_yticklabels([row[0] for row in comparisons], fontfamily=pg.prose, fontsize=6.7)
+    ax.set_xticks([-20, -15, -10, -5, 0, 2])
+    ax.set_xticklabels(["-20%", "-15%", "-10%", "-5%", "0", "+2%"])
+    clean_axes(ax)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlabel("context 32 change vs named baseline, percent (negative is faster)", fontsize=6.8, color=SUB, fontfamily=pg.prose, labelpad=2)
+    ax.spines["bottom"].set_visible(True)
+    pg.text(7.5, 21.3, fill("Serving: R28 vs stock (187), R30 vs R28 (193). R28 passes 29/46 per-case max-logit floors (187).", 28), size=6.8, color=SUB)
+    pg.text(7.5, 22.05, fill("Exp 202 is direct decoder timing, not serving; R34 is rejected on B2. R30 remains unadopted.", 28), size=6.8, color=SUB)
+    card = pg.axes(GUTTER, 22.7, PAGE_W - 2 * GUTTER, 1.15)
+    card.set_facecolor(CARD)
+    card.set_xticks([])
+    card.set_yticks([])
+    for spine in card.spines.values():
+        spine.set_visible(False)
+    card.text(0.025, 0.82, "174.079 s stock  ·  145.818 s R30", transform=card.transAxes, fontsize=12, color=ACCENT, fontfamily=pg.mono, va="top")
+    card.text(0.025, 0.48, "Exp 200 · SmolLM2-360M, full parameters, two updates each", transform=card.transAxes, fontsize=7.6, color=INK, fontfamily=pg.prose, va="top")
+    card.text(0.025, 0.25, "40,761 stock tokens vs 33,285 R30 tokens; unequal work does not establish an RL speedup.", transform=card.transAxes, fontsize=7.3, color=SUB, fontfamily=pg.prose, va="top")
+
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-186", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-202", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1032,11 +1112,14 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 186 experiments",
+        "Index of all 202 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
-    draw_footer(pg, 20.55)
+    pg.section(20.55, "05", "360M serving and full-parameter RL", "Serving comparisons keep their own baselines; the two-update RL pair performed unequal work.")
+    draw_recent_serving(pg)
+    pg.text(GUTTER, 24.15, fill("Exp 198: R33's small B2 serving gain is not independently repeated. Exp 199 verifies filesystem weight refresh reaches R30. Exp 202 rejects B2 packing.", 165), size=6.6, color=SUB)
+    draw_footer(pg, 24.65)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)
