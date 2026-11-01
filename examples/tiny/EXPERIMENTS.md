@@ -2002,3 +2002,19 @@ The actual-GPU microprobe compared dense gate/up weights with the lossless codec
 | Lossless GPU decode | 86.425 us | 86.336–86.592 us | 56 | 7,680 B | 0 |
 
 The candidate takes 2.004x as long (+100.406% latency), so it is rejected and not adopted. Its encoded weights, including CSR metadata, use 256,225,056 bytes versus 314,572,800 dense bytes (18.548% fewer bytes). This is a storage reduction paired with a slower projection microprobe, not an RL or full-decoder result; the probe excludes SwiGLU and surrounding MLP work. Both guarded runs returned zero with no stop reason or swap, 1,019 MiB sampled GPU peak, and at least 9.13 GB available host RAM. Evidence: `outputs/megakernel-20261025/gateup-lossless-probe-r1/results-r1.json`, `guard-inner-r1/result.json`, and `guard-outer-r1/result.json`.
+
+## Experiment 215: profile the lossless decoder's local warp intervals
+
+The profiled lossless GPU decoder matches the control's projection outputs exactly, and all 157,286,400 decoded weight words match their source values. All 960 summed phase cells are positive. Five interleaved placements per arm, with five replays per placement, measure 4.56976% absolute instrumentation overhead, within the 5% gate. Raw event ranges are broad and drift across placements, so this is not a new latency result.
+
+Median warp-local cycle sums across 32 layers are 6,624,619 for the whole interval, 3,036,549 for raw-offset/prefetch setup, 2,918,431.5 for decode, 280,017.5 for activation/FMA, and 286,034.5 for reduction. These scheduled source-region intervals are not pure memory or arithmetic latency, wall-time shares, or causal percentages. Independent load completion can occur in later intervals, and the reported medians need not add. The profile motivates a follow-up test that removes raw-prefetch setup; it does not predict that test's outcome.
+
+The profiled kernel uses 76 registers versus 56 for control, with 7,680 bytes shared memory and no spills or stack in either. Guards pass at 1,019 MiB sampled GPU peak with zero swap. Evidence: `outputs/megakernel-20261025/gateup-lossless-profile-r1/results-r1.json` and `../prime-kernels/research/smollm2_360m_decode/experiments/gateup-lossless-profile-r1/ARCHIVE.md`.
+
+## Experiment 216: removing raw-escape prefetch setup regresses the projection
+
+The candidate removes only the two CSR offset loads and conditional raw-escape L2 range hint setup. Plane and header hints, decode math, row mapping, and the control kernel remain unchanged; an exact source proof confirms the candidate kernel is the control with those three setup lines deleted. Both timed arms retain the CSR offsets and raw-escape allocation, so the candidate does not reduce allocated compressed storage.
+
+Five alternating placements with five graph replays per placement yield 800 timed projection calls per arm. The compressed control median is 86.523 us per layer (79.296–87.119); without raw-prefetch setup it is 103.833 us (96.407–104.352), an observed 20.006% latency increase in this run. The sample ranges do not overlap. Both arms match dense outputs exactly in FP32 and BF16, and all 157,286,400 decoded weight words match exactly. This rejects removing the raw-prefetch setup for the tested projection. Retain the hints; the probe excludes SwiGLU and surrounding MLP work and establishes no RL result.
+
+Both compressed kernels use 56 registers and 7,680 bytes shared memory, with zero spills. Inner and outer guards return zero with no stop reason or swap; sampled GPU peak is 1,019 MiB. Evidence: `outputs/megakernel-20261025/gateup-lossless-no-raw-prefetch-r1/results-r1.json`, `source_deletion_proof.py`, and `guard-inner-r1/result.json` / `guard-outer-r1/result.json`.
