@@ -1901,3 +1901,87 @@ Both on times beat both off times. Raw mean child elapsed is 135.950 seconds off
 All eight updates have finite loss, gradient norm and mismatch KL, with eight effective training traces per run. All four same-worker private R30 load/decode routes match the pinned hashes. Guards return zero with no stop reasons or cgroup swap, GPU peaks of 7,218–7,400 MiB and at least 4,555,190,272 bytes available host RAM. Completed-window errors, cancellations and stale counts are zero. In A1/B1's first update, both arms collect 176 rollouts/88 tasks and nearly identical tokens (19,057/19,063); trainer batch wait falls from 50.289 to 17.317 seconds. That supports further investigation of rollout waiting, but does not isolate process startup or establish causality for the whole gap. The second off control's first update has different work, so the near-match does not extend to every arm.
 
 The initial guard-only attempt `fs360-20261101-a1-off` was rejected before any training because the driver mistook the launcher-created guard directory for a reused run. The driver now checks output/metadata freshness while the shell still preflights all three paths; that failed attempt is excluded and preserved. Evidence: `outputs/megakernel-20261025/r30-full-forkserver-audit-r1/{audit.py,audit-result.json,report.md}`, and `r30-full-forkserver-r1/{configs/,probe/,results/rl-case-fs360-20261101-b-*,results/rl-guard-fs360-20261101-b-*/result.json}`. The audit validates actual runtime config differences, per-step work, finite updates, routes and guard outcomes without loading models.
+
+## Experiment 205: integrated phase diagnostics keep gate/up as the next investigation target
+
+Private R30 and R35 profiling clones preserve the original math and barriers, recording CTA-local work and grid-wait intervals over all 32 layers. Both B2/context-32 and context-128 cases match their own uninstrumented control's final hidden states and every K/V layer exactly. Measured instrumentation overhead is 0.427/0.360% for R30 and 0.277/0.351% for R35, within the 5% diagnostic gate. The profiled B2 builds use 249 registers/43,232 bytes shared memory and 251/47,072 respectively, without stack or spills.
+
+R30's median per-CTA gate/up-plus-wait totals are 3.938 and 4.011 million cycles, compared with QKV's 1.212/1.239 million and down/residual's 1.176/1.161 million. The gate/up interval includes the following down-weight prefetch, so it does not isolate GEMV arithmetic. Grid wait also includes arrival skew. R35 similarly has the largest interval there. These are same-CTA sums over layers, not sums across CTAs, wall-time shares or hardware-counter utilization.
+
+Observed capture clocks differ: R30 reports 2250 MHz before/after each capture, versus R35's 2340 MHz. Small cross-variant cycle differences therefore do not establish causal phase speedups. All guards pass with zero swap and 1,387 MiB sampled GPU peaks. The next profile will separate gate/up math from down-prefetch issue cost. An earlier line-offset instrumentation draft was rejected before build because markers could split conditionals; the measured clones use reviewed semantic anchors. Evidence: `outputs/megakernel-20261025/r30-r35-stage-profile-r1/{prepare_sources.py,r30-profile/,r35-profile/,build/,results/*-b2-r1.json,results/*-b2-summary-r1.json,guard-inner-*/result.json}`.
+
+## Experiment 206: contiguous gate/up row ownership does not establish a decoder gain
+
+R36 changes only B2 gate/up's row starting index from `warp*24+CTA` to `CTA*8+warp`. All rows remain covered once, and the paired gate/up arithmetic, other phase assignments, prefetch hints, barriers and ABI stay fixed. B1 is unchanged. Compiler resources match R30 at 241/245 registers and 36,644/43,056 bytes shared memory, with no stack/spills.
+
+| Batch/context | R30 event median | R36 event median | Change | Strict winning blocks |
+|---|---:|---:|---:|---:|
+| 1/32 | 2.883584 ms | 2.886160 ms | +0.089% | 0/3 |
+| 1/128 | 2.940912 ms | 2.937344 ms | -0.121% | 3/3 |
+| 2/32 | 3.124224 ms | 3.121520 ms | -0.087% | 2/3 |
+| 2/128 | 3.209216 ms | 3.210240 ms | +0.032% | 0/3 |
+| 1/1024 | 3.244032 ms | 3.238912 ms | -0.158% | 3/3 |
+| 2/1024 | 3.666448 ms | 3.660736 ms | -0.156% | 3/3 |
+
+The three-block direct comparison has 120 events per arm/case. Candidate/control hidden and all-layer K/V match bitwise. B2 fails the speed gate at two contexts, with effects similar to unchanged-B1 variation, so R36 is not adopted. Guards pass with zero swap and a 1,955 MiB GPU peak. Initial launch 1 stopped before the benchmark because its guard-directory argument was omitted; it contains no performance result. Evidence: `outputs/megakernel-20261025/r36-gateup-cta-map/{candidate/,source-preflight.json,r36build/,results/all-six-r2.json,guard-inner-r2/result.json,guard-outer-r1/result.json}`.
+
+## Experiment 207: fixed-work warm fork-server runtime is faster with identical mock requests
+
+A CPU-only probe executes the actual Verifiers chat program and subprocess runtime against a deterministic local OpenAI-compatible SSE server. Twelve placements give six per arm, with eight fixed prompts per placement and concurrency two. Both arms execute 48 measured episodes successfully; request bodies, served responses and returned program outputs match, with zero equivalence mismatches or nonzero exits. Each arm's first invocation is reported separately and excluded from warm timing; this does not compare cold setup costs.
+
+| Warm measurement | Fork server off | Fork server on |
+|---|---:|---:|
+| Median wall per eight-episode block | 3.339825 s | 0.568600 s |
+| Block wall range | 3.3026–3.3513 s | 0.5580–0.5777 s |
+| Median launch-to-first-request | 0.740179 s | 0.129347 s |
+| Median program episode | 0.830044 s | 0.141022 s |
+
+The warm fixed-work block median is about 83.0% lower, with all six on blocks below all six off blocks. The test ran with CUDA hidden, a two-core quota, 2 GiB memory cap and zero-swap limit. It isolates a runtime component with mock model responses; it is not live-policy RL throughput, optimizer work, reward equivalence or a replacement for Experiment 204's unequal-work caveat. Evidence: `outputs/rollout-overhead-20261101/forkserver-fixed-work-r1/{bench.py,README.md,results.json}` and user unit `forkserver-fixed-work-20261101-r1`.
+
+## Experiment 208: per-row PTX async weight staging is neutral in the gate/up microprobe
+
+An isolated B2 gate/up probe compares `__ldg(uint4)` with two shared buffers loaded through `cp.async.cg.shared.global`, using all 32 real 360M gate/up matrices and identical R30-style row prefetch in both arms. Activations are seeded BF16 values expanded into FP32 shared memory. Each lane waits for its copy group before consuming its own aligned words; the final partial K tile zero-fills eight lanes with in-bounds fallback addresses. SASS contains the expected async load and dependency-barrier instructions.
+
+Five alternating placements per arm, each with five graph replays across 32 layers, give 800 timed projection calls per arm. Replay overwrites NaN-poisoned buffers before timing, and all 327,680 output values per arm match exactly in FP32 and BF16 bits. Median per-layer time is 43.166 us for baseline versus 43.200 us for async, +0.079%, with overlapping samples. This establishes no speedup. Baseline/async use 64/62 registers and 7,680/24,064 bytes shared memory, with no stack or spills. Both guards pass at 471 MiB sampled GPU peak and zero swap. These standalone timings do not reproduce full-decoder cache competition or producer overlap. Evidence: `outputs/megakernel-20261025/gateup-cpasync-probe-r1/{projection_probe.cu,harness.py,results.json,ptxas.log,build/sass.txt,guard-inner-r1/result.json}`.
+
+## Experiment 209: a reusable stock-vLLM 360M full-parameter preset completes two updates
+
+`examples/tiny/smollm2-360m-full-stream64.toml` provides a portable HF model ID, full FP32 optimization/reduction, full activation checkpointing, chunked optimizer state with a 2 GiB GPU budget, fork server, and 64 MB streamed filesystem weight shards. It uses stock vLLM and no private decode/preload environment flags. This is a bounded two-update pilot, not a longer-run or performance claim.
+
+The local validation used the existing `a10cc1512eabd3dde888204e902eca88bddb4951` snapshot via `--model.name`, because the offline cache lacked the model ID's `main` reference. The initial alias lookup failed before training and is preserved. The snapshot-path run completed with nonzero finite gradient norms 0.043474/0.157787, finite losses, mismatch KL means 0.00071044/0.00195930, and `lora=null` in the resolved trainer config. It collected 444 rollouts/222 tasks/48,560 tokens.
+
+The guard returns zero with no stop reason, 85.138 seconds envelope elapsed, 7,398 MiB sampled GPU peak, zero cgroup swap and at least 5,049,802,752 bytes available host RAM. This validates the preset on the tested RTX 4060 Laptop, with the model-identifier override explicitly recorded. Evidence: `outputs/megakernel-20261025/public360-profile-r1/validation.json` and `guard-r2/result.json`; configuration and usage are published in the preset and `docs/tiny-prl.md`.
+
+## Experiment 210: earlier B2 down-weight prefetch regresses the direct decoder
+
+R37 moves the unchanged B2 down-weight L2 hint loop from after gate/up to before gate/up, after norm2/debug capture. B1 retains its original location. Hints execute once, with no math, row-map, barrier, workspace or ABI changes. Compilation uses B1/B2 241/243 registers and 36,644/43,056 bytes shared memory, with zero stack/spills. A stale filename in the post-build checksum command was repaired without rebuilding the already-compiled library.
+
+| Batch/context | R30 event median | R37 event median | Change | Strict winning blocks |
+|---|---:|---:|---:|---:|
+| 1/32 | 2.885584 ms | 2.887680 ms | +0.073% | 0/3 |
+| 1/128 | 2.940128 ms | 2.938880 ms | -0.042% | 0/3 |
+| 2/32 | 3.124736 ms | 3.152896 ms | +0.901% | 0/3 |
+| 2/128 | 3.209216 ms | 3.238912 ms | +0.925% | 0/3 |
+| 1/1024 | 3.247104 ms | 3.238912 ms | -0.252% | 3/3 |
+| 2/1024 | 3.667968 ms | 3.688448 ms | +0.558% | 0/3 |
+
+All candidate/control hidden and all-layer K/V values match bitwise. The three-block, 120-event-per-arm/case run passes resource guards with zero swap and 1,955 MiB GPU peak, but B2 regresses throughout. R37 is not adopted. Evidence: `outputs/megakernel-20261025/r37-b2-early-down-prefetch/{candidate/,source-preflight.json,r37build/,results/all-six-r1.json,guard-inner-r1/result.json}`.
+
+## Experiment 211: keeping the async weight pipeline across rows does not improve the microprobe
+
+The persistent cross-row variant preserves Experiment 208's baseline and shared-memory plan, but prefetches the next row's first K tile while finishing the current row's last tile/reduction. Its lane-owned double buffers are drained only at the final task. A CPU schedule simulation covers all 2,560 rows/10,240 row-tile tasks; it is not a formal source-to-model proof. Independent source review and actual replay/parity checks supply separate evidence.
+
+All 327,680 output values per arm match in FP32 and BF16 bits after replay replaces NaNs. Five placements and five replays per placement again give 800 timed layer calls per arm. Baseline median is 43.162 us/layer versus 43.774 us for cross-row async, +1.418%. Baseline/candidate use 64/48 registers and 7,680/24,064 bytes shared memory, with no stack/spills. Guards pass at 471 MiB GPU peak and zero swap. The candidate is not adopted; fewer registers and a longer pipeline did not produce a standalone projection win. Evidence: `outputs/megakernel-20261025/gateup-cpasync-crossrow-r1/{projection_probe.cu,harness.py,source_preflight.py,results.json,ptxas.log,guard-inner-r1/result.json}`.
+
+## Experiment 212: gate/up math dominates its interval, not down-prefetch issue
+
+A reviewed R30 profiling clone retains the original eleven slots and adds two subslots inside the combined gate/up interval. The first wraps the unchanged GEMV/SwiGLU loop; the second wraps only the following down-weight L2 hint issue loop. The subslots are excluded from original totals and fractions to avoid double counting. No model math, decode ABI, workspace or existing barrier changes.
+
+| B2 context | Gate/up math, median CTA cycles | Down-prefetch issue, median CTA cycles | Combined work plus grid wait |
+|---|---:|---:|---:|
+| 32 | 3,508,541 | 16,898 | 3,963,991 |
+| 128 | 3,560,990 | 16,898 | 3,999,626.5 |
+
+Each entry sums 32 layers on one CTA, then takes the median across 24 CTAs. By the ratio of these reported medians, hint issue is below 0.5% of math-plus-hint work. This measures issue cost, not completion of prefetched memory transactions. The math interval includes operand loads, local stalls and SwiGLU, so it is not a pure arithmetic or DRAM counter. Grid waits still include arrival skew.
+
+The two cases match uninstrumented R30's final hidden and all-layer K/V bitwise. Event-overhead diagnostics are -0.950% and +0.349%, within the 5% gate; the negative value is not a speedup claim, and context 32 includes event-time drift. Observed capture clocks are 2250/2610 MHz for the two separate cases, so no cross-case time conversion is implied. The profiled B2 build uses 242 registers and 43,264 bytes shared memory with zero stack/spills. Guards pass with zero swap and 1,387 MiB GPU peak. This narrows the next investigation to gate/up work rather than hint-issue instructions. Evidence: `outputs/megakernel-20261025/r30-gateup-phase-split-r1/{prepare_sources.py,r30-profile/,profile_bench.py,analyze_phase_split.py,build/r30-ptxas.log,results/b2-r1.json,results/summary-r1.json,guard-inner-r1/result.json}`.

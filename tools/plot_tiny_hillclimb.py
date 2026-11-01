@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-204);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-212);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 28.4  # inches; 5680 px at 200 dpi
+PAGE_H = 32.0  # inches; 6400 px at 200 dpi
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 204 experiments.
+# Experiment index. Outcome codes and lanes for all 212 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -164,6 +164,7 @@ CODES = {
         193,
         197,
         198,
+        207,
         201,
     ],
     "A": [
@@ -209,6 +210,7 @@ CODES = {
         174,
         199,
         200,
+        209,
     ],
     "X": [
         181,
@@ -221,6 +223,9 @@ CODES = {
         195,
         196,
         202,
+        206,
+        210,
+        211,
         5,
         9,
         11,
@@ -281,7 +286,7 @@ CODES = {
         176,
     ],
     "B": [183, 2, 19, 22, 27, 29, 30, 36, 41, 42, 45, 46, 56, 88, 91],
-    "D": [3, 13, 24, 26, 31, 32, 33, 44, 49, 58, 67, 102, 115, 117, 125, 126, 162, 165, 169, 186, 194, 203, 204],
+    "D": [3, 13, 24, 26, 31, 32, 33, 44, 49, 58, 67, 102, 115, 117, 125, 126, 162, 165, 169, 186, 194, 203, 204, 205, 208, 212],
 }
 LANES = [
     (
@@ -331,6 +336,7 @@ LANES = [
             183,
             185,
             204,
+            207,
         ],
     ),
     (
@@ -433,6 +439,7 @@ LANES = [
             110,
             113,
             200,
+            209,
         ],
     ),
     (
@@ -510,6 +517,12 @@ LANES = [
             201,
             202,
             203,
+            205,
+            206,
+            208,
+            210,
+            211,
+            212,
         ],
     ),
 ]
@@ -554,10 +567,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 204
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 204
-    assert sorted(codes_of) == list(range(1, 205)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 205)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 212
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 212
+    assert sorted(codes_of) == list(range(1, 213)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 213)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -888,7 +901,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 205)
+    ax.set_xlim(0, 213)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -920,7 +933,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 204])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 212])
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
     )
@@ -978,7 +991,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-        "examples/tiny/EXPERIMENTS.md, Experiments 1-204; the numbers are embedded in "
+        "examples/tiny/EXPERIMENTS.md, Experiments 1-212; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1059,11 +1072,40 @@ def draw_forkserver_rl(pg):
     pg.text(GUTTER, 27.52, fill("Exp 203 · R35 unchanged-B1 placebo shifts keep selective QKV/O packing inconclusive; not adopted. Exp 204 is in the RL runtime lane.", 142), size=6.7, color=SUB)
 
 
+def draw_fixed_work_runtime(pg):
+    runs = {
+        "off": [3.347556148, 3.302596620, 3.321897478, 3.339739535, 3.351311772, 3.339909479],
+        "on": [0.564080237, 0.573481695, 0.570275755, 0.577663103, 0.557987118, 0.566924907],
+    }
+    medians = {"off": 3.339824507, "on": 0.568600331}
+    ys = {"off": 0, "on": 1}
+    colors = {"off": MUTED, "on": ACCENT}
+    ax = pg.axes(2.65, 28.7, PAGE_W - GUTTER - 2.65, 1.15)
+    ax.set_xlim(0, 3.65)
+    ax.set_ylim(-0.55, 1.55)
+    for arm in ("off", "on"):
+        y = ys[arm]
+        offsets = [-0.19, -0.11, -0.04, 0.04, 0.11, 0.19]
+        ax.scatter(runs[arm], [y + offset for offset in offsets], s=20, color=colors[arm], zorder=3)
+        ax.vlines(medians[arm], y - 0.25, y + 0.25, color=colors[arm], linewidth=1.2)
+        label_x = medians[arm] - 0.08 if arm == "off" else medians[arm] + 0.08
+        ax.text(label_x, y, f"median {medians[arm]:.3f} s", ha="right" if arm == "off" else "left", va="center", fontsize=6.5, color=colors[arm], fontfamily=pg.mono)
+    ax.set_yticks([0, 1], ["fork server off", "fork server on"])
+    ax.set_xticks([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5])
+    ax.set_xlabel("warm wall time per fixed eight-episode block, seconds", fontsize=6.7, color=SUB, fontfamily=pg.prose, labelpad=2)
+    clean_axes(ax)
+    ax.tick_params(axis="y", length=0, labelsize=6.5)
+    ax.spines["bottom"].set_visible(True)
+    pg.text(7.15, 28.66, "Exp 207 · 83.0% lower median", size=7.1, color=ACCENT, mono=True)
+    pg.text(GUTTER, 30.3, fill("Six placements per arm · 48 episodes each · concurrency 2. Deterministic mock SSE, CUDA hidden; no live policy, GPU or optimizer. Warm timing excludes each arm's first invocation. Source: outputs/rollout-overhead-20261101/forkserver-fixed-work-r1/results.json.", 165), size=6.5, color=SUB)
+    pg.text(GUTTER, 30.67, fill("Exp 209 · usable public 360M full-parameter preset; two-update stock-vLLM pilot passed, 7,398 MiB sampled GPU peak and zero cgroup swap. No speed claim. examples/tiny/smollm2-360m-full-stream64.toml.", 165), size=6.5, color=SUB)
+
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-204", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-212", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1141,7 +1183,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 204 experiments",
+        "Index of all 212 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1150,7 +1192,9 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.text(GUTTER, 24.15, fill("Exp 198: R33's small B2 serving gain is not independently repeated. Exp 199 verifies filesystem weight refresh reaches R30. Exp 202 rejects B2 packing.", 165), size=6.6, color=SUB)
     pg.section(24.72, "06", "Fork-server runtime experiment", "Actual full-parameter 360M RL child wall times; individual ABBA runs and arm means are shown.")
     draw_forkserver_rl(pg)
-    draw_footer(pg, 27.92)
+    pg.section(28.05, "07", "Fixed-work runtime component", "Warm mock-runtime blocks with identical requests and outputs; seconds are not comparable to the RL chart above.")
+    draw_fixed_work_runtime(pg)
+    draw_footer(pg, 31.28)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)
