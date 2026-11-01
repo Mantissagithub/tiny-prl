@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-216);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-217);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 32.0  # inches; 6400 px at 200 dpi
+PAGE_H = 35.5  # inches; 7100 px at 200 dpi
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 216 experiments.
+# Experiment index. Outcome codes and lanes for all 218 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -166,6 +166,7 @@ CODES = {
         198,
         207,
         201,
+        217,
     ],
     "A": [
         25,
@@ -213,6 +214,7 @@ CODES = {
         209,
     ],
     "X": [
+        218,
         214,
         216,
         181,
@@ -529,6 +531,8 @@ LANES = [
             214,
             215,
             216,
+            217,
+            218,
         ],
     ),
 ]
@@ -575,10 +579,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 216
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 216
-    assert sorted(codes_of) == list(range(1, 217)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 217)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 218
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 218
+    assert sorted(codes_of) == list(range(1, 219)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 219)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -909,7 +913,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 217)
+    ax.set_xlim(0, 219)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -941,7 +945,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 215, 216])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 218])
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
     )
@@ -999,7 +1003,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-        "examples/tiny/EXPERIMENTS.md, Experiments 1-216; the numbers are embedded in "
+        "examples/tiny/EXPERIMENTS.md, Experiments 1-218; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1109,11 +1113,35 @@ def draw_fixed_work_runtime(pg):
     pg.text(GUTTER, 30.67, fill("Exp 209 · usable public 360M full-parameter preset; two-update stock-vLLM pilot passed, 7,398 MiB sampled GPU peak and zero cgroup swap. No speed claim. examples/tiny/smollm2-360m-full-stream64.toml.", 165), size=6.5, color=SUB)
 
 
+def draw_simd_projection(pg):
+    arms = [
+        ("Dense", 43.136001, MUTED),
+        ("Original compressed", 86.458500, PALE),
+        ("SIMD pair decode", 75.467002, ACCENT),
+    ]
+    ax = pg.axes(2.3, 32.05, PAGE_W - GUTTER - 2.3, 1.2)
+    ax.set_xlim(0, 103)
+    ax.set_ylim(-0.55, 2.55)
+    for i, (name, value, color) in enumerate(arms):
+        y = 2 - i
+        ax.barh(y, value, height=0.48, color=color, edgecolor=ACCENT if name == "Original compressed" else color, linewidth=0.65 if name == "Original compressed" else 0)
+        ax.text(value + 1.2, y, f"{value:.3f} us", va="center", fontsize=6.7, color=INK, fontfamily=pg.mono)
+    ax.set_yticks([2, 1, 0], [arm[0] for arm in arms])
+    ax.set_xticks([0, 20, 40, 60, 80, 100])
+    ax.set_xlabel("median projection time per layer, microseconds · lower is faster", fontsize=6.7, color=SUB, fontfamily=pg.prose, labelpad=2)
+    clean_axes(ax)
+    ax.tick_params(axis="y", length=0, labelsize=6.5)
+    ax.spines["bottom"].set_visible(True)
+    pg.text(6.6, 31.91, "SIMD: -12.7% vs compressed · +75.0% vs dense", size=7.0, color=ACCENT, mono=True)
+    pg.text(GUTTER, 33.65, fill("Exp 217 · balanced same-session three-arm probe, six placements × five replays × 32 layers (960 calls/arm). First two-arm run: compressed 86.304 to SIMD 75.424 us/layer. Exact decoded weights and outputs; 80 registers, 7,680 B shared, no spills. Raw projection component only; no serving adoption or RL win. Evidence: outputs/megakernel-20261025/gateup-lossless-simd-decode-r1/results-r1.json and results-r2.json.", 165), size=6.5, color=SUB)
+    pg.text(GUTTER, 34.22, "Exp 218 · bulk raw hints: 83.616 us/layer (+10.814% vs SIMD control); rejected, retain per-row hints.", size=6.4, color=SUB)
+
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-216", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-218", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1191,7 +1219,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 216 experiments",
+        "Index of all 218 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1202,7 +1230,9 @@ def build(output: Path, prose: str, mono: str) -> None:
     draw_forkserver_rl(pg)
     pg.section(28.05, "07", "Fixed-work runtime component", "Warm mock-runtime blocks with identical requests and outputs; seconds are not comparable to the RL chart above.")
     draw_fixed_work_runtime(pg)
-    draw_footer(pg, 31.28)
+    pg.section(31.2, "08", "SIMD pair decode: faster compressed projection, still slower than dense", "Same-session component medians; the lower compressed latency does not establish a serving or RL improvement.")
+    draw_simd_projection(pg)
+    draw_footer(pg, 34.85)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)

@@ -2018,3 +2018,21 @@ The candidate removes only the two CSR offset loads and conditional raw-escape L
 Five alternating placements with five graph replays per placement yield 800 timed projection calls per arm. The compressed control median is 86.523 us per layer (79.296–87.119); without raw-prefetch setup it is 103.833 us (96.407–104.352), an observed 20.006% latency increase in this run. The sample ranges do not overlap. Both arms match dense outputs exactly in FP32 and BF16, and all 157,286,400 decoded weight words match exactly. This rejects removing the raw-prefetch setup for the tested projection. Retain the hints; the probe excludes SwiGLU and surrounding MLP work and establishes no RL result.
 
 Both compressed kernels use 56 registers and 7,680 bytes shared memory, with zero spills. Inner and outer guards return zero with no stop reason or swap; sampled GPU peak is 1,019 MiB. Evidence: `outputs/megakernel-20261025/gateup-lossless-no-raw-prefetch-r1/results-r1.json`, `source_deletion_proof.py`, and `guard-inner-r1/result.json` / `guard-outer-r1/result.json`.
+
+## Experiment 217: SIMD pair decoding improves the compressed projection component, not dense latency
+
+The candidate uses PRMT and packed integer arithmetic to reconstruct pairs of BF16 words. It preserves raw-escape hints, row mapping, FMA order and reduction; the original compressed control remains unchanged. Source equivalence and CPU arithmetic proofs cover the decoder transformation.
+
+The initial two-arm run measured 86.304 us/layer for compressed control and 75.424 us/layer for SIMD decode. A balanced three-arm run in the same session measured dense at 43.136001 us/layer, original compressed at 86.458500 us/layer and SIMD at 75.467002 us/layer. SIMD is 12.7130% faster than the compressed control in this component probe, but 74.9513% slower than dense. Do not adopt it for serving: this is a projection-component result, not an RL or full-inference win.
+
+Each balanced-run arm has six placements and five graph replays per placement, totaling 960 timed projection calls. All 157,286,400 decoded BF16 weight words are exact; all three arms match on 327,680 output elements per arm in FP32 and BF16, with poisoned graph writes verified. The CPU proof covers all 65,536 byte pairs, 16,075 valid delta/base cases, 64,300 sign/mantissa corners and four PRMT selector mappings. SIMD/control/dense use 80/56/64 registers and 7,680 bytes shared memory each, with no spills or stack. Both runs pass guards at 1,019 MiB sampled GPU peak and zero swap. The probe excludes SwiGLU, full inference and RL.
+
+Evidence: `outputs/megakernel-20261025/gateup-lossless-simd-decode-r1/results-r1.json`, `results-r2.json`, `cpu_arithmetic_proof.py`, `source_equivalence_proof.py`, and `../prime-kernels/research/smollm2_360m_decode/experiments/gateup-lossless-simd-decode-r1/ARCHIVE.md`.
+
+## Experiment 218: cooperative bulk raw-table hints regress SIMD projection latency
+
+This candidate changes only the raw-escape prefetch policy, from per-row hints to cooperative 128-byte raw-table hints. Plane and header hints, decode math, row mapping, FMA order and reduction stay unchanged. The SIMD per-row-prefetch control remains unchanged.
+
+Five alternating placements with five graph replays per placement give 800 timed calls per arm. The SIMD control median is 75.456 us/layer (75.351–76.441); bulk raw-prefetch is 83.616 us/layer (83.480–83.808), a 10.814% latency increase. Both arms decode all 157,286,400 BF16 weights exactly and match on 327,680 output elements per arm in FP32 and BF16; both NaN-poisoned graph replay checks pass. Both kernels use 80 registers and 7,680 bytes shared memory, with no spills. Guards pass with zero stop reason, zero swap and 1,019 MiB sampled GPU peak; minimum available host memory is 8.14 GB.
+
+Reject the bulk-hint policy and retain per-row SIMD hints. This is a projection-component result, not a serving or RL comparison; the probe excludes SwiGLU and surrounding MLP work. Evidence: `outputs/megakernel-20261025/gateup-lossless-bulk-raw-prefetch-r1/results-r1.json`, `source_equivalence_proof.py`, and `guard-inner-r1/result.json` / `guard-outer-r1/result.json`.
