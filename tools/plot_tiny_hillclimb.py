@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-220);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-221);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 35.5  # inches; 7100 px at 200 dpi
+PAGE_H = 39.0  # inches; 7800 px at 200 dpi
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 220 experiments.
+# Experiment index. Outcome codes and lanes for all 221 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -291,7 +291,7 @@ CODES = {
         176,
     ],
     "B": [183, 2, 19, 22, 27, 29, 30, 36, 41, 42, 45, 46, 56, 88, 91],
-    "D": [3, 13, 24, 26, 31, 32, 33, 44, 49, 58, 67, 102, 115, 117, 125, 126, 162, 165, 169, 186, 194, 203, 204, 205, 208, 212, 213, 215, 220],
+    "D": [3, 13, 24, 26, 31, 32, 33, 44, 49, 58, 67, 102, 115, 117, 125, 126, 162, 165, 169, 186, 194, 203, 204, 205, 208, 212, 213, 215, 220, 221],
 }
 LANES = [
     (
@@ -536,6 +536,7 @@ LANES = [
             218,
             219,
             220,
+            221,
         ],
     ),
 ]
@@ -582,10 +583,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 220
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 220
-    assert sorted(codes_of) == list(range(1, 221)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 221)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 221
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 221
+    assert sorted(codes_of) == list(range(1, 222)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 222)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -916,7 +917,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 221)
+    ax.set_xlim(0, 222)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -948,7 +949,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 220])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 221])
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
     )
@@ -1006,7 +1007,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-        "examples/tiny/EXPERIMENTS.md, Experiments 1-220; the numbers are embedded in "
+        "examples/tiny/EXPERIMENTS.md, Experiments 1-221; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1141,11 +1142,82 @@ def draw_simd_projection(pg):
     pg.text(GUTTER, 34.47, "Exp 219 · predicated decode: 61.215 us vs SIMD 79.803, dense 48.650; component-only, no adoption.", size=6.4, color=SUB)
 
 
+def draw_cache_working_set(pg):
+    r1 = [(1, 36.015999), (2, 36.030000), (4, 38.189501), (32, 61.209500)]
+    r2_anchor = (31.392001, 31.441000, 31.485500)
+    r2_all_layers = 53.647999
+
+    pg.text(0.65, 35.48, "R1 · layer-call map", size=7.2, color=INK)
+    ax = pg.axes(0.85, 35.76, 3.85, 1.35)
+    xs = [0, 1, 2, 5]
+    ys = [value for _, value in r1]
+    ax.plot(xs, ys, color=ACCENT, linewidth=1.4, marker="o", markersize=4, markerfacecolor=ACCENT)
+    for x, y in zip(xs, ys):
+        ax.annotate(
+            f"{y:.2f}",
+            (x, y),
+            xytext=(0, 5),
+            textcoords="offset points",
+            ha="center",
+            fontsize=6.1,
+            color=INK,
+            fontfamily=pg.mono,
+        )
+    ax.set_xlim(-0.4, 5.4)
+    ax.set_ylim(28, 68)
+    ax.set_xticks(xs, ["1", "2", "4", "32"])
+    ax.set_yticks([30, 45, 60])
+    ax.set_ylabel("µs/call", fontsize=6.2, color=SUB, fontfamily=pg.prose, labelpad=1)
+    ax.set_xlabel("unique layers touched · log₂ spacing", fontsize=6.2, color=SUB, fontfamily=pg.prose, labelpad=1)
+    clean_axes(ax)
+    ax.tick_params(axis="x", labelsize=6.2, pad=1)
+
+    pg.text(5.05, 35.48, "R2 · 32 warm anchors vs all layers", size=7.2, color=INK)
+    ax = pg.axes(5.1, 35.76, 3.95, 1.35)
+    ax.set_xlim(-0.45, 1.45)
+    ax.set_ylim(28, 60)
+    ax.vlines(0, r2_anchor[0], r2_anchor[2], color=ACCENT, linewidth=2.0)
+    ax.scatter([0], [r2_anchor[1]], s=25, color=ACCENT, zorder=3)
+    ax.scatter([1], [r2_all_layers], s=25, color=INK, zorder=3)
+    ax.annotate(
+        "31.44 median\n31.39–31.49 range",
+        (0, r2_anchor[1]),
+        xytext=(8, -1),
+        textcoords="offset points",
+        ha="left",
+        va="center",
+        fontsize=5.9,
+        color=INK,
+        fontfamily=pg.mono,
+    )
+    ax.annotate(
+        "53.65",
+        (1, r2_all_layers),
+        xytext=(0, -10),
+        textcoords="offset points",
+        ha="center",
+        va="top",
+        fontsize=6.1,
+        color=INK,
+        fontfamily=pg.mono,
+    )
+    ax.set_xticks([0, 1], ["warm anchor", "all layers"])
+    ax.set_yticks([30, 45, 60])
+    ax.set_ylabel("µs/call", fontsize=6.2, color=SUB, fontfamily=pg.prose, labelpad=1)
+    clean_axes(ax)
+    ax.tick_params(axis="x", labelsize=5.9, pad=1)
+
+    pg.text(0.65, 37.45, "960 timed calls/case · all 32 layers resident; only the call map changes.", size=6.1, color=SUB)
+    pg.text(5.05, 37.45, "Separate R2 block · one 32-call prewarm per placement outside timing (192/case).", size=6.1, color=SUB)
+    pg.text(0.65, 37.70, "Exact FP32/BF16 outputs and decoded weights. Cache-pressure evidence, not an RL gain.", size=6.1, color=SUB)
+    pg.text(5.05, 37.70, "Plus 32 proof calls/case. Same kernel; R1/R2 times not compared; no RL claim.", size=6.1, color=SUB)
+
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-220", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-221", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1223,7 +1295,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 220 experiments",
+        "Index of all 221 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1236,7 +1308,9 @@ def build(output: Path, prose: str, mono: str) -> None:
     draw_fixed_work_runtime(pg)
     pg.section(31.2, "08", "SIMD pair decode: faster compressed projection, still slower than dense", "Same-session component medians; the lower compressed latency does not establish a serving or RL improvement.")
     draw_simd_projection(pg)
-    draw_footer(pg, 34.96)
+    pg.section(34.82, "09", "Cache working-set diagnostic", "Predicated gate/up projection · fixed kernel and resident weights · R1 and R2 are independent timing blocks.")
+    draw_cache_working_set(pg)
+    draw_footer(pg, 38.28)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)
