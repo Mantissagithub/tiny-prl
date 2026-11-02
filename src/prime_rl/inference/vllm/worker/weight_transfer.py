@@ -21,6 +21,9 @@ def load_weights_checkpoint_layerwise(
         initialize_layerwise_reload(model)
         loaded_parameters = model.load_weights(state_iter)  # type: ignore
         finalize_layerwise_reload(model, model_config)
+        from prime_rl.inference.vllm.decode_backend import refresh_lossless_weights
+
+        refresh_lossless_weights(model)
     return loaded_parameters
 
 

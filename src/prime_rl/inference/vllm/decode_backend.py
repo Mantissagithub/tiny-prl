@@ -20,6 +20,7 @@ logger = init_logger("vllm.prime_rl.decode_backend")
 
 REFERENCE_ENV = "PRIME_DECODE_REFERENCE"
 ENABLE_360M_ENV = "PRIME_DECODE_MEGAKERNEL_360M"
+ENABLE_360M_LOSSLESS_ENV = "PRIME_DECODE_MEGAKERNEL_360M_LOSSLESS"
 KERNEL_NAME_135M = "decode_megakernel"
 KERNEL_NAME_360M = "decode_megakernel_360m"
 KERNEL_NAME = KERNEL_NAME_135M
@@ -43,6 +44,9 @@ NUM_HEADS_360M = 15
 NUM_KV_HEADS_360M = 5
 
 stats: Counter[str] = Counter()
+_lossless_module = None
+_lossless_route_logged = False
+_lossless_decode_logged = False
 
 
 def _load_reference(path: str):
@@ -53,12 +57,18 @@ def _load_reference(path: str):
 
 
 def _resolve_decode_steps():
+    global _lossless_module
     if os.environ.get(REFERENCE_ENV):
         reference = _load_reference(os.environ[REFERENCE_ENV])
         return {KERNEL_NAME_135M: reference}
     import prime_kernels
 
     names = [KERNEL_NAME_135M]
+    if os.environ.get(ENABLE_360M_LOSSLESS_ENV) == "1":
+        from prime_kernels import decode_megakernel_360m_lossless
+
+        _lossless_module = decode_megakernel_360m_lossless
+        return {KERNEL_NAME_360M: _lossless_module.decode_step}
     # The 360M kernel is slower than stock vLLM in serving, so it stays a research opt-in.
     if os.environ.get(ENABLE_360M_ENV) == "1":
         names.append(KERNEL_NAME_360M)
@@ -195,6 +205,35 @@ def _decode_hidden_states(model: LlamaModel, decode_step, input_ids, positions, 
     )
 
 
+def refresh_lossless_weights(model: LlamaModel) -> None:
+    """Refresh encoded weights after finalized layerwise reloads when the route is enabled."""
+    llama_model = model if isinstance(model, LlamaModel) else getattr(model, "model", None)
+    if (
+        os.environ.get(ENABLE_360M_LOSSLESS_ENV) == "1"
+        and isinstance(llama_model, LlamaModel)
+        and _kernel_name_for_config(llama_model.config) == KERNEL_NAME_360M
+    ):
+        global _lossless_module
+        if _lossless_module is None:
+            from prime_kernels import decode_megakernel_360m_lossless
+
+            _lossless_module = decode_megakernel_360m_lossless
+        _lossless_module.refresh_weights([
+            (
+                layer.input_layernorm.weight,
+                layer.self_attn.qkv_proj.weight,
+                layer.self_attn.o_proj.weight,
+                layer.post_attention_layernorm.weight,
+                layer.mlp.gate_up_proj.weight,
+                layer.mlp.down_proj.weight,
+            )
+            for layer in llama_model.layers
+        ])
+        cache_stats = _lossless_module.cache_statistics(llama_model.layers[0].mlp.gate_up_proj.weight.device)
+        if cache_stats is not None:
+            logger.info("Lossless 360M GU cache refreshed: %s", cache_stats)
+
+
 def monkey_patch_decode_backend() -> None:
     """Route pure decode batches of up to MAX_BATCH requests through the decode step.
 
@@ -210,8 +249,25 @@ def monkey_patch_decode_backend() -> None:
     original_forward = LlamaModel.forward
 
     def forward(self, input_ids, positions, intermediate_tensors, inputs_embeds=None, **kwargs):
+        global _lossless_decode_logged, _lossless_route_logged
         kernel_name = _model_kernel_name(self) if inputs_embeds is None else None
         if kernel_name is not None and kernel_name in decode_steps:
+            if kernel_name == KERNEL_NAME_360M and os.environ.get(ENABLE_360M_LOSSLESS_ENV) == "1":
+                weights = [
+                    (
+                        layer.input_layernorm.weight,
+                        layer.self_attn.qkv_proj.weight,
+                        layer.self_attn.o_proj.weight,
+                        layer.post_attention_layernorm.weight,
+                        layer.mlp.gate_up_proj.weight,
+                        layer.mlp.down_proj.weight,
+                    )
+                    for layer in self.layers
+                ]
+                cache = _lossless_module.prepare_weights(weights)
+                if not _lossless_route_logged:
+                    logger.info("Lossless 360M decode route prepared: %s", cache.statistics())
+                    _lossless_route_logged = True
             meta = _decode_metadata(self)
             batch = input_ids.shape[0]
             if meta is None:
@@ -224,6 +280,9 @@ def monkey_patch_decode_backend() -> None:
                     stats["stock_unsupported_metadata"] += 1
                 else:
                     stats["backend_decode"] += 1
+                    if kernel_name == KERNEL_NAME_360M and os.environ.get(ENABLE_360M_LOSSLESS_ENV) == "1" and not _lossless_decode_logged:
+                        logger.info("Lossless 360M decode route active: batch=%d", batch)
+                        _lossless_decode_logged = True
                     return _decode_hidden_states(self, decode_step, input_ids, positions, meta)
         elif kernel_name is None or inputs_embeds is not None:
             stats["stock_ineligible"] += 1

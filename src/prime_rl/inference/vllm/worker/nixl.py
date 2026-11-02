@@ -579,6 +579,9 @@ class NIXLWeightUpdateWorker(Worker):
                     executor.shutdown(wait=True, cancel_futures=True)
 
             finalize_layerwise_reload(model, self.model_runner.model_config)
+            from prime_rl.inference.vllm.decode_backend import refresh_lossless_weights
+
+            refresh_lossless_weights(model)
 
     @staticmethod
     def replay_tensor_copy(plan: TensorCopyPlan) -> None:
