@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-227);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-228);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 45.0  # inches; append the serving panel at the existing scale
+PAGE_H = 48.0  # inches; append the serving panel at the existing scale
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 227 experiments.
+# Experiment index. Outcome codes and lanes for all 228 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -552,6 +552,8 @@ CODES["C"].append(226)
 LANES[-1][2].append(226)
 CODES["C"].append(227)
 LANES[-1][2].append(227)
+CODES["D"].append(228)
+LANES[-1][2].append(228)
 
 # Callouts: (experiment, lane, text, x offset in experiments, y offset in lanes, alignment).
 CALLOUTS = [
@@ -596,10 +598,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 227
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 227
-    assert sorted(codes_of) == list(range(1, 228)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 228)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 228
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 228
+    assert sorted(codes_of) == list(range(1, 229)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 229)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -930,7 +932,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 227)
+    ax.set_xlim(0, 228)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -962,7 +964,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 227])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 228])
     ax.get_xticklabels()[-1].set_ha("right")
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
@@ -1021,7 +1023,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-            "examples/tiny/EXPERIMENTS.md, Experiments 1-227; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-228; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1335,11 +1337,36 @@ def draw_b1_lossless(pg):
     pg.text(GUTTER, 44.37, "5 processes/arm · whiskers span process medians · B2 instructions unchanged · opt-in package; no verified RL wall-time point.", size=6.7, color=SUB)
 
 
+
+# Experiment 228: thread0 intervals, median CTA sum across 32 layers; not wall shares.
+PROFILE_228 = [196721.75, 148384.25, 2911826.25, 1202563.5]
+
+
+def draw_b1_profile(pg):
+    ax = pg.axes(2.0, 45.32, 3.0, 1.35)
+    labels = ["metadata + hints + wait", "norm2", "GU loop", "down hints + wait"]
+    for i, value in enumerate(PROFILE_228):
+        ax.barh(i, value / 1e6, color=ACCENT if i == 2 else MUTED, height=0.5)
+        ax.text(value / 1e6 + 0.045, i, f"{value / 1e6:.3f}", va="center", fontsize=6.2, color=INK, fontfamily=pg.mono)
+    ax.set_yticks(range(4), labels)
+    ax.invert_yaxis()
+    ax.set_xlim(0, 3.35)
+    ax.set_xlabel("million scheduled cycles · B1, context 128", fontsize=6.3, fontfamily=pg.prose, color=SUB)
+    clean_axes(ax)
+    ax.tick_params(axis="y", length=0, labelsize=6.1)
+    pg.text(5.45, 45.28, "Uninstrumented follow-ups", size=8.0, color=INK)
+    pg.text(5.45, 45.58, fill("CTA row balance: 112/104 GU rows per CTA becomes 107/106. Exact outputs, but only 2/3, 2/3, 1/3 strict blocks at contexts 32/128/1024.", 49), size=6.8, color=SUB)
+    pg.text(5.45, 46.22, fill("Compiler fences: both kernels are byte-identical to the package. No GPU rerun needed. Neither trial adopted.", 49), size=6.8, color=SUB)
+    pg.text(GUTTER, 47.07, "Thread0 interval per CTA, summed across layers; median across CTAs and six placements. Barrier intervals include waiting.", size=6.7, color=SUB)
+    pg.text(GUTTER, 47.22, "Instrumentation changes B1 latency by −1.22% to −1.51% across two processes. These are not pure memory costs or wall shares.", size=6.7, color=SUB)
+    pg.text(GUTTER, 47.37, "Counter access is admin-restricted. Production kernel retained; no new verified speedup or RL wall-time point.", size=6.7, color=SUB)
+
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-227", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-228", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1417,7 +1444,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 227 experiments",
+        "Index of all 228 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1436,7 +1463,9 @@ def build(output: Path, prose: str, mono: str) -> None:
     draw_lossless_serving(pg)
     pg.section(41.68, "11", "Lossless GU reaches batch one", "Exp 227 · same weights, reductions and rounding; compare the existing package with the B1-enabled variant.")
     draw_b1_lossless(pg)
-    draw_footer(pg, 44.62)
+    pg.section(44.68, "12", "B1 phase profile and two scheduling trials", "Exp 228 · diagnostic instrumentation plus uninstrumented parity/timing checks; no adoption.")
+    draw_b1_profile(pg)
+    draw_footer(pg, 47.62)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)
