@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-221);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-224);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 221 experiments.
+# Experiment index. Outcome codes and lanes for all 224 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -168,6 +168,8 @@ CODES = {
         201,
         217,
         219,
+        222,
+        223,
     ],
     "A": [
         25,
@@ -213,6 +215,7 @@ CODES = {
         199,
         200,
         209,
+        224,
     ],
     "X": [
         218,
@@ -342,6 +345,7 @@ LANES = [
             185,
             204,
             207,
+            224,
         ],
     ),
     (
@@ -537,6 +541,8 @@ LANES = [
             219,
             220,
             221,
+            222,
+            223,
         ],
     ),
 ]
@@ -583,10 +589,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 221
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 221
-    assert sorted(codes_of) == list(range(1, 222)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 222)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 224
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 224
+    assert sorted(codes_of) == list(range(1, 225)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 225)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -917,7 +923,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 222)
+    ax.set_xlim(0, 224)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -936,7 +942,7 @@ def draw_timeline(pg, top):
     lane_of = {e: key for key, _, exps in LANES for e in exps}
     for code in OUTCOMES:
         exps = sorted(CODES[code])
-        ax.scatter(exps, [lane_row[lane_of[e]] for e in exps], s=16, zorder=3, **STYLE[code])
+        ax.scatter(exps, [lane_row[lane_of[e]] for e in exps], s=16, zorder=3, clip_on=False, **STYLE[code])
     for exp, lane, text, dx, dy, ha in CALLOUTS:
         ax.annotate(
             text,
@@ -949,7 +955,8 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 221])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 224])
+    ax.get_xticklabels()[-1].set_ha("right")
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
     )
@@ -1007,7 +1014,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-        "examples/tiny/EXPERIMENTS.md, Experiments 1-221; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-224; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1211,13 +1218,41 @@ def draw_cache_working_set(pg):
     pg.text(5.05, 37.45, "Separate R2 block · one 32-call prewarm per placement outside timing (192/case).", size=6.1, color=SUB)
     pg.text(0.65, 37.70, "Exact FP32/BF16 outputs and decoded weights. Cache-pressure evidence, not an RL gain.", size=6.1, color=SUB)
     pg.text(5.05, 37.70, "Plus 32 proof calls/case. Same kernel; R1/R2 times not compared; no RL claim.", size=6.1, color=SUB)
+    pg.text(
+        GUTTER,
+        37.96,
+        "Exp 222 · separate same-seed block: rolling-row depth 1 48.43 µs vs control 56.74 (−14.6%), but +12.2% vs dense 43.15. Broad placement ranges; component-only, no serving/RL win.",
+        size=5.9,
+        color=SUB,
+    )
+    pg.text(
+        GUTTER,
+        38.07,
+        "Exp 223 · staged CSR 41.584 vs dense 43.132 µs (−3.59%) in one fixed-work component block; no RL result.",
+        size=5.7,
+        color=SUB,
+    )
+    pg.text(
+        GUTTER,
+        38.17,
+        "Exp 224 · baseline RL child 83.80 s/444 rollouts/48,871 tokens; candidate invocation 67.47 s/370/40,784 incl. post-run validation. Unequal work; no RL speedup.",
+        size=5.7,
+        color=SUB,
+    )
+    pg.text(
+        GUTTER,
+        38.27,
+        "Decoder timing: B1 +0.01/+0.02/+0.03%; B2 +10.59/+10.20/+8.84% at contexts 32/128/1024. Three blocks; B fails all-block win gate; opt-in only.",
+        size=5.7,
+        color=SUB,
+    )
 
 
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-221", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-224", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1295,7 +1330,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 221 experiments",
+        "Index of all 224 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1310,7 +1345,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     draw_simd_projection(pg)
     pg.section(34.82, "09", "Cache working-set diagnostic", "Predicated gate/up projection · fixed kernel and resident weights · R1 and R2 are independent timing blocks.")
     draw_cache_working_set(pg)
-    draw_footer(pg, 38.28)
+    draw_footer(pg, 38.47)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)

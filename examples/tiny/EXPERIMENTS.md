@@ -2064,3 +2064,56 @@ R2 is a separate timing block with 33 cases: 32 single-layer anchors and one cas
 Across both blocks, all 157,286,400 decoded weights are bit-exact, all 327,680 outputs per case match the dense reference exactly in FP32 and BF16, and NaN-poisoned graph writes are exact. The guards report zero swap; sampled GPU peaks are 1,017 MiB for R1 and 1,065 MiB for R2. The result supports cache pressure as an important factor in this projection probe. It does not assign a DRAM-only causal percentage or establish a full-model, serving or RL speedup. The production kernel source hash is unchanged at `0b56cdc994d445ddcb52f9ffb91565e80cf4de1d9b89723c58a5daa12f8c80f9`.
 
 Evidence: `outputs/megakernel-20261025/gateup-lossless-cache-working-set-r1/results-r1.json` and `results-r2.json`.
+
+## Experiment 222: rolling row prefetch improves the compressed projection component
+
+The candidate adds a rolling row-prefetch depth to the lossless gate/up projection. Plane, header and raw-row hints remain once per row; decode math, row mapping, FMA order and reduction are unchanged. CPU coverage checks all 2,560 rows for each tested matrix. This is the same seed-341 fixed work as the earlier timing block, not new input data.
+
+In the initial five-arm block, medians were 61.184 us/layer for the compressed control and 49.610, 50.847, 52.032 and 56.208 us/layer at depths 1, 2, 4 and 8. A separate corrected four-arm block added dense as a reference: dense 43.149, compressed control 56.736, depth 1 48.432 and depth 2 49.616 us/layer. Depth 1 is 14.6% faster than the compressed control by median, but 12.2% slower than dense. Raw replay sample ranges are broad: dense 42.682–44.032, control 53.504–56.960, depth 1 43.925–48.800 and depth 2 45.179–50.074 us/layer. Treat this as a component improvement over the compressed control in these blocks, not a stable serving win.
+
+Each arm has six placements and five graph replays per placement, or 960 timed calls. The fixed 32-layer workload checks all 157,286,400 decoded weights and 327,680 outputs per arm; FP32 and BF16 output checks, post-timing checks, graph-write checks and NaN-poisoned replay checks pass exactly. The source and CPU arithmetic proofs pass. Depth 1 uses 52 registers; the other compressed path uses 56 and control uses 62. All use 7,680 bytes shared memory with no spills. The corrected run's inner and outer guards return zero, with zero swap and a 1,019 MiB GPU peak.
+
+An intermediate repeat invocation used unsupported CLI arguments and stopped before benchmarking; it contains no timing result. The selected harness accepted the corrected invocation, which produced the independent dense/control/depth-1/depth-2 block above. Evidence: `outputs/megakernel-20261025/gateup-lossless-rolling-prefetch-r1/results-r1.json`, `results-r3.json`, `source_equivalence_proof.py`, `cpu_arithmetic_proof.py`, and `guard-inner-r3/result.json` / `guard-outer-r3/result.json`.
+
+## Experiment 223: staged CSR ranges lower one gate/up microprobe median
+
+The staged-CSR candidate stages each warp-owned CSR row range in shared memory before the original barrier. The decoder arithmetic, rolling prefetch, row mapping, FMA order and reduction remain the same. In the fixed-work three-arm block, six placements and five graph replays per placement measured 960 calls per arm. Median latency was 43.132 µs/layer for dense and 41.584 µs/layer for staged CSR, 3.59% lower by median. This is a projection-component observation, not a full-decoder, serving or RL speedup.
+
+All 157,286,400 decoded BF16 weights were exact; all 327,680 checked outputs per arm matched the dense reference exactly in FP32 and BF16, including post-timing checks and poisoned graph writes. Validation errors were zero. The staged kernel uses 9,472 bytes shared memory per CTA. Both guards passed. Evidence: `outputs/megakernel-20261025/gateup-lossless-staged-csr-r1/results-r2.json`, `proof-result.json`, `source-equivalence-proof.json`, and `guard-inner-r2/result.json` / `guard-outer-r2/result.json`.
+
+## Experiment 224: lossless full-decoder RL integration completes one unequal-work pair
+
+The lossless BF16 gate/up codec proof checks all 65,536 bit patterns. Overflow switches all 32 layers to the raw fallback, then recovery reactivates all 32; descriptor and encoded-buffer pointers remain stable. Six strict R30 parity cases cover batch 1/2 at contexts 32/128 and synthetic batch 1/2 at context 1024. Final hidden states and every K/V tensor across all 32 layers match bitwise in every case. In the batch-2/context-32 graph-refresh case, a gate/up-only in-place mutation changes graph output and replay matches eager BF16 output. Parity checks, KV restore and prefill are outside the CUDA-event intervals.
+
+The separate six-case full-decoder timing check used three alternating blocks, six placements and 20 CUDA-event repeats per arm and case (120 timed events per arm/case). Each value below is the median of the six placement medians. KV restore, parity, prefill and telemetry were outside event intervals.
+
+| Batch | Context | R30 median | Lossless median | Change |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 32 | 2.885200 ms | 2.885632 ms | +0.01% |
+| 1 | 128 | 2.936320 ms | 2.936832 ms | +0.02% |
+| 1 | 1024 | 3.237936 ms | 3.238912 ms | +0.03% |
+| 2 | 32 | 3.121824 ms | 3.452416 ms | +10.59% |
+| 2 | 128 | 3.207504 ms | 3.534768 ms | +10.20% |
+| 2 | 1024 | 3.658752 ms | 3.982336 ms | +8.84% |
+
+Batch 1 is effectively neutral; batch 2 regresses at all three contexts. The candidate beat R30 in no case across all three blocks. The implementation is functional but not performance-adopted; the route remains opt-in research and the default is unchanged. Both timing guards passed with zero swap and a 2,251 MiB GPU peak.
+
+The first full-RL candidate attempt stopped during checkpoint weight reload with an inference-tensor write outside `InferenceMode`. The cache refresh path was decorated with `torch.inference_mode`; the passing retry completed both updates and three refresh generations, 1 through 4, with 32 active layers throughout. Baseline worker traces verified that the R30 route loaded and decoded in its workers. Training/task/sampling/resource configuration matched after excluding run identity, output paths and inference environment variables.
+
+| Arm | Updates | Tasks | Rollouts | Tokens | Recorded elapsed | Guarded wall | GPU peak |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| R30 baseline | 2 | 222 | 444 | 48,871 | 83.795956 s | 86.567222 s | 7,222 MiB |
+| Lossless candidate | 2 | 185 | 370 | 40,784 | 67.474434 s | 67.726367 s | 7,398 MiB |
+
+Elapsed scopes differ: the baseline records the actual uv RL child, while the candidate wrapper's timed invocation includes post-run log validation. The elapsed values are therefore not directly comparable.
+
+All four updates have finite loss, gradient norm and mismatch KL:
+
+| Arm | Update | Loss | Gradient norm | Mismatch KL |
+| --- | ---: | ---: | ---: | ---: |
+| R30 baseline | 1 | −1.9944917e−5 | 0.0429615 | 0.000861527 |
+| R30 baseline | 2 | 8.9751284e−6 | 0.2379015 | 0.000773983 |
+| Lossless candidate | 1 | −1.9843315e−5 | 0.0428435 | 0.000779632 |
+| Lossless candidate | 2 | 4.7853391e−6 | 0.00899094 | 0.001136118 |
+
+This is one pair with different rollout and token counts. The candidate's lower observed wall time cannot be attributed to the decoder: the separate fixed-work timing is neutral at batch 1 and slower at batch 2. These runs establish no RL speedup or main-curve point. Evidence and small reproduction scripts are archived in `prime-kernels/research/smollm2_360m_decode/experiments/lossless-serving-integration-r1/`; the original guarded run trees remain under `outputs/megakernel-20261025/`.
