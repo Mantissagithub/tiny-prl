@@ -2117,3 +2117,17 @@ All four updates have finite loss, gradient norm and mismatch KL:
 | Lossless candidate | 2 | 4.7853391e−6 | 0.00899094 | 0.001136118 |
 
 This is one pair with different rollout and token counts. The candidate's lower observed wall time cannot be attributed to the decoder: the separate fixed-work timing is neutral at batch 1 and slower at batch 2. These runs establish no RL speedup or main-curve point. Evidence and small reproduction scripts are archived in `prime-kernels/research/smollm2_360m_decode/experiments/lossless-serving-integration-r1/`; the original guarded run trees remain under `outputs/megakernel-20261025/`.
+
+## Experiment 225: packaged prefetch fix passes the batch-2 decoder gate
+
+The packaged fix overlaps independent plane/header loads, stages CSR metadata and the first hint before the barrier, keeps the SiLU intermediate in registers, and uses the shared B2 GEMV body with a dense fallback. Its B2 medians improve over R30 in the packaged three-block run:
+
+| Context | R30 | Packaged | Change |
+| ---: | ---: | ---: | ---: |
+| 32 | 3.124880 ms | 3.085824 ms | −1.2498% |
+| 128 | 3.211696 ms | 3.173792 ms | −1.1802% |
+| 1024 | 3.663248 ms | 3.629072 ms | −0.9329% |
+
+The strict gate passes in all three blocks at all B2 contexts. Two independent parallel-plane processes repeat the same 0.93–1.26% B2 improvement; B1 stays within neutral timing variation. Same-session old-versus-fixed B2 medians improve 9.18–10.72%. All six packaged cases match R30 final hidden states and all-layer K/V exactly. The sign-extension CPU proof covers all 65,536 byte pairs; the GPU decode helper checks 4,915,200 words over three passes. Mode-0 poisoned-buffer fallback stays R30-exact, and a gate/up-only mutation changes graph output while replay matches eager output. The route is available as an opt-in research path; defaults remain unchanged.
+
+A fresh two-update full-parameter RL validation completed with 392 rollouts, 196 tasks and 43,007 tokens; both updates have finite loss, gradients and KL. The route refreshed three times from generation 1 through 4, keeping all 32 layers active. The wrapper-reported 80.872738 s includes post-run validation. Its guard reports zero swap, 7,222 MiB GPU peak, 3.88 GB minimum available host memory and 6.91 GiB peak cgroup memory. This candidate run has no matched equal-work R30 control, so it establishes no RL speedup or verified RL wall-time point. Evidence: `outputs/megakernel-20261025/lossless-prefetch-fix-r1/{analysis.json,decision.tsv,decode-words-proof.json,rl-validation.json}` and `prime-kernels/research/smollm2_360m_decode/experiments/lossless-prefetch-fix-r1/`.

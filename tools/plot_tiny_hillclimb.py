@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-224);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-225);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 224 experiments.
+# Experiment index. Outcome codes and lanes for all 225 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -170,6 +170,7 @@ CODES = {
         219,
         222,
         223,
+        225,
     ],
     "A": [
         25,
@@ -543,6 +544,7 @@ LANES = [
             221,
             222,
             223,
+            225,
         ],
     ),
 ]
@@ -589,10 +591,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 224
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 224
-    assert sorted(codes_of) == list(range(1, 225)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 225)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 225
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 225
+    assert sorted(codes_of) == list(range(1, 226)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 226)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -923,7 +925,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 224)
+    ax.set_xlim(0, 225)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -955,7 +957,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 224])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 225])
     ax.get_xticklabels()[-1].set_ha("right")
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
@@ -1014,7 +1016,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-            "examples/tiny/EXPERIMENTS.md, Experiments 1-224; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-225; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1246,13 +1248,20 @@ def draw_cache_working_set(pg):
         size=5.7,
         color=SUB,
     )
+    pg.text(
+        GUTTER,
+        38.37,
+        "Exp 225 · packaged B2 gains 0.93–1.25% across 3 blocks; B1 neutral. Exact parity; RL pilot has no matched pair or curve point.",
+        size=5.7,
+        color=SUB,
+    )
 
 
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-224", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-225", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1330,7 +1339,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 224 experiments",
+        "Index of all 225 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
