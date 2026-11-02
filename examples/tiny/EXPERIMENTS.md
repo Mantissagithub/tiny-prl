@@ -2131,3 +2131,20 @@ The packaged fix overlaps independent plane/header loads, stages CSR metadata an
 The strict gate passes in all three blocks at all B2 contexts. Two independent parallel-plane processes repeat the same 0.93–1.26% B2 improvement; B1 stays within neutral timing variation. Same-session old-versus-fixed B2 medians improve 9.18–10.72%. All six packaged cases match R30 final hidden states and all-layer K/V exactly. The sign-extension CPU proof covers all 65,536 byte pairs; the GPU decode helper checks 4,915,200 words over three passes. Mode-0 poisoned-buffer fallback stays R30-exact, and a gate/up-only mutation changes graph output while replay matches eager output. The route is available as an opt-in research path; defaults remain unchanged.
 
 A fresh two-update full-parameter RL validation completed with 392 rollouts, 196 tasks and 43,007 tokens; both updates have finite loss, gradients and KL. The route refreshed three times from generation 1 through 4, keeping all 32 layers active. The wrapper-reported 80.872738 s includes post-run validation. Its guard reports zero swap, 7,222 MiB GPU peak, 3.88 GB minimum available host memory and 6.91 GiB peak cgroup memory. This candidate run has no matched equal-work R30 control, so it establishes no RL speedup or verified RL wall-time point. Evidence: `outputs/megakernel-20261025/lossless-prefetch-fix-r1/{analysis.json,decision.tsv,decode-words-proof.json,rl-validation.json}` and `prime-kernels/research/smollm2_360m_decode/experiments/lossless-prefetch-fix-r1/`.
+
+## Experiment 226: fixed-work lossless generation in vLLM
+
+Five alternating fresh processes per arm each run five timed repeats per shape after two warmups. Both arms use the same seeded token-ID prompts, greedy 64-token generation, 256 KV blocks and FULL_DECODE_ONLY graphs. Timed requests disable logprobs; untimed parity records them. Full synchronous batch wall time includes prefill, LM head, scheduling and output processing, excluding startup. This is a serving comparison, not a whole-RL result.
+
+| Context | Batch | R30 median [process range], ms | Lossless median [process range], ms | Change | Evidence |
+| ---: | ---: | --- | --- | ---: | --- |
+| 32 | 1 | 217.805 [217.375, 219.200] | 219.113 [217.789, 219.661] | +0.60% | overlapping process ranges |
+| 32 | 2 | 234.027 [233.376, 235.936] | 232.031 [231.707, 234.363] | -0.85% | overlapping process ranges |
+| 128 | 1 | 220.493 [220.295, 221.706] | 221.231 [220.232, 222.078] | +0.33% | overlapping process ranges |
+| 128 | 2 | 240.531 [240.226, 240.622] | 237.774 [237.572, 238.012] | -1.15% | candidate lower in every process |
+| 1024 | 1 | 263.371 [262.890, 263.398] | 263.354 [263.142, 263.567] | -0.01% | overlapping process ranges |
+| 1024 | 2 | 321.758 [321.231, 322.203] | 319.934 [319.387, 320.140] | -0.57% | candidate lower in every process |
+
+All prompt/output token IDs match across every process; each process times 2,880 generated tokens. Sampled-token logprobs match exactly. All 20 inner/outer guard records pass with zero job swap, sampled GPU peak 1,405 MiB and minimum host availability 8.58 GB. The interrupted A1 invocation has no completion report and is excluded. R30 and packaged library identities are pinned. B2 contexts 128/1024 show nonoverlapping process-median ranges; context 32 and every B1 case overlap. No default promotion or verified RL wall-time point follows.
+
+The separate rollout audit explains unequal earlier RL work: 444/370/392 sampled rollouts produced eight usable traces each, with 436/362/384 no-signal discards. Standalone cache refresh median is 3.44 ms across ten calls, too small to explain multi-second batch waits. Evidence is archived in `prime-kernels/research/smollm2_360m_decode/experiments/{lossless-fixedwork-serving-r1,lossless-rl-attribution-r1}/`.
