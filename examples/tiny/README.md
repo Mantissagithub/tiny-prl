@@ -42,6 +42,22 @@ entries expose the existing configs, not new capacity or performance claims.
 
 For the reviewed `primeintellect/wordle` Hub package, see [Wordle setup and trial results](WORDLE.md).
 
+Experiment 235 adds an opt-in B1 profile with early trainer startup:
+
+```bash
+./bin/tiny-prl train smollm2-360m @ examples/tiny/smollm2-360m-b1-early.toml --dry-run
+```
+
+It overlaps trainer imports with inference startup, limits inference to one
+sequence and fixes episode concurrency at two. In the private matched-work
+one-update benchmark, five processes per arm gave medians 53.56 to 46.71 s;
+both ABBA blocks passed, but individual timing ranges overlap. The benchmark
+disabled checkpoint saving and used distinct deterministic request seeds;
+normal training retains its checkpoint and stochastic sampling settings.
+This does not establish a gain over the default two-sequence preset. See
+[Experiment 235](EXPERIMENTS.md#experiment-235-startup-overlap-reduces-matched-work-b1-rl-wall-time)
+for the scope and raw evidence location.
+
 Normal Prime-RL arguments pass through:
 
 ```bash

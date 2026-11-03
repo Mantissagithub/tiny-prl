@@ -1,0 +1,12 @@
+# Opt-in profile measured in Experiment 235; overlay on the 360M preset.
+# The benchmark used one update, no checkpoint save and deterministic rollout seeds.
+[deployment]
+early_trainer_start = true
+
+[inference.vllm]
+max_num_seqs = 1
+
+[orchestrator.concurrency]
+min_inflight = 2
+max_inflight = 2
+initial_inflight = 2

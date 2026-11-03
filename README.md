@@ -111,7 +111,8 @@ each measurement kept explicit.
 | GPU memory in those two launches | 7,224 MiB and 7,218 MiB peak; zero job-cgroup swap | The tested short-context config |
 | B1 lossless decoder change, Experiment 233 | vLLM generation latency fell **0.75–0.88%** versus the previous lossless package | Five fresh processes per arm; fixed 64-token generation at prompt lengths 32/128/1024; identical tokens and sampled-token logprobs |
 | B2 in Experiment 233 | Machine code unchanged; serving timing ranges overlap | No B2 improvement claimed |
-| Latest kernel's whole-RL benefit | No verified additional RL wall-time gain | Functional runs performed different rollout work and cannot establish a speedup |
+| Kernel-only whole-RL benefit | No verified additional RL wall-time gain | A single matched pair cannot isolate the small kernel effect from timing variation |
+| Early trainer startup with the latest kernel, Experiment 235 | Median **53.56 → 46.71 s (12.8% lower)**, five runs per arm | One-update B1-only RL with identical request/output hashes and training work; both ABBA blocks pass, but individual timing ranges overlap |
 
 I've checked that the cached decoder's B1/B2 instructions match the tested
 Experiment 233 variant. My lossless path targets
@@ -124,6 +125,12 @@ I keep the evidence in the [CLI validation](examples/tiny/cli-validation.json),
 [experiment ledger](examples/tiny/EXPERIMENTS.md), and
 [full hillclimb figure](examples/tiny/hillclimb.png). Component, serving, and
 verified RL wall-time results have separate records.
+
+I've kept the startup result as an [opt-in B1 profile](examples/tiny/smollm2-360m-b1-early.toml).
+It compares serial and overlapping startup on the same kernel. The gain varied
+between blocks, and I haven't established it for the default two-sequence
+preset or longer training. The B2 integer-add trial in Experiment 234 had no
+decoder gain, so I rejected it before spending more runs on serving.
 
 ## Trying Wordle from the Prime Environments Hub
 
