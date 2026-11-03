@@ -2,12 +2,14 @@
 
 Pure decode batches compute final hidden states with one decode-step call instead of vLLM's
 layer stack. lm_head, logits processing and sampling stay in vLLM. Unsupported steps fall
-through to vLLM's stock forward.
+through to vLLM's stock forward. Batch-invariant mode recomputes mixed-batch decode
+rows so a joining prefill does not change their arithmetic path.
 """
 
 import importlib.util
 import os
 from collections import Counter
+from copy import copy
 
 import torch
 from vllm.distributed import get_pp_group, get_tensor_model_parallel_world_size
@@ -205,6 +207,40 @@ def _decode_hidden_states(model: LlamaModel, decode_step, input_ids, positions, 
     )
 
 
+def _repair_mixed_decode(model: LlamaModel, decode_steps, input_ids, positions, hidden_states):
+    metadata = get_forward_context().attn_metadata
+    if not isinstance(metadata, dict):
+        return hidden_states
+    meta = metadata.get(model.layers[0].self_attn.attn.layer_name)
+    if type(meta).__name__ != "FlashAttentionMetadata" or meta.max_query_len <= 1:
+        return hidden_states
+    if torch.cuda.is_current_stream_capturing():
+        return hidden_states
+    starts = meta.query_start_loc.cpu().tolist()
+    requests = [i for i, (start, end) in enumerate(zip(starts, starts[1:])) if end - start == 1]
+    if not requests:
+        return hidden_states
+    request_rows = torch.tensor(requests, dtype=torch.long, device=input_ids.device)
+    token_rows = torch.tensor([starts[i] for i in requests], dtype=torch.long, device=input_ids.device)
+    decode_meta = copy(meta)
+    decode_meta.max_query_len = 1
+    decode_meta.num_actual_tokens = len(requests)
+    decode_meta.seq_lens = meta.seq_lens.index_select(0, request_rows)
+    decode_meta.block_table = meta.block_table.index_select(0, request_rows)
+    decode_meta.slot_mapping = meta.slot_mapping.index_select(0, token_rows)
+    step = _select_decode_step(decode_steps, model, KERNEL_NAME_360M, decode_meta, len(requests))
+    if step is None:
+        return hidden_states
+    # Keep decode arithmetic and current-token KV entries consistent when a prefill joins.
+    decoded = _decode_hidden_states(
+        model, step, input_ids.index_select(0, token_rows), positions.index_select(0, token_rows), decode_meta
+    )
+    result = hidden_states.clone()
+    result.index_copy_(0, token_rows, decoded)
+    stats["backend_mixed_decode"] += len(requests)
+    return result
+
+
 def refresh_lossless_weights(model: LlamaModel) -> None:
     """Refresh encoded weights after finalized layerwise reloads when the route is enabled."""
     llama_model = model if isinstance(model, LlamaModel) else getattr(model, "model", None)
@@ -288,7 +324,14 @@ def monkey_patch_decode_backend() -> None:
             stats["stock_ineligible"] += 1
         else:
             stats["stock_kernel_unavailable"] += 1
-        return original_forward(self, input_ids, positions, intermediate_tensors, inputs_embeds, **kwargs)
+        hidden_states = original_forward(self, input_ids, positions, intermediate_tensors, inputs_embeds, **kwargs)
+        if (
+            kernel_name == KERNEL_NAME_360M
+            and os.environ.get(ENABLE_360M_LOSSLESS_ENV) == "1"
+            and os.environ.get("VLLM_BATCH_INVARIANT") == "1"
+        ):
+            hidden_states = _repair_mixed_decode(self, decode_steps, input_ids, positions, hidden_states)
+        return hidden_states
 
     forward._prime_rl_decode_backend = True
     LlamaModel.forward = forward

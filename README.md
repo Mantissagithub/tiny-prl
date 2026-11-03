@@ -113,6 +113,7 @@ each measurement kept explicit.
 | B2 in Experiment 233 | Machine code unchanged; serving timing ranges overlap | No B2 improvement claimed |
 | Kernel-only whole-RL benefit | No verified additional RL wall-time gain | A single matched pair cannot isolate the small kernel effect from timing variation |
 | Early trainer startup with the latest kernel, Experiment 235 | Median **53.56 → 46.71 s (12.8% lower)**, five runs per arm | One-update B1-only RL with identical request/output hashes and training work; both ABBA blocks pass, but individual timing ranges overlap |
+| Checkpointed two-sequence startup, Experiment 238 | Median **62.55 to 55.20 s (11.74% lower)**, five runs per arm | Two full updates with invariant serving and mixed-decode repair in both arms; finalized training work/metrics match exactly; every early run beats every control |
 
 I've checked that the cached decoder's B1/B2 instructions match the tested
 Experiment 233 variant. My lossless path targets
@@ -128,8 +129,12 @@ verified RL wall-time results have separate records.
 
 I've kept the startup result as an [opt-in B1 profile](examples/tiny/smollm2-360m-b1-early.toml).
 It compares serial and overlapping startup on the same kernel. The gain varied
-between blocks, and I haven't established it for the default two-sequence
-preset or longer training. The B2 integer-add trial in Experiment 234 had no
+between blocks. I've now also confirmed startup overlap for a two-sequence,
+two-update run with checkpoints, using the [batch-invariant overlay](examples/tiny/smollm2-360m-batch-invariant.toml)
+and the mixed-decode repair. That profile's medians are 62.55 to 55.20 s, with
+exact finalized training metrics. Neither result establishes a gain over the
+unchanged default preset or longer training. Some discarded raw rollout
+logprobs still vary. The B2 integer-add trial in Experiment 234 had no
 decoder gain, so I rejected it before spending more runs on serving.
 
 ## Trying Wordle from the Prime Environments Hub

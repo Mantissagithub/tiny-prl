@@ -58,6 +58,34 @@ This does not establish a gain over the default two-sequence preset. See
 [Experiment 235](EXPERIMENTS.md#experiment-235-startup-overlap-reduces-matched-work-b1-rl-wall-time)
 for the scope and raw evidence location.
 
+For the tested short-context 360M workload, native batch-invariant serving is
+available as an overlay:
+
+```bash
+./bin/tiny-prl train smollm2-360m @ examples/tiny/smollm2-360m-batch-invariant.toml --dry-run
+```
+
+It enables vLLM's invariant projections and attention. The lossless backend
+also recomputes decode rows when a prefill joins their batch, keeping their
+decode arithmetic consistent. This adds work to mixed steps. It retains two
+sequence slots and checkpoint saving; normal sampling is still stochastic.
+Fixed seeds alone do not guarantee identical training schedules or long-context
+results. The default preset is unchanged.
+
+To also overlap trainer startup:
+
+```bash
+./bin/tiny-prl train smollm2-360m @ examples/tiny/smollm2-360m-batch-invariant.toml --deployment.early-trainer-start
+```
+
+Experiment 238 compares startup modes with invariant serving and the mixed
+repair in both arms. Five runs per arm gave medians 62.55 to 55.20 seconds,
+including two updates and a full checkpoint. All early runs beat all controls;
+finalized training work and both steps' metrics matched exactly. Shutdown-tail
+work varied slightly and was included in timing. This is a short-run startup
+result, not an isolated kernel or long-run throughput gain. Some discarded
+raw rollout logprobs still vary. See [Experiment 238](EXPERIMENTS.md#experiment-238-checkpointed-b2-capable-rl-startup-gain-confirmed).
+
 Normal Prime-RL arguments pass through:
 
 ```bash
