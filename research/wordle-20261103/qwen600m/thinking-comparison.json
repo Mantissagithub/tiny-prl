@@ -1,0 +1,41 @@
+{
+  "model": "Qwen/Qwen3-0.6B",
+  "matched_task_keys_and_seeds": true,
+  "max_tokens_per_turn": 256,
+  "max_model_len": 2048,
+  "max_turns": 6,
+  "temperature": 1.0,
+  "hub_prompt_and_rewards_unchanged": true,
+  "results": [
+    {
+      "thinking": false,
+      "tag": "pass4-qwen-off256-r1",
+      "games": 80,
+      "pass_at_1": 0.0,
+      "pass_at_4": 0.0,
+      "wins": 0,
+      "calls": 220,
+      "truncated_calls": 0,
+      "output_tokens": 1862,
+      "reasoning_only_first_replies": 0,
+      "first_moves_with_feedback": 60,
+      "peak_gpu_mib": 2047,
+      "job_swap_bytes": 0
+    },
+    {
+      "thinking": true,
+      "tag": "pass4-qwen-think256-r1",
+      "games": 80,
+      "pass_at_1": 0.0,
+      "pass_at_4": 0.0,
+      "wins": 0,
+      "calls": 206,
+      "truncated_calls": 145,
+      "output_tokens": 48837,
+      "reasoning_only_first_replies": 80,
+      "first_moves_with_feedback": 0,
+      "peak_gpu_mib": 2047,
+      "job_swap_bytes": 0
+    }
+  ]
+}

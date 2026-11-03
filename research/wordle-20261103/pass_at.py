@@ -25,7 +25,7 @@ for seed in [42, 43, 44, 45]:
         win = trace['rewards']['correct_answer']['score'] == 1
         outcome = trace['info'].get('game_outcome', '')
         assert win == ('guessed the word correctly' in outcome), outcome
-        replies = [node['message']['content'] for node in trace['nodes'] if node['message']['role'] == 'assistant']
+        replies = [node['message'].get('content') or '' for node in trace['nodes'] if node['message']['role'] == 'assistant']
         record = {'task_id': task['id'], 'answer': task['answer'], 'task_key': row['task']['key'],
                   'seed': seed, 'win': win, 'outcome': outcome,
                   'first_guess_formatted': bool(re.fullmatch(r'\s*<guess>\s*\[[a-zA-Z]{5}\]\s*</guess>\s*', replies[0])),

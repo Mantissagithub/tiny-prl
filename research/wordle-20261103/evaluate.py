@@ -12,6 +12,8 @@ WORK = ROOT / 'outputs/wordle-learning-20261103'
 tag, model = sys.argv[1:3]
 pass4 = len(sys.argv) > 3 and sys.argv[3] == 'pass4'
 qwen = 'qwen' in sys.argv[4:]
+roomy = 'roomy' in sys.argv[4:]
+thinking = 'thinking' in sys.argv[4:]
 case = WORK / tag
 case.mkdir(exist_ok=False)
 prefix = ['/home/pradheep/.local/bin/uv', 'run', '--offline', '--no-project', '--python', '/home/pradheep/.venv/bin/python']
@@ -27,6 +29,9 @@ if qwen:
     inference['env_vars'] = {}
     inference['vllm']['gpu_memory_utilization'] = 0.25
     inference['vllm']['reasoning_parser'] = 'qwen3'
+if roomy:
+    inference['vllm']['max_model_len'] = 2048
+    inference['vllm']['max_num_batched_tokens'] = 2048
 (case / 'inference.json').write_text(json.dumps(inference, indent=2))
 config = {
     'model': model, 'group_size': 2, 'select': {'limit': 8},
@@ -39,7 +44,12 @@ config = {
                    'max_turns': 6, 'max_output_tokens': 192, 'max_input_tokens': 480, 'timeout': {'rollout': 60}}}}],
     'dashboard': False, 'output_dir': str(case / 'evaluation'), 'run': {'name': 'wordle'}, 'monitors': {'file': {}}}
 if qwen:
-    config['sampling']['chat_template_kwargs'] = {'enable_thinking': False}
+    config['sampling']['chat_template_kwargs'] = {'enable_thinking': thinking}
+if roomy:
+    config['sampling']['max_tokens'] = 256
+    player = config['source'][0]['env']['player']
+    player['max_output_tokens'] = 1536
+    player['max_input_tokens'] = 1792
 (case / 'eval.json').write_text(json.dumps(config, indent=2))
 with (case / 'inference.log').open('w') as log:
     proc = subprocess.Popen(prefix + ['inference', '@', str(case / 'inference.json')], env=env, stdout=log, stderr=subprocess.STDOUT)
