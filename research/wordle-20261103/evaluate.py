@@ -11,6 +11,7 @@ ROOT = Path('/home/pradheep/tiny-prl/prime-rl')
 WORK = ROOT / 'outputs/wordle-learning-20261103'
 tag, model = sys.argv[1:3]
 pass4 = len(sys.argv) > 3 and sys.argv[3] == 'pass4'
+qwen = 'qwen' in sys.argv[4:]
 case = WORK / tag
 case.mkdir(exist_ok=False)
 prefix = ['/home/pradheep/.local/bin/uv', 'run', '--offline', '--no-project', '--python', '/home/pradheep/.venv/bin/python']
@@ -21,6 +22,11 @@ env['TORCH_EXTENSIONS_DIR'] = str(ROOT / 'outputs/kernel-cache')
 env['MAX_JOBS'] = '1'
 inference = json.loads((ROOT / 'outputs/wordle-hub-20261103/dryrun/wordle-config-r2/configs/attempt_1/resolved/inference.json').read_text())
 inference['vllm']['model'] = model
+if qwen:
+    inference['decode_megakernel'] = False
+    inference['env_vars'] = {}
+    inference['vllm']['gpu_memory_utilization'] = 0.25
+    inference['vllm']['reasoning_parser'] = 'qwen3'
 (case / 'inference.json').write_text(json.dumps(inference, indent=2))
 config = {
     'model': model, 'group_size': 2, 'select': {'limit': 8},
@@ -32,6 +38,8 @@ config = {
         'player': {'harness': {'id': 'null'}, 'runtime': {'type': 'subprocess', 'fork_server': True},
                    'max_turns': 6, 'max_output_tokens': 192, 'max_input_tokens': 480, 'timeout': {'rollout': 60}}}}],
     'dashboard': False, 'output_dir': str(case / 'evaluation'), 'run': {'name': 'wordle'}, 'monitors': {'file': {}}}
+if qwen:
+    config['sampling']['chat_template_kwargs'] = {'enable_thinking': False}
 (case / 'eval.json').write_text(json.dumps(config, indent=2))
 with (case / 'inference.log').open('w') as log:
     proc = subprocess.Popen(prefix + ['inference', '@', str(case / 'inference.json')], env=env, stdout=log, stderr=subprocess.STDOUT)

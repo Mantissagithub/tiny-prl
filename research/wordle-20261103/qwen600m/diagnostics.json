@@ -1,0 +1,33 @@
+{
+  "model": "Qwen/Qwen3-0.6B",
+  "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+  "thinking": false,
+  "backend": "stock vLLM; no 360M decoder",
+  "top_first_replies": [
+    [
+      "<guess>apple</guess>",
+      40
+    ],
+    [
+      "<guess>guess</guess>",
+      20
+    ],
+    [
+      "<guess>Yell[</guess>",
+      19
+    ],
+    [
+      "<guess>Yell[le]</guess>",
+      1
+    ]
+  ],
+  "outcomes": {
+    "Invalid Move: You have already guessed 'guess' before. Please try a different word.": 20,
+    "Invalid Move: 'appla' is not an English word.": 20,
+    "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.": 19,
+    "Invalid Move: Your word must be exactly 5 letters.": 1,
+    "Invalid Move: You have already guessed 'apple' before. Please try a different word.": 20
+  },
+  "first_move_feedback_observed": 60,
+  "note": "Native TextArena ActionFormattingWrapper adds missing square brackets; formatted-first-guess counts are stricter than engine move acceptance."
+}
