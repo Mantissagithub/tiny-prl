@@ -1,24 +1,34 @@
 # tiny-prl
 
-A [Prime-RL](https://github.com/PrimeIntellect-ai/prime-rl) fork for RL experiments
-on small NVIDIA GPUs. The current local workflow has been tested on an
-**RTX 4060 Laptop GPU with 8 GiB VRAM and about 15 GiB system RAM**.
+I'm trying to make RL training work well on my laptop.
 
-The stack is **PyTorch/FSDP2 for training, vLLM for inference, and Verifiers for
-environments and rewards**. The laptop launcher adds model presets, resource
-checks, checkpoint/resume commands, and opt-in kernels from the pinned
+This is my work-in-progress fork of
+[Prime-RL](https://github.com/PrimeIntellect-ai/prime-rl), built around my
+**RTX 4060 Laptop GPU with 8 GiB VRAM and about 15 GiB system RAM**. I want to
+see how much I can get out of this hardware, from the training loop and weight
+transfers down to the decode kernels.
+
+**Still in progress.** So far, I've run short-context SmolLM2-360M
+full-parameter RL, saved checkpoints, and resumed training on this laptop.
+I've also connected Wordle from the Prime Environments Hub. That integration
+runs, but the first trial hasn't shown useful learning yet.
+
+I'm using **PyTorch/FSDP2 for training, vLLM for inference, and Verifiers for
+environments and rewards**. I've put the laptop configs behind a `tiny-prl`
+command, with resource checks, checkpoint/resume support, and opt-in kernels
+from my pinned
 [prime-kernels fork](https://github.com/Mantissagithub/prime-kernels).
 
-The verified path is short-context SmolLM2-360M full-parameter RL. A local
-Wordle integration also runs, but the first trial did **not** demonstrate
-useful learning.
+My approach is to keep a baseline, profile it, try one change, check correctness,
+and measure again. I record the failed attempts too. A faster kernel only counts
+as an RL wall-time improvement once I've measured that in the whole run.
 
-## Run locally
+## My setup and how to run it
 
-The launcher requires an existing compatible Python 3.12 environment, Linux
-with a systemd user session, NVIDIA drivers, CUDA/nvcc, ninja, and `uv`.
-The tested environment contains Torch **2.13.0+cu130**, vLLM **0.31.0**, and
-Transformers **5.6.2**.
+My current environment uses Python 3.12, Torch **2.13.0+cu130**, vLLM **0.31.0**,
+and Transformers **5.6.2**. The launcher needs Linux with a systemd user session,
+NVIDIA drivers, CUDA/nvcc, ninja, `uv`, and an existing compatible training
+environment.
 
 For a new checkout:
 
@@ -28,16 +38,17 @@ cd tiny-prl
 git submodule update --init -- deps/verifiers deps/renderers deps/pydantic-config deps/prime-kernels
 ```
 
-The command uses `$HOME/.venv` by default. To use another existing environment:
+I keep my pinned environment at `$HOME/.venv`, which is the launcher's default.
+To use another existing environment:
 
 ```bash
 export TINY_PRL_VENV=/absolute/path/to/your/venv
 ```
 
-It runs through `uv run --offline --no-project`; it does not install or
-synchronize the training stack. A fresh clone alone is not a complete GPU
-installation. Models must already be cached or supplied as local paths;
-`HF_HUB_OFFLINE=0` allows model/dataset downloads.
+I run through `uv run --offline --no-project` to preserve that environment.
+The launcher doesn't install or synchronize the training stack, so a fresh clone
+still needs a compatible GPU environment. Models must already be cached or
+supplied as local paths; `HF_HUB_OFFLINE=0` allows model/dataset downloads.
 
 ```bash
 ./bin/tiny-prl presets
@@ -46,7 +57,7 @@ installation. Models must already be cached or supplied as local paths;
 ./bin/tiny-prl train smollm2-360m --max-steps 2 --run.name first-run
 ```
 
-The default environment is alphabet-sort. Named presets save a final checkpoint
+I've been using alphabet-sort as the default environment. Named presets save a final checkpoint
 and retain the last checkpoint. To resume the same run:
 
 ```bash
@@ -74,7 +85,7 @@ ln -s "$(pwd)/bin/tiny-prl" ~/.local/bin/tiny-prl
 See [the command guide](examples/tiny/README.md) for checkpoint export,
 longer run timeouts, model-cache handling and dashboard options.
 
-## Available presets
+## Presets I'm using
 
 | Preset | Trainer | Inference / weight transfer | Default updates |
 |---|---|---|---|
@@ -84,14 +95,15 @@ longer run timeouts, model-cache handling and dashboard options.
 | `qwen3-600m-lora` | LoRA rank 8 | Stock vLLM / filesystem updates | 10 |
 
 These configs use 512-token sequences, up to two inference sequences, and small
-training batches. The packaged command was exercised end to end on the 360M
-lossless preset. The other entries expose existing configs; they are not new
-capacity or performance validations. No 1B full-training or long-context coding
-capacity claim is established here.
+training batches. I've tested the packaged command end to end with the 360M
+lossless preset. The other entries expose my existing configs; their presence
+in this table isn't a new capacity or performance result. Full-parameter 1B
+training and long-context coding still need separate capacity tests on my laptop.
 
-## Verified results
+## What I've verified so far
 
-These measurements describe the recorded workloads on this laptop.
+These are results from the recorded workloads on my laptop, with the scope of
+each measurement kept explicit.
 
 | Check | Recorded result | Scope |
 |---|---|---|
@@ -101,24 +113,24 @@ These measurements describe the recorded workloads on this laptop.
 | B2 in Experiment 233 | Machine code unchanged; serving timing ranges overlap | No B2 improvement claimed |
 | Latest kernel's whole-RL benefit | No verified additional RL wall-time gain | Functional runs performed different rollout work and cannot establish a speedup |
 
-The cached decoder's B1/B2 instructions match the tested Experiment 233 variant.
-The lossless path targets **SmolLM2-360M on SM89, batches 1–2**. It preserves
+I've checked that the cached decoder's B1/B2 instructions match the tested
+Experiment 233 variant. My lossless path targets
+**SmolLM2-360M on SM89, batches 1–2**. It preserves
 weight bits and floating-point operations; its exact comparisons are against
 the preceding lossless implementation, not a claim of universal native-vLLM
 parity. Unsupported steps use the existing inference fallback.
 
-Evidence: [CLI validation](examples/tiny/cli-validation.json),
-[experiment ledger](examples/tiny/EXPERIMENTS.md), and the
+I keep the evidence in the [CLI validation](examples/tiny/cli-validation.json),
+[experiment ledger](examples/tiny/EXPERIMENTS.md), and
 [full hillclimb figure](examples/tiny/hillclimb.png). Component, serving, and
-verified RL wall-time results are recorded separately.
+verified RL wall-time results have separate records.
 
-## Prime Environments Hub: Wordle
+## Trying Wordle from the Prime Environments Hub
 
-The supported Hub package is **`primeintellect/wordle@0.1.7`**. Its legacy API
-is adapted to the pinned taskset API, preserving its prompt, parser and four
-reward components. Setup verifies the reviewed source hash and installs the
-optional TextArena/NLTK packages into a local directory, leaving the pinned
-training venv unchanged.
+I've connected **`primeintellect/wordle@0.1.7`**. I adapted its legacy API to
+the pinned taskset API, keeping its prompt, parser and four reward components.
+Setup verifies the reviewed source hash and installs the optional TextArena/NLTK
+packages into a local directory, leaving my pinned training venv unchanged.
 
 ```bash
 ./bin/tiny-prl env add primeintellect/wordle
@@ -127,7 +139,7 @@ training venv unchanged.
   --max-steps 1 --run.name wordle-first --guard-timeout 240
 ```
 
-The recorded trial found:
+Here's what happened in my first bounded trial:
 
 - **2,010** parser/reward fixtures matched the original Hub functions and the
   legacy parser reference.
@@ -138,17 +150,20 @@ The recorded trial found:
 - Training peak GPU memory was **7,170 MiB**, with zero job swap. Gradient norm
   was **1.66e-8**: this near-zero gradient does not demonstrate useful learning.
 
-This trial used 32 generated tokens per turn and a 512-token context; it is not
-a full-budget Wordle capability benchmark. Formatting reward alone can be
-nonzero for malformed text in the original package. Generic Hub packages and
-Harbor tasks are not yet wired into this launcher.
+I used 32 generated tokens per turn and a 512-token context, so this doesn't
+establish how the model would perform with a larger budget. The original
+package also gives some formatting reward to malformed text. I still need to
+establish valid guesses and meaningful reward contrast before calling this
+useful Wordle training. Generic Hub packages and Harbor tasks are still on the
+integration list.
 
 See [Wordle setup and limitations](examples/tiny/WORDLE.md) and
 [the validation report](examples/tiny/wordle-validation.json).
 
-## Resource limits
+## Keeping my laptop usable
 
-Training preflight requires 8 GiB available host RAM, 7,680 MiB free on GPU 0,
+I've added resource checks because the trainer and inference engine share my
+GPU. Training preflight requires 8 GiB available host RAM, 7,680 MiB free on GPU 0,
 no active GPU compute process, and 8 GiB free disk. Only one guarded GPU workload
 runs at a time. The training scope caps host memory at 7 GiB and job swap at
 zero; a monitor checks host RAM, disk, GPU usage and the run timeout.
@@ -158,14 +173,14 @@ scope and are cached under `outputs/kernel-cache/` by default. The training
 timeout is one hour; `--guard-timeout` changes it. These limits reduce resource
 pressure; they do not guarantee arbitrary model/context/batch overrides will fit.
 
-## Repository and upstream
+## How I've organized the repo
 
-This repository contains the trainer fork and laptop launcher.
-`deps/prime-kernels` pins the separate kernel fork. Downloaded environments,
-compiled libraries, model weights and run outputs are not committed.
+I keep the trainer fork and laptop launcher here, with `deps/prime-kernels`
+pinning my separate kernel fork. I leave downloaded environments, compiled
+libraries, model weights and run outputs out of Git.
 
-Prime-RL's broader framework guides remain in [docs/](docs). Their distributed
-model support is separate from this fork's tested laptop configurations.
+Prime-RL's broader framework guides remain in [docs/](docs). I'm only making
+laptop-specific claims for the configurations I've actually tested here.
 Upstream projects: [Prime-RL](https://github.com/PrimeIntellect-ai/prime-rl),
 [Verifiers](https://github.com/PrimeIntellect-ai/verifiers), and
 [Prime Kernels](https://github.com/PrimeIntellect-ai/prime-kernels).
