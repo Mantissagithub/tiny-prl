@@ -6,11 +6,7 @@ This is my work-in-progress fork of
 [Prime-RL](https://github.com/PrimeIntellect-ai/prime-rl), built around my
 **RTX 4060 Laptop GPU with 8 GiB VRAM and about 15 GiB system RAM**. I want to
 see how much I can get out of this hardware, from the training loop and weight
-transfers down to the decode kernels.
-
-Most of this fork has been built by coding agents, mainly Codex, with me
-directing the experiments and deciding what to keep. I'm using it to explore
-what agent-assisted optimization can achieve on my own hardware.
+transfers down to the decode kernels. And most of it is driven by codex!
 
 **Still in progress.** So far, I've run short-context SmolLM2-360M
 full-parameter RL, saved checkpoints, and resumed training on this laptop.
