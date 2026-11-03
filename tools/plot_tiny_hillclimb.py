@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-238);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-240);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 69.0  # inches; append the serving panel at the existing scale
+PAGE_H = 76.1  # inches; append the serving panel at the existing scale
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 238 experiments.
+# Experiment index. Outcome codes and lanes for all 240 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -571,6 +571,10 @@ CODES["A"].append(237)
 CODES["V"].append(238)
 LANES[-1][2].append(237)
 next(exps for key, _, exps in LANES if key == "R").append(238)
+CODES["D"].append(239)
+CODES["X"].append(240)
+next(exps for key, _, exps in LANES if key == "R").append(239)
+LANES[-1][2].append(240)
 
 # Callouts: (experiment, lane, text, x offset in experiments, y offset in lanes, alignment).
 CALLOUTS = [
@@ -615,10 +619,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 238
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 238
-    assert sorted(codes_of) == list(range(1, 239)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 239)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 240
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 240
+    assert sorted(codes_of) == list(range(1, 241)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 241)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -949,7 +953,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 238)
+    ax.set_xlim(0, 240)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -981,7 +985,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 238])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 240])
     ax.get_xticklabels()[-1].set_ha("right")
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
@@ -1040,7 +1044,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-            "examples/tiny/EXPERIMENTS.md, Experiments 1-238; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-240; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1562,11 +1566,60 @@ def draw_repaired_rl_wall(pg):
     pg.text(GUTTER, 68.13, "Limits: some discarded zero-reward traces retain raw logprob variation; no universal bitwise or long-run speed claim.", size=6.7, color=SUB)
 
 
+
+TEN_UPDATE_SEGMENTS = [[32.109004974365234, 93.49644490899664, 9.406177148994175, 13.478224105012487, 6.0, 4.375215502630454], [26.075311422348022, 101.06240880400583, 9.87638999200135, 12.635357065999415, 5.0, 5.740698112647806]]
+
+
+def draw_ten_update_profile(pg):
+    ax = pg.axes(1.95, 69.65, 6.95, 1.15)
+    names = ["Startup", "Wait for batch", "Train + optimizer", "Publish weights", "Final checkpoint", "Other"]
+    colors = [PALE, INK, ACCENT, ACCENT_TINT, SUB, CARD]
+    for y, values, total in zip([1, 0], TEN_UPDATE_SEGMENTS, [158.865, 160.390]):
+        left = 0
+        for i, (value, name, color) in enumerate(zip(values, names, colors)):
+            ax.barh(y, value, left=left, height=0.36, color=color, edgecolor=RULE, linewidth=0.4, label=name if y == 1 else None)
+            if value >= 8:
+                ax.text(left + value / 2, y, f"{value:.1f}", ha="center", va="center", fontsize=6.2,
+                        fontfamily=pg.mono, color="white" if i in [1, 2] else INK)
+            left += value
+        ax.text(total + 1.5, y, f"{total:.1f} s", va="center", fontsize=6.5, fontfamily=pg.mono, color=INK)
+    ax.set_yticks([1, 0], ["A · control\n29,126 tokens", "B · early\n31,677 tokens"])
+    ax.set_xlim(0, 180)
+    ax.set_ylim(-0.5, 1.5)
+    ax.set_xlabel("whole RL process · seconds · native trainer buckets plus approximate log intervals", fontsize=6.2, fontfamily=pg.prose, color=SUB)
+    clean_axes(ax)
+    ax.legend(frameon=False, ncol=3, loc="upper left", bbox_to_anchor=(0, -0.36), prop={"family": pg.prose, "size": 6.0})
+    pg.text(GUTTER, 71.65, "239 · INCONCLUSIVE. One process per arm; early generates 8.8% more tokens. Trainer metrics match through update 4, diverge at 5.", size=6.7, color=SUB)
+    pg.text(GUTTER, 71.82, "Wait dominates: 93.50 / 101.06 s; train + optimizer 9.41 / 9.88 s. Publish 13.48 / 12.64 s; final checkpoint about 6 / 5 s.", size=6.7, color=SUB)
+    pg.text(GUTTER, 71.99, "No repeated speed verdict or new verified RL point. Both runs finish 10 updates and checkpoints; guards pass with zero job swap.", size=6.7, color=SUB)
+
+
+def draw_serving_profile_screen(pg):
+    ax = pg.axes(1.65, 73.15, 3.55, 1.1)
+    vals = [10.271814, 1.692128, 0.796867, 1.823836]
+    labels = ["Pure decode", "Mixed", "Prefill", "Sampling"]
+    for y, value in zip([3, 2, 1, 0], vals):
+        ax.barh(y, value, height=0.45, color=ACCENT if y == 3 else PALE)
+        ax.text(value + 0.15, y, f"{value:.2f}", va="center", fontsize=6.5, fontfamily=pg.mono, color=INK)
+    ax.set_yticks([3, 2, 1, 0], labels)
+    ax.set_xlim(0, 12)
+    ax.set_xlabel("measured serving stream spans · seconds", fontsize=6.2, fontfamily=pg.prose, color=SUB)
+    clean_axes(ax)
+    pg.text(5.6, 73.15, "240 · B1 shared scratch", size=9, color=INK)
+    pg.text(5.6, 73.42, "38,440 to 23,576 B; same 253 registers.", size=6.5, color=SUB, mono=True)
+    pg.text(5.6, 73.69, "Trim only: -0.04 / +0.27 / +0.02%", size=6.5, color=SUB, mono=True)
+    pg.text(5.6, 73.88, "L1 control: -0.01 / +0.24 / -0.01%", size=6.5, color=SUB, mono=True)
+    pg.text(5.6, 74.10, "Contexts 32 / 128 / 1024; both rejected.", size=6.7, color=SUB)
+    pg.text(GUTTER, 74.72, "239 · Separate two-update V2 diagnostic, 6,810 measured calls. Pure decode accounts for 70.4% of these stream spans.", size=6.7, color=SUB)
+    pg.text(GUTTER, 74.89, "Stream spans include launch gaps; CPU work overlaps them. This is neither isolated kernel busy time nor a wall-time comparison.", size=6.7, color=SUB)
+    pg.text(GUTTER, 75.06, "240 · Exact outputs/graphs pass; B2 machine code unchanged. Both decoder screens rejected; no serving or RL sweep followed.", size=6.7, color=SUB)
+
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-238", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-240", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1644,7 +1697,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 238 experiments",
+        "Index of all 240 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1679,7 +1732,11 @@ def build(output: Path, prose: str, mono: str) -> None:
     draw_batch_stability(pg)
     pg.section(64.95, "18", "Checkpointed two-sequence RL with matched training work", "Exp 238 · accepted kernel plus invariant native operations and mixed repair in both arms; early startup comparison.")
     draw_repaired_rl_wall(pg)
-    draw_footer(pg, 68.4)
+    pg.section(68.9, "19", "Ten updates expose a workload mismatch", "Exp 239 · same invariant-serving profile; native wall buckets, approximate startup/checkpoint log intervals; work differs.")
+    draw_ten_update_profile(pg)
+    pg.section(72.4, "20", "Serving profile narrows the next kernel target", "Exp 239 diagnostic spans; Exp 240 math-preserving shared-memory and cache-preference screens.")
+    draw_serving_profile_screen(pg)
+    draw_footer(pg, 75.5)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)

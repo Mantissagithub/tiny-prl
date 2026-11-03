@@ -134,8 +134,10 @@ two-update run with checkpoints, using the [batch-invariant overlay](examples/ti
 and the mixed-decode repair. That profile's medians are 62.55 to 55.20 s, with
 exact finalized training metrics. Neither result establishes a gain over the
 unchanged default preset or longer training. Some discarded raw rollout
-logprobs still vary. The B2 integer-add trial in Experiment 234 had no
-decoder gain, so I rejected it before spending more runs on serving.
+logprobs still vary. My ten-update follow-up completed in both startup modes,
+but their training diverged at update 5 and generated work differed, so I
+haven't verified a longer-run speedup. The B2 integer-add trial in
+Experiment 234 had no decoder gain, so I rejected it before spending more runs on serving.
 
 ## Trying Wordle from the Prime Environments Hub
 

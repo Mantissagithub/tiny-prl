@@ -2273,3 +2273,30 @@ The repaired confirmation gate was frozen after the diagnostic c1/e1 pair and be
 The invariant-only precursor completed three runs but failed its original exact-request/comparable-work gate at e2 (159 requests/148 finalized rollouts versus 174/166). It remains separate and is not pooled with repaired results. Its failed gate is retained. The later repair resolves a different, reproduced mixed-route cause, and the revised gate allows bounded shutdown tails while tightening finalized work and trainer metrics to exact equality.
 
 This confirms overlapping startup on this opt-in two-update profile. It does not isolate a kernel speedup, establish a gain over the unchanged default preset, or establish long-run learning throughput. The packaged CLI resolves the batch-invariant overlay plus --deployment.early-trainer-start. Evidence: `prime-kernels/research/smollm2_360m_decode/experiments/b2-reproducibility-r1/`.
+
+## Experiment 239: ten-update comparison is inconclusive; profile rollout waiting
+
+The accepted two-sequence 360M invariant-serving/mixed-repair profile completes ten updates with full final checkpoints in both startup modes. Both use the same task, FP32 optimization/reduction, reward/admission logic, kernel and private request-seed hook. Only early_trainer_start differs. This is one process per arm, not a repeated speed comparison.
+
+| Startup | Whole RL seconds | Successful requests | Generated tokens | Finalized rollouts | Finalized tokens |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| control | 158.865067 | 968 | 29126 | 958 | 105453 |
+| early | 160.390165 | 1040 | 31677 | 1030 | 113760 |
+
+Trainer loss/gradient/KL metrics match through update 4 and differ from update 5. Finalized rollout work is already not exact from update 2. Early startup generates 8.755% more tokens overall, so these times establish neither a speedup nor a regression. The five-per-arm sweep stops at the work gate. The reason for the later training divergence is not isolated. The verified two-update Experiment 238 result remains scoped to that shorter workload.
+
+Native trainer wall timers locate the main wait. Control/early totals are 93.496/101.062 s waiting for batches, 9.406/9.876 s in the forward/backward bucket (which includes optimizer, gradient handling and annotations), and 13.478/12.635 s publishing weights. Load-data totals are about 0.004 s. Final checkpoint log intervals are 6/5 s. Startup-to-training-loop intervals are approximately 32/26 s from one-second logs measured against the runner start clock; remaining time includes metric logging, final synchronization, shutdown and log rounding. Publication includes handshake and may include outstanding GPU completion, not full engine reload. Orchestrator timers overlap this lane and are not added. Guard GPU-util samples aligned approximately to control steps 2-10 average 70.7% during trainer wait; this is GPU utilization, not MFU or memory bandwidth.
+
+A separate instrumented two-update run times the actual V2 model runner, fixing the earlier research counter's unused V1 target. It records 6,810 model/sample calls. Pure-decode execution spans total 10.272 s (70.43% of measured serving stream spans); mixed execution 1.692 s (11.60%); prefill execution 0.797 s (5.46%); sampling 1.824 s (12.51%). B1/B2 pure-decode runner median spans are 2.887/3.140 ms. These are CUDA-stream spans including launch gaps, not isolated kernel durations; CPU spans overlap them and must not be summed. The diagnostic is excluded from wall-time comparisons, and flushes at weight refresh can omit the shutdown tail. No hardware-counter bandwidth/cache claim is made.
+
+This directs the next screen toward pure decode rather than assuming mixed metadata is the largest cost. All three full-RL guards pass with zero job swap, including full checkpoint saves. Existing broadcast retention keeps only the current and previous snapshots, so no cleanup-policy change was needed for ten updates. Evidence: `prime-kernels/research/smollm2_360m_decode/experiments/rl-10step-startup-r1/`.
+
+## Experiment 240: smaller B1 shared scratch and L1 preference rejected
+
+A private candidate sizes the vector, attention-merge and inverse-denominator shared arrays to template batch B instead of maximum batch 2. B1 static shared memory falls 38,440 to 23,576 bytes (-38.67%); registers/instructions/spills stay 253/8,720/0. B2 resource use and all instruction words, including control bits, remain byte-identical at 246 registers, 44,848 shared bytes, 9,048 instructions and no spills. Arithmetic, reduction order, weight format and launch dimensions are unchanged. Lower shared usage does not remove the B1 register limit, so no occupancy gain is assumed.
+
+The first screen passes exact hidden/KV bits at both batches and contexts 32/128/1024 plus captured poisoned fallback/GU-only refresh. Across three alternating blocks with 120 events per placement, B1 median latency changes are -0.036/+0.272/+0.018%, with strict 0/3 at all contexts. Rejected for speed.
+
+A second private control requests 25% shared-memory carveout once before timing, testing explicit L1 preference without a per-token setter call. Its GPU instruction words exactly match the shared-only candidate. This is a requested driver preference, not a measured physical cache allocation. Exact and graph checks pass again, but B1 changes -0.012/+0.243/-0.013%, strict 1/3,0/3,1/3. Rejected too. B2 timing shifts are a byte-identical placebo, not a gain.
+
+Both builds hide CUDA and are bounded to one CPU, 2 GiB memory, zero job swap and 120 s. Both inner/outer GPU screens pass resource guards with zero job swap. No serving sweep, RL timing sweep or production change follows the failed first screens. The memory reduction is retained as research evidence only. Evidence: `prime-kernels/research/smollm2_360m_decode/experiments/lossless-b1-shared-trim-r1/`.
