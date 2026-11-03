@@ -70,3 +70,25 @@ sampled GPU peak stayed below 2.4 GiB. No training was run.
 after the run tag and model path; replace `large` with `xlarge` or `xxlarge`
 for the other profiles. `qwen_reasoning_pilot.py`
 scores completed pilots separately from the full pass@1/pass@4 scorer.
+
+## Supervised warmup
+
+I completed 100 SFT updates with rank-8 LoRA, thinking disabled and the existing
+3,067 concise Wordle targets. All 20 evaluation answer words were excluded from
+the source training games. Qwen's native renderer and final-assistant masks were
+checked on every row; the longest rendered example was 414 tokens.
+
+Batch loss went from 2.962 to 0.432. Training and checkpoint saving finished in
+168.6 seconds, with a sampled GPU peak of 3,907 MiB and zero job swap. I exported
+the trained adapter without merging it, checked its weights were finite and
+nonzero, and loaded it through Prime-RL's native LoRA endpoint.
+
+The matched 20-task, four-seed evaluation used the earlier nonthinking control's
+256-token/turn and 2,048-token context budgets. Accepted opening moves increased
+from 60/80 to 80/80, and all 80 openings used the required XML/bracket format.
+Both pass@1 and pass@4 remained zero. Repeated guesses and invalid word lengths
+still ended games, so I did not start RL from this adapter.
+
+[Warmup summary](sft100/summary.json), [training configuration](sft100/sft.toml)
+and [gameplay results](sft100/pass-at.json). Checkpoint and adapter weights remain
+local under `outputs/qwen-wordle-training-20261103/`.

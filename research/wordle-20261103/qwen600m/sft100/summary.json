@@ -1,0 +1,14 @@
+{
+  "steps": 100,
+  "first_step_loss": 2.962019920349121,
+  "last_step_loss": 0.4319285750389099,
+  "loss_precision": "native metrics",
+  "mode": "LoRA rank 8 SFT; no RL updates",
+  "accepted_openings_before": 60,
+  "accepted_openings_after": 80,
+  "evaluation_games": 80,
+  "pass_at_1": 0,
+  "pass_at_4": 0,
+  "finite_gradient_updates": 100,
+  "updates_with_gradient_above_1e_6": 100
+}

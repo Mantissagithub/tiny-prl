@@ -1,0 +1,46 @@
+max_steps = 100
+output_dir = "/home/pradheep/tiny-prl/prime-rl/outputs/qwen-wordle-training-20261103/training"
+
+[run]
+name = "qwen600m-wordle-sft-r1"
+
+[model]
+name = "/home/pradheep/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca"
+compile = "None"
+seq_len = 512
+optimization_dtype = "float32"
+reduce_dtype = "float32"
+offload = "none"
+ac = { mode = "full", freq = 1 }
+ac_offloading = "None"
+fused_lm_head_token_chunk_size = 128
+fused_lm_head_kernel = "torch"
+
+[model.lora]
+rank = 8
+alpha = 16
+
+[renderer]
+name = "qwen3"
+enable_thinking = false
+
+[data]
+name = "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/concise-data"
+seq_len = 512
+batch_size = 4
+micro_batch_size = 1
+
+[optim]
+lr = 0.0001
+
+[deployment]
+type = "single_node"
+gpus_per_node = 1
+num_train_gpus = 1
+
+[ckpt]
+single_file_per_rank = false
+interval = 50
+keep_last = 1
+
+[monitors.file]

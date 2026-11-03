@@ -1,0 +1,10 @@
+{
+  "rows": 3067,
+  "max_sequence_tokens": 414,
+  "min_loss_tokens": 12,
+  "max_loss_tokens": 14,
+  "last_assistant_target_mask_exact": true,
+  "target_prefix": "<think>\n\n</think>\n\n",
+  "renderer": "qwen3",
+  "enable_thinking": false
+}

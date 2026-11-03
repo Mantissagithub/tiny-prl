@@ -1,0 +1,9 @@
+{
+  "games": 80,
+  "outcomes": {
+    "Invalid Move: You have already guessed 'crane' before. Please try a different word.": 20,
+    "Invalid Move: Your word must be exactly 5 letters.": 30,
+    "max_turns": 30
+  },
+  "first_moves_with_feedback": 80
+}

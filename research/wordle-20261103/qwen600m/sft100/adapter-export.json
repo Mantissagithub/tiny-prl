@@ -1,0 +1,6 @@
+{
+  "adapter": "/home/pradheep/tiny-prl/prime-rl/outputs/qwen-wordle-training-20261103/adapter-step100",
+  "tensors": 392,
+  "finite": true,
+  "nonzero_lora_B": true
+}

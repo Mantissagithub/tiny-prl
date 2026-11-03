@@ -17,6 +17,7 @@ thinking = 'thinking' in sys.argv[4:]
 large = 'large' in sys.argv[4:]
 xlarge = 'xlarge' in sys.argv[4:]
 xxlarge = 'xxlarge' in sys.argv[4:]
+adapter = next((arg.removeprefix('adapter=') for arg in sys.argv[4:] if arg.startswith('adapter=')), None)
 case = WORK / tag
 case.mkdir(exist_ok=False)
 prefix = ['/home/pradheep/.local/bin/uv', 'run', '--offline', '--no-project', '--python', '/home/pradheep/.venv/bin/python']
@@ -32,6 +33,9 @@ if qwen:
     inference['env_vars'] = {}
     inference['vllm']['gpu_memory_utilization'] = 0.25
     inference['vllm']['reasoning_parser'] = 'qwen3'
+if adapter:
+    inference['vllm']['enable_lora'] = True
+    inference['vllm']['max_lora_rank'] = 8
 if roomy:
     inference['vllm']['max_model_len'] = 2048
     inference['vllm']['max_num_batched_tokens'] = 2048
@@ -85,6 +89,11 @@ with (case / 'inference.log').open('w') as log:
             time.sleep(1)
         else:
             raise TimeoutError('inference startup')
+        if adapter:
+            response = httpx.post('http://localhost:8000/load_lora_adapter',
+                json={'lora_name': model, 'lora_path': adapter}, timeout=120, trust_env=False)
+            response.raise_for_status()
+            (case / 'adapter-load.json').write_text(json.dumps({'path': adapter, 'response': response.json()}, indent=2))
         for seed in ([42, 43, 44, 45] if pass4 else [42]):
             name = f'seed-{seed}' if pass4 else 'wordle'
             if pass4:
