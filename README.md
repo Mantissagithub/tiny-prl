@@ -8,6 +8,10 @@ This is my work-in-progress fork of
 see how much I can get out of this hardware, from the training loop and weight
 transfers down to the decode kernels.
 
+Most of this fork has been built by coding agents, mainly Codex, with me
+directing the experiments and deciding what to keep. I'm using it to explore
+what agent-assisted optimization can achieve on my own hardware.
+
 **Still in progress.** So far, I've run short-context SmolLM2-360M
 full-parameter RL, saved checkpoints, and resumed training on this laptop.
 I've also connected Wordle from the Prime Environments Hub. That integration
