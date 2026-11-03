@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+script_dir=$(dirname -- "$(readlink -f -- "$0")")
+repo=$(dirname -- "$script_dir")
+venv=${TINY_PRL_VENV:-$HOME/.venv}
+export UV_CACHE_DIR=${UV_CACHE_DIR:-$repo/outputs/uv-cache}
+if [ ! -x "$venv/bin/python" ]; then
+  echo "Pinned environment missing: $venv. Set TINY_PRL_VENV to your existing environment." >&2
+  exit 1
+fi
+exec uv run --offline --no-project --python "$venv/bin/python" python "$repo/tools/tiny_prl.py" "$@"

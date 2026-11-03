@@ -1,0 +1,100 @@
+{
+  "status": "passed",
+  "scope": "laptop CLI packaging and functional RL; no speedup claim",
+  "kernel_package_commit": "c0e5466",
+  "checks": {
+    "launcher_unit_tests": 5,
+    "named_preset_native_dryrun": true,
+    "custom_config_native_dryrun": true,
+    "global_command_from_tmp": true,
+    "clean_cpu_only_kernel_build": true,
+    "package_build_includes_jit_sources": [
+      "decode_megakernel_360m_lossless/__init__.py",
+      "decode_megakernel_360m_lossless/csrc/block360.cu",
+      "decode_megakernel_360m_lossless/csrc/block360_kernel.inc",
+      "lossless_bf16/__init__.py",
+      "lossless_bf16/csrc/lossless_bf16.cu",
+      "lossless_bf16/csrc/encoded_gu.h"
+    ],
+    "instruction_identity": {
+      "1": {
+        "instructions": 8720,
+        "matches_exp233_instructions": true
+      },
+      "2": {
+        "instructions": 9048,
+        "matches_exp233_instructions": true
+      }
+    },
+    "guard_timeout_terminates_owned_sleep": {
+      "returncode": -15,
+      "stop_reason": "run timeout",
+      "elapsed_seconds": 1.0565122929983772,
+      "minimum_available_bytes": 10282487808,
+      "minimum_disk_free_bytes": 35175079936,
+      "peak_cgroup_bytes": 21372928,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 15
+    },
+    "full_rl_two_updates_and_checkpoint": true,
+    "resume_step_2_to_3_and_checkpoint": true,
+    "additional_config_overlay_native_dryrun": true
+  },
+  "rl_guards": [
+    {
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 82.09207893999701,
+      "minimum_available_bytes": 4030537728,
+      "minimum_disk_free_bytes": 29115142144,
+      "peak_cgroup_bytes": 7503134720,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 7224
+    },
+    {
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 62.37525408899819,
+      "minimum_available_bytes": 4325863424,
+      "minimum_disk_free_bytes": 24814751744,
+      "peak_cgroup_bytes": 7516192768,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 7218
+    }
+  ],
+  "final_checkpoint_bytes": 4532893669,
+  "finite_training_metrics": [
+    {
+      "step": 1,
+      "optim/grad_norm": 0.006640126928687096
+    },
+    {
+      "step": 1,
+      "loss/mean": 1.0062090041174088e-05,
+      "mismatch_kl/all/mean": 0.0029457390774041414
+    },
+    {
+      "step": 2,
+      "optim/grad_norm": 0.044008079916238785
+    },
+    {
+      "step": 2,
+      "loss/mean": 4.7629382606828585e-05,
+      "mismatch_kl/all/mean": 0.0011067623272538185
+    },
+    {
+      "step": 3,
+      "optim/grad_norm": 0.024556228891015053
+    },
+    {
+      "step": 3,
+      "loss/mean": 8.452397196379025e-06,
+      "mismatch_kl/all/mean": 0.0009838894475251436
+    }
+  ],
+  "notes": [
+    "Existing singleton loss/std is omitted by the native monitor; loss, gradient norm and mismatch KL are finite.",
+    "Only the 360M lossless preset is exercised end to end in this packaging validation.",
+    "No model weights or compiled libraries included in Git."
+  ]
+}

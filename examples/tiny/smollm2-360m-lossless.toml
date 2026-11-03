@@ -1,0 +1,6 @@
+# Overlay on smollm2-360m-full-stream64.toml.
+[inference]
+decode_megakernel = true
+
+[inference.env_vars]
+PRIME_DECODE_MEGAKERNEL_360M_LOSSLESS = "1"

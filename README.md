@@ -29,6 +29,10 @@ prime-rl: Async RL Training at Scale
 
 ## Overview
 
+This fork includes a guarded laptop launcher: `./bin/tiny-prl train smollm2-360m`.
+See [laptop training commands](examples/tiny/README.md) for presets, dry runs,
+checkpoint resume, and the pinned environment.
+
 prime-rl is a framework for large-scale reinforcement learning. It is designed to be easy to use and hackable, yet capable of scaling to 1000+ GPUs. Here is what we think sets it apart:
 
 1. Fully asynchronous RL for high-throughput agentic training at scale.

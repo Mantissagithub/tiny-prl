@@ -1,0 +1,4 @@
+# Shared settings for the laptop command's named presets.
+[ckpt]
+single_file_per_rank = false
+keep_last = 1
