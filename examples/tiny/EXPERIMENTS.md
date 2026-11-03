@@ -2218,3 +2218,19 @@ Five current-kernel processes per arm compare serial versus early trainer startu
 Serial startup median 53.560394 s → early startup 46.712818 s (-12.785%). Controls: 53.560394, 53.749305, 59.870677, 51.104758, 51.327908 s; early: 52.315788, 50.581989, 46.712818, 44.269493, 43.567962 s. Both strict A-B-B-A blocks pass; the final paired check passes. Block mean changes are −4.111%, −18.016%, −15.118%. Individual whole-arm ranges overlap, so the magnitude is noisy; do not claim every candidate beats every control.
 
 This is startup overlap WITH the latest kernel, not an isolated kernel gain or a measurement of the default two-sequence preset. The initial old/current kernel pair, 59.903/53.560 s, is diagnostic only and excluded from startup medians. An attempted V1 GPU-runner counter stays zero under the actual V2 runner and is not used as evidence; complete successful request hashes and native training metrics provide the work checks. Guards all pass with zero job swap. The opt-in `smollm2-360m-b1-early.toml` profile retains the existing readiness wait before trainer CUDA allocation; default presets are unchanged. Evidence: `prime-kernels/research/smollm2_360m_decode/experiments/lossless-b1-rl-matched-r1/`. This adds a separate scoped full-RL result, without joining incompatible historical wall-time workloads.
+
+## Experiment 236: two-sequence checkpointed RL remains inconclusive
+
+The normal named 360M preset runs two full-parameter alphabet-sort updates with two vLLM sequence slots, default max_inflight=4, stream64 broadcasts, final per-tensor checkpoint and FP32 optimization/reduction. Only early_trainer_start differs between arms. The private request hook retains distinct deterministic per-prompt seeds at temperature 1; it does not replay outputs or change rewards/admission. Both arms use the same accepted lossless kernel, not the rejected B2 trial.
+
+| Chronological run | Startup | Whole RL seconds | Successful requests | Generated tokens | Startup log interval seconds |
+| --- | --- | ---: | ---: | ---: | ---: |
+| c1 | control | 75.566662 | 222 | 6832 | 31 |
+| e1 | early | 56.313208 | 174 | 5187 | 22 |
+| c2 | control | 64.073641 | 172 | 5093 | 30 |
+
+All three runs complete two updates, three weight refreshes and a full checkpoint of about 4.53 GB including optimizer state. Checkpoint file sizes and SHA256 hashes are retained; the final c2 checkpoint remains local. Repeated broadcast files and the first two repeat checkpoints were removed after recording evidence to keep disk use bounded. The elapsed interval includes process startup, rollout, training, checkpoint save and shutdown; post-run checkpoint hashing/cleanup is excluded.
+
+The work gate fails. Of 174 common prompt/seed requests between c1/e1, 33 return different output hashes or token counts. Even the unchanged c1/c2 controls differ on 25 of 172 common requests. Finalized work is respectively 212/166/166 rollouts; training gradients differ. This shows run-to-run trajectory variation under the two-sequence workload despite fixed request seeds; the specific numerical or scheduling cause is not isolated. Lower wall time is not a verified speedup. No default-preset change, kernel adoption or new verified RL point.
+
+The startup log interval runs from launcher inference-start to trainer startup-policy broadcast, with one-second log resolution. Its 31/22/30 seconds suggest startup imports still overlap, but three diagnostic processes do not establish a repeated whole-RL gain. Checkpoint I/O and variable rollout admission also contribute to total time. Following the Explain the Number principle, the five-per-arm sweep stops at the failed comparable-work gate rather than reporting a misleading percentage. All three guards pass, zero job swap, peak GPU 7,398 MiB and at least 3.18 GB available host RAM. Evidence: `prime-kernels/research/smollm2_360m_decode/experiments/lossless-b2-rl-checkpoint-r1/`.

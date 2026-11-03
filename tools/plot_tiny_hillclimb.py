@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-235);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-236);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 58.8  # inches; append the serving panel at the existing scale
+PAGE_H = 62.2  # inches; append the serving panel at the existing scale
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 235 experiments.
+# Experiment index. Outcome codes and lanes for all 236 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -565,6 +565,8 @@ LANES[-1][2].extend([232, 233])
 CODES["X"].append(234)
 CODES["V"].append(235)
 LANES[-1][2].extend([234, 235])
+CODES["D"].append(236)
+LANES[-1][2].append(236)
 
 # Callouts: (experiment, lane, text, x offset in experiments, y offset in lanes, alignment).
 CALLOUTS = [
@@ -609,10 +611,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 235
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 235
-    assert sorted(codes_of) == list(range(1, 236)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 236)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 236
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 236
+    assert sorted(codes_of) == list(range(1, 237)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 237)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -943,7 +945,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 235)
+    ax.set_xlim(0, 236)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -975,7 +977,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 235])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 236])
     ax.get_xticklabels()[-1].set_ha("right")
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
@@ -1034,7 +1036,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-            "examples/tiny/EXPERIMENTS.md, Experiments 1-235; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-236; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1487,11 +1489,30 @@ def draw_b1_startup_wall(pg):
     pg.text(GUTTER, 57.89, "234 · B2 integer add exact but +0.03% / +0.01% / +0.16%; rejected before serving sweeps. Defaults and B1 kernel retained.", size=6.7, color=SUB)
 
 
+def draw_b2_checkpoint_work(pg):
+    # Experiment 236: unequal rollout work, diagnostic times only.
+    ax = pg.axes(0.95, 59.2, 7.95, 1.35)
+    times = [75.5666622380013, 56.313208191997546, 64.07364146100008]
+    for i, (value, requests, tokens) in enumerate(zip(times, [222, 174, 172], [6832, 5187, 5093])):
+        color = ACCENT if i == 1 else INK
+        ax.scatter([i], [value], color=color, s=20)
+        ax.annotate(f"{value:.2f} s / {requests} requests / {tokens:,} tokens", (i, value),
+                    xytext=(0, 9), textcoords="offset points", ha="center",
+                    fontsize=6.2, fontfamily=pg.mono, color=color)
+    ax.set_xticks(range(3), ["A1 · serial", "B1 · early", "A2 · serial"])
+    ax.set_xlim(-0.55, 2.55)
+    ax.set_ylim(48, 85)
+    ax.set_ylabel("whole RL process · seconds", fontsize=6.5, fontfamily=pg.prose, color=SUB)
+    clean_axes(ax)
+    pg.text(GUTTER, 60.9, "236 · INCONCLUSIVE. Even the serial control repeat changes generated work. No speedup percentage or verified RL point.", size=6.7, color=SUB)
+    pg.text(GUTTER, 61.07, "All runs: 2 updates, full 4.53 GB checkpoint, 3 weight refreshes; FP32 training. Guards pass, zero job swap; GPU peak 7,398 MiB.", size=6.7, color=SUB)
+    pg.text(GUTTER, 61.24, "Startup log intervals: 31 / 22 / 30 s. Fixed request seeds do not fix the two-sequence training trajectory; default preset stays unchanged.", size=6.7, color=SUB)
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-235", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-236", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1569,7 +1590,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 235 experiments",
+        "Index of all 236 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1598,7 +1619,9 @@ def build(output: Path, prose: str, mono: str) -> None:
     draw_b1_vadd2(pg)
     pg.section(54.88, "15", "Startup overlap moves matched-work RL wall time", "Exp 235 · latest B1 kernel in both arms; private deterministic request seeds preserve identical generated work.")
     draw_b1_startup_wall(pg)
-    draw_footer(pg, 58.25)
+    pg.section(58.5, "16", "Normal two-sequence RL: work gate fails", "Exp 236 · same accepted kernel; full checkpoint save enabled. Times below have unequal generated work.")
+    draw_b2_checkpoint_work(pg)
+    draw_footer(pg, 61.65)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)
