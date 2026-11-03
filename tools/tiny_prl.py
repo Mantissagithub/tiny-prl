@@ -53,16 +53,20 @@ def environment():
     return env
 
 
-def config_args(preset, overrides):
+def config_args(preset, overrides, environment=None):
     run_name = f"{preset if preset != '@' else 'custom'}-{uuid.uuid4().hex[:8]}"
     defaults = ["--no-dashboard", "--output-dir", str(REPO / "outputs/training"), "--run.name", run_name]
     if preset == "@":
         if not overrides:
             raise ValueError("train @ requires a config path")
-        return ["@", str(Path(overrides[0]).resolve())] + defaults + overrides[1:]
-    if preset not in PRESETS:
-        raise ValueError(f"Unknown preset {preset!r}; run tiny-prl presets")
-    files = [EXAMPLES / name for name in PRESETS[preset][1]] + [EXAMPLES / "laptop.toml"]
+        files = [Path(overrides[0]).resolve()]
+        overrides = overrides[1:]
+    else:
+        if preset not in PRESETS:
+            raise ValueError(f"Unknown preset {preset!r}; run tiny-prl presets")
+        files = [EXAMPLES / name for name in PRESETS[preset][1]] + [EXAMPLES / "laptop.toml"]
+    if environment == "primeintellect/wordle":
+        files.append(EXAMPLES / "wordle.toml")
     return [arg for path in files for arg in ("@", str(path))] + defaults + overrides
 
 
@@ -137,8 +141,12 @@ def main():
     sub.add_parser("presets", help="list tested laptop configurations")
     sub.add_parser("doctor", help="check environment, tools and free resources")
     sub.add_parser("build-kernels", help="compile/cache the lossless kernels without GPU allocation")
+    hub = sub.add_parser("env", help="prepare a supported Hub environment without changing the pinned venv")
+    hub.add_argument("action", choices=["add"])
+    hub.add_argument("environment", choices=["primeintellect/wordle"])
     train = sub.add_parser("train", help="launch guarded RL; remaining arguments go to Prime-RL")
     train.add_argument("preset", help="preset name, or @ followed by your config path")
+    train.add_argument("--env", choices=["primeintellect/wordle"], help="use the pinned Hub environment adapter")
     train.add_argument(
         "--guard-timeout", type=int, default=3600, help="maximum run duration in seconds (default: 3600)"
     )
@@ -157,6 +165,30 @@ def main():
             parser.error("build-kernels takes no additional arguments")
         build_kernels(environment())
         return 0
+    if args.command == "env":
+        if overrides:
+            parser.error("env add takes no additional arguments")
+        command = [
+            "systemd-run",
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--expand-environment=no",
+            "--property=MemoryMax=2G",
+            "--property=MemorySwapMax=0",
+            "--property=CPUQuota=100%",
+            "--property=RuntimeMaxSec=180",
+            shutil.which("uv"),
+            "run",
+            "--offline",
+            "--no-project",
+            "--python",
+            sys.executable,
+            "python",
+            str(REPO / "tools/tiny_wordle_setup.py"),
+        ]
+        return subprocess.call(command, env=environment())
     if args.command == "doctor":
         if overrides:
             parser.error("doctor takes no additional arguments")
@@ -171,6 +203,12 @@ def main():
     if args.guard_timeout < 1:
         parser.error("--guard-timeout must be positive")
     env = environment()
+    if args.env:
+        directory = REPO / "outputs/environments/primeintellect-wordle-0.1.7"
+        if not (directory / "dependencies/textarena").is_dir():
+            raise ValueError("Wordle dependencies missing; run tiny-prl env add primeintellect/wordle")
+        env["PYTHONPATH"] += os.pathsep + str(directory / "dependencies")
+        env["NLTK_DATA"] = str(directory / "nltk_data")
     os.environ.update(env)
     for directory in reversed(env["PYTHONPATH"].split(os.pathsep)):
         sys.path.insert(0, directory)
@@ -178,7 +216,7 @@ def main():
 
     from prime_rl.configs.rl import RLConfig
 
-    flags = config_args(args.preset, overrides)
+    flags = config_args(args.preset, overrides, args.env)
     config = cli(RLConfig, args=flags)
     if env["HF_HUB_OFFLINE"] == "1":
         cache = Path(

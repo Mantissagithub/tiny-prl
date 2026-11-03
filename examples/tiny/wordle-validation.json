@@ -1,0 +1,173 @@
+{
+  "status": "functional-validation-passed",
+  "hub_environment": "primeintellect/wordle@0.1.7",
+  "provenance": {
+    "hub_id": "primeintellect/wordle",
+    "package_version": "0.1.7",
+    "version_id": "eletiahb7kg3mkh4qbh6ixlw",
+    "source_sha256": "8567b975122280ef3e29105592dcd0bc0fd11dc4f065be65596c1de074f8d87b",
+    "dependencies": {
+      "textarena": "0.7.4",
+      "nltk": "3.9.2"
+    }
+  },
+  "reference_proof": {
+    "passed": true,
+    "reward_and_parser_fixtures": 2010,
+    "hub_version_id": "eletiahb7kg3mkh4qbh6ixlw",
+    "source_sha256": "8567b975122280ef3e29105592dcd0bc0fd11dc4f065be65596c1de074f8d87b",
+    "initial_prompt_tokens": 176
+  },
+  "evaluation": {
+    "episodes": [
+      {
+        "ok": true,
+        "errors": [],
+        "rewards": {
+          "correct_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "partial_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "length_bonus": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "format_reward": {
+            "score": 0.2,
+            "weight": 0.2
+          }
+        },
+        "outcome": "Invalid Move: Your word must be exactly 5 letters.",
+        "weighted_reward": 0.04000000000000001
+      },
+      {
+        "ok": true,
+        "errors": [],
+        "rewards": {
+          "correct_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "partial_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "length_bonus": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "format_reward": {
+            "score": 0.4,
+            "weight": 0.2
+          }
+        },
+        "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+        "weighted_reward": 0.08000000000000002
+      },
+      {
+        "ok": true,
+        "errors": [],
+        "rewards": {
+          "correct_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "partial_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "length_bonus": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "format_reward": {
+            "score": 0.2,
+            "weight": 0.2
+          }
+        },
+        "outcome": "Invalid Move: Your word must be exactly 5 letters.",
+        "weighted_reward": 0.04000000000000001
+      },
+      {
+        "ok": true,
+        "errors": [],
+        "rewards": {
+          "correct_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "partial_answer": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "length_bonus": {
+            "score": 0.0,
+            "weight": 1.0
+          },
+          "format_reward": {
+            "score": 0.2,
+            "weight": 0.2
+          }
+        },
+        "outcome": "Invalid Move: Your word must be exactly 5 letters.",
+        "weighted_reward": 0.04000000000000001
+      }
+    ],
+    "wins": 0,
+    "guard": {
+      "command": [
+        "/home/pradheep/.venv/bin/python",
+        "/home/pradheep/tiny-prl/prime-rl/outputs/megakernel-20261025/r28-fast-stage-profile-r1/guard_3gib.py",
+        "outputs/wordle-hub-20261103/guard-inner-eval-r1",
+        "/home/pradheep/.venv/bin/python",
+        "outputs/wordle-hub-20261103/eval_case.py"
+      ],
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 37.49224097000115,
+      "minimum_available_bytes": 7459127296,
+      "peak_cgroup_bytes": 4918988800,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 1833,
+      "disk_free_before_bytes": 29052993536,
+      "minimum_disk_free_bytes": 29052473344
+    }
+  },
+  "training": {
+    "updates": 1,
+    "checkpoint_bytes": 4532893665,
+    "gradient_norm": 1.656495918211931e-08,
+    "loss": 3.855410435349427e-11,
+    "finalized_metrics": {
+      "rollout/attempts": 32,
+      "rollout/discarded": 28,
+      "rollout/errored": 0,
+      "rollout/no_signal": 28,
+      "progress/total_tokens": 8996,
+      "progress/total_rollouts": 32,
+      "progress/total_tasks": 16
+    },
+    "guard": {
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 73.79292372899727,
+      "minimum_available_bytes": 4386164736,
+      "minimum_disk_free_bytes": 23067344896,
+      "peak_cgroup_bytes": 7516192768,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 7170
+    }
+  },
+  "learning_verdict": "Not demonstrated: 0/4 eval wins and near-zero training gradient; do not confuse integration success with useful learning.",
+  "test_limits": {
+    "max_model_len": 512,
+    "max_turns": 6,
+    "tokens_per_turn": 32,
+    "max_output_tokens": 192,
+    "max_input_tokens": 480
+  }
+}

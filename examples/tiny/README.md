@@ -40,6 +40,8 @@ training automatically. The model must be cached or supplied as a local path.
 The new command is validated end to end on the 360M lossless preset; the other
 entries expose the existing configs, not new capacity or performance claims.
 
+For the reviewed `primeintellect/wordle` Hub package, see [Wordle setup and trial results](WORDLE.md).
+
 Normal Prime-RL arguments pass through:
 
 ```bash

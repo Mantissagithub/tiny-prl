@@ -38,6 +38,14 @@ def test_custom_config_keeps_native_overrides(tmp_path):
         launcher.config_args("@", [])
 
 
+def test_wordle_overlay_follows_model_preset_and_keeps_overrides():
+    args = launcher.config_args("smollm2-360m", ["--max-steps", "1"], "primeintellect/wordle")
+    overlay = args.index(str(launcher.EXAMPLES / "wordle.toml"))
+    assert args.index(str(launcher.EXAMPLES / "smollm2-360m-full-stream64.toml")) < overlay
+    assert overlay < args.index("--no-dashboard")
+    assert args[-2:] == ["--max-steps", "1"]
+
+
 def test_offline_resolution_refuses_ambiguous_snapshots(tmp_path):
     snapshots = tmp_path / "models--org--model/snapshots"
     one = snapshots / "first"

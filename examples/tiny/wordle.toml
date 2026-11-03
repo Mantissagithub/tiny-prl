@@ -1,0 +1,18 @@
+# primeintellect/wordle@0.1.7, ported to the pinned taskset API.
+# Six model turns and 32 tokens/turn keep this within the laptop's 512-token budget.
+[orchestrator.train.sampling]
+max_completion_tokens = 32
+
+[[orchestrator.train.source]]
+name = "primeintellect-wordle"
+serve.pool.type = "elastic"
+serve.pool.max_workers = 1
+env.taskset.id = "tiny_prl_wordle"
+env.taskset.seed = 0
+env.player.harness.id = "null"
+env.player.runtime.type = "subprocess"
+env.player.runtime.fork_server = true
+env.player.max_turns = 6
+env.player.max_output_tokens = 192
+env.player.max_input_tokens = 480
+env.player.timeout.rollout = 60
