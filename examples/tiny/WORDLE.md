@@ -74,3 +74,12 @@ rewards or task difficulty would be a new environment variant.
 Raw logs, traces, guards and the saved checkpoint from this trial remain in
 `outputs/wordle-hub-20261103/`. No weights or downloaded third-party packages
 are committed to Git.
+
+## Format warmup and longer-run investigation
+
+The [Wordle experiment record](../../research/wordle-20261103/README.md) contains
+the 50-update format warmup, matched pass@1/pass@4 evaluation, the stopped
+131-update RL run and its tied-reward admission diagnosis. Formatting improved,
+but every evaluated checkpoint still scored zero wins. GRPO now centers shaped
+rewards before its weighted baseline so tied rewards receive exactly zero
+advantage. Hub rewards and dtype settings remain unchanged.

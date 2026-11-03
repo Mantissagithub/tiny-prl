@@ -45,8 +45,10 @@ class GRPOAlgorithm(Algorithm):
         lengths = torch.tensor(
             [sum(sum(node.mask) for node in trainable_nodes(trace)) for trace in traces], dtype=rewards.dtype
         )
-        baseline = (lengths * shaped_rewards).sum() / lengths.sum()
-        advantages = shaped_rewards - baseline
+        # Center before averaging so tied rewards yield exact zero credit in FP32.
+        centered_rewards = shaped_rewards - shaped_rewards[:1]
+        baseline = (lengths * centered_rewards).sum() / lengths.sum()
+        advantages = centered_rewards - baseline
         for trace, advantage in zip(traces, advantages.tolist(), strict=True):
             assign_advantages(trace, advantage)
         nodes = [node for trace in traces for node in trainable_nodes(trace)]

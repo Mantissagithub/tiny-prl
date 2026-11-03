@@ -1,0 +1,18 @@
+{
+  "command": [
+    "/home/pradheep/.venv/bin/python",
+    "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/evaluate.py",
+    "pass4-base-r1",
+    "/home/pradheep/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/snapshots/a10cc1512eabd3dde888204e902eca88bddb4951",
+    "pass4"
+  ],
+  "returncode": 0,
+  "stop_reason": null,
+  "elapsed_seconds": 100.94979951099958,
+  "minimum_available_bytes": 5890461696,
+  "peak_cgroup_bytes": 5182771200,
+  "peak_swap_bytes": 0,
+  "peak_gpu_mib": 1833,
+  "disk_free_before_bytes": 21228486656,
+  "minimum_disk_free_bytes": 21226438656
+}

@@ -1,0 +1,21 @@
+F....                                                                    [100%]
+=================================== FAILURES ===================================
+________ test_grpo_equal_rewards_are_exactly_untrainable[0.4-lengths0] _________
+
+reward = 0.4, lengths = (33, 34)
+
+    @pytest.mark.parametrize(("reward", "lengths"), [(0.4, (33, 34)), (0.8, (46, 32)), (0.2, (3, 3))])
+    def test_grpo_equal_rewards_are_exactly_untrainable(reward, lengths):
+        episodes = [_rewarded_episode(reward, length) for length in lengths]
+        algorithm = GRPOAlgorithm(_build(type="grpo"), None)
+        asyncio.run(algorithm.score_group(episodes))
+>       assert [scalar_advantage(e.traces[0]) for e in episodes] == [0.0, 0.0]
+E       assert [2.9802322387...387695312e-08] == [0.0, 0.0]
+E
+E         At index 0 diff: 2.9802322387695312e-08 != 0.0
+E         Use -v to get more diff
+
+tests/unit/orchestrator/test_algorithms.py:229: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/orchestrator/test_algorithms.py::test_grpo_equal_rewards_are_exactly_untrainable[0.4-lengths0]
+1 failed, 4 passed, 30 deselected in 1.94s

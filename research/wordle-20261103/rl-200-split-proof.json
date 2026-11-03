@@ -1,0 +1,29 @@
+{
+  "seed": 0,
+  "original_train_tasks": 2000,
+  "excluded_tasks": 240,
+  "retained_tasks": 1760,
+  "eval_answer_overlap": [],
+  "eval_answers": [
+    "angle",
+    "board",
+    "brass",
+    "dress",
+    "fruit",
+    "grass",
+    "knife",
+    "paint",
+    "sleep",
+    "slope",
+    "stamp",
+    "steam",
+    "story",
+    "thing",
+    "touch",
+    "twist",
+    "voice",
+    "water",
+    "wheel",
+    "woman"
+  ]
+}

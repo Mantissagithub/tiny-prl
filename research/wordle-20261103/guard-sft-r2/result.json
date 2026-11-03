@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/home/pradheep/.venv/bin/python",
+    "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/train.py"
+  ],
+  "returncode": 0,
+  "stop_reason": null,
+  "elapsed_seconds": 69.70309951399395,
+  "minimum_available_bytes": 5445545984,
+  "peak_cgroup_bytes": 5968097280,
+  "peak_swap_bytes": 0,
+  "peak_gpu_mib": 6051,
+  "disk_free_before_bytes": 32478081024,
+  "minimum_disk_free_bytes": 27941552128
+}

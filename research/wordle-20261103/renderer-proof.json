@@ -1,0 +1,6 @@
+{
+  "rows": 3067,
+  "exact_template_and_target_mask": true,
+  "min_loss_tokens": 10,
+  "max_loss_tokens": 12
+}

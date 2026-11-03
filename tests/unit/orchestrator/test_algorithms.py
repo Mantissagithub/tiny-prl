@@ -6,11 +6,13 @@ import pydantic
 import pytest
 import verifiers.v1 as vf
 from verifiers.v1.graph import MessageNode
-from verifiers.v1.types import AssistantMessage, ToolMessage, UserMessage
+from verifiers.v1.trace import ModelCall
+from verifiers.v1.types import AssistantMessage, ToolMessage, Usage, UserMessage
 
 from prime_rl.configs.algorithm import AlgoConfig, FrozenModelConfig
 from prime_rl.orchestrator.algo import EchoAlgorithm, assign_advantages, stamp_loss_routing
 from prime_rl.orchestrator.algo.base import iter_trainable_traces
+from prime_rl.orchestrator.algo.grpo import GRPOAlgorithm
 from prime_rl.orchestrator.algo.routing import is_trainable, scalar_advantage
 from prime_rl.orchestrator.trajectories import trace_to_samples
 from prime_rl.transports.batch.types import TrainingSample
@@ -207,6 +209,56 @@ def _make_episode() -> vf.Episode:
         ok=True,
     )
     return episode
+
+
+def _rewarded_episode(reward, length):
+    episode = _make_episode()
+    trace = episode.traces[0]
+    trace.rewards = {"test": vf.Reward(score=reward)}
+    node = trace.nodes[1]
+    node.token_ids = [3] * (length - 1)
+    node.mask = [True] * (length - 1)
+    node.logprobs = [-0.1] * (length - 1)
+    trace.calls = [
+        ModelCall(node=1, usage=Usage(prompt_tokens=2, completion_tokens=length - 1)),
+        ModelCall(node=3, usage=Usage(prompt_tokens=length + 2, completion_tokens=1)),
+    ]
+    return episode
+
+
+@pytest.mark.parametrize(("reward", "lengths"), [(0.4, (33, 34)), (0.8, (46, 32)), (0.2, (3, 3))])
+def test_grpo_equal_rewards_are_exactly_untrainable(reward, lengths):
+    episodes = [_rewarded_episode(reward, length) for length in lengths]
+    algorithm = GRPOAlgorithm(_build(type="grpo"), None)
+    asyncio.run(algorithm.score_group(episodes))
+    assert [scalar_advantage(e.traces[0]) for e in episodes] == [0.0, 0.0]
+    assert not any(is_trainable(e.traces[0]) for e in episodes)
+
+
+@pytest.mark.parametrize("difference", [0.2, 1e-6])
+def test_grpo_unequal_rewards_keep_length_weighted_signal(difference):
+    episodes = [_rewarded_episode(0.4, 33), _rewarded_episode(0.4 + difference, 34)]
+    algorithm = GRPOAlgorithm(_build(type="grpo"), None)
+    asyncio.run(algorithm.score_group(episodes))
+    advantages = [scalar_advantage(e.traces[0]) for e in episodes]
+    assert advantages[0] < 0 < advantages[1]
+    assert 33 * advantages[0] + 34 * advantages[1] == pytest.approx(0, abs=1e-6)
+    assert all(is_trainable(e.traces[0]) for e in episodes)
+
+
+def test_grpo_empty_group():
+    asyncio.run(GRPOAlgorithm(_build(type="grpo"), None).score_group([]))
+
+
+def test_grpo_equal_raw_rewards_keep_length_penalty_signal():
+    episodes = [_rewarded_episode(0.4, length) for length in (33, 34)]
+    config = _build(
+        type="grpo",
+        length_penalty={"num_output_tokens_weight": 0.25, "num_input_tokens_weight": 0, "num_turns_weight": 0},
+    )
+    asyncio.run(GRPOAlgorithm(config, None).score_group(episodes))
+    assert scalar_advantage(episodes[0].traces[0]) > 0
+    assert scalar_advantage(episodes[1].traces[0]) < 0
 
 
 @pytest.mark.parametrize("failure", ["participant", "untrainable_participant", "environment"])

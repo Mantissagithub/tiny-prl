@@ -1,0 +1,15 @@
+{
+  "rl_train_secret_words": [
+    "brake",
+    "limit",
+    "rough",
+    "shade",
+    "shelf",
+    "stamp",
+    "stone"
+  ],
+  "heldout_word_overlap": [
+    "stamp"
+  ],
+  "trace_count": 14
+}

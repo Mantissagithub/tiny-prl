@@ -1,0 +1,41 @@
+max_steps = 50
+output_dir = "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/training"
+
+[run]
+name = "concise-360m-r2"
+
+[model]
+name = "/home/pradheep/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-360M-Instruct/snapshots/a10cc1512eabd3dde888204e902eca88bddb4951"
+compile = "None"
+seq_len = 512
+optimization_dtype = "float32"
+reduce_dtype = "float32"
+offload = "optimizer_chunked"
+ac = { mode = "full", freq = 1 }
+ac_offloading = "None"
+fused_lm_head_token_chunk_size = 128
+fused_lm_head_kernel = "torch"
+
+[renderer]
+name = "custom"
+import_path = "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/smol_renderer.py:SmolRenderer"
+
+[data]
+name = "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/concise-data"
+seq_len = 512
+batch_size = 4
+micro_batch_size = 1
+
+[optim]
+lr = 0.00003
+gpu_state_budget_bytes = 2147483648
+
+[deployment]
+type = "single_node"
+gpus_per_node = 1
+num_train_gpus = 1
+
+[ckpt]
+single_file_per_rank = false
+
+[monitors.file]

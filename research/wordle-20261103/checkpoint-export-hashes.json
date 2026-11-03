@@ -1,0 +1,10 @@
+{
+  "model-step50": {
+    "sha256": "bd80ed4cc4fd76982a0283c09ddc0a29dc8158ef5b3d5c3bcbdfc243f7cb1cd8",
+    "bytes": 723674912
+  },
+  "model-rl-step2": {
+    "sha256": "e1c1ccfdf3d87bdac658f7237bf5606ab72e82690d2525f4d5e4fee2550ddfcc",
+    "bytes": 723674912
+  }
+}

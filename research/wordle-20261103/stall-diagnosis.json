@@ -1,0 +1,328 @@
+{
+  "all": {
+    "episodes": 1763,
+    "wins": 0,
+    "groups_of_two": 881,
+    "tied_reward_groups": 799,
+    "identical_guess_groups": 3,
+    "effective_episodes": 524,
+    "effective_advantage_below_1e_6": 360,
+    "invalid_move_episodes": 1736,
+    "top_first_guesses": [
+      [
+        "[crane]",
+        1751
+      ],
+      [
+        "[crane']",
+        2
+      ],
+      [
+        "[crater]",
+        1
+      ],
+      [
+        "[slime]",
+        1
+      ],
+      [
+        "[defic]",
+        1
+      ],
+      [
+        "[boulder]",
+        1
+      ]
+    ],
+    "top_later_guesses": [
+      [
+        "[slate']",
+        358
+      ],
+      [
+        "[slatey']",
+        227
+      ],
+      [
+        "[crane']",
+        116
+      ],
+      [
+        "[slimey']",
+        67
+      ],
+      [
+        "[slime']",
+        42
+      ],
+      [
+        "[slate'']",
+        40
+      ],
+      [
+        "[slate]",
+        36
+      ],
+      [
+        "[crane'']",
+        21
+      ],
+      [
+        "[slip']",
+        20
+      ],
+      [
+        "[slice']",
+        17
+      ]
+    ],
+    "bad_length_guesses": 3679,
+    "total_guesses": 5698
+  },
+  "first20": {
+    "episodes": 98,
+    "wins": 0,
+    "groups_of_two": 49,
+    "tied_reward_groups": 9,
+    "identical_guess_groups": 0,
+    "effective_episodes": 80,
+    "effective_advantage_below_1e_6": 0,
+    "invalid_move_episodes": 83,
+    "top_first_guesses": [
+      [
+        "[crane]",
+        97
+      ],
+      [
+        "[crater]",
+        1
+      ]
+    ],
+    "top_later_guesses": [
+      [
+        "[slate]",
+        25
+      ],
+      [
+        "[slime]",
+        10
+      ],
+      [
+        "[slice]",
+        6
+      ],
+      [
+        "[slatey]",
+        5
+      ],
+      [
+        "[slip]",
+        3
+      ],
+      [
+        "[lift]",
+        3
+      ],
+      [
+        "[sell]",
+        3
+      ],
+      [
+        "[slope]",
+        3
+      ],
+      [
+        "[slimey]",
+        3
+      ],
+      [
+        "[spasm]",
+        3
+      ]
+    ],
+    "bad_length_guesses": 204,
+    "total_guesses": 453
+  },
+  "after100": {
+    "episodes": 561,
+    "wins": 0,
+    "groups_of_two": 280,
+    "tied_reward_groups": 275,
+    "identical_guess_groups": 0,
+    "effective_episodes": 124,
+    "effective_advantage_below_1e_6": 114,
+    "invalid_move_episodes": 561,
+    "top_first_guesses": [
+      [
+        "[crane]",
+        559
+      ],
+      [
+        "<word>[crane]</word>",
+        1
+      ],
+      [
+        "[[crane]]",
+        1
+      ]
+    ],
+    "top_later_guesses": [
+      [
+        "[slatey']",
+        120
+      ],
+      [
+        "[slate']",
+        75
+      ],
+      [
+        "[slimey']",
+        44
+      ],
+      [
+        "[slime']",
+        17
+      ],
+      [
+        "[slip']",
+        11
+      ],
+      [
+        "[crane']",
+        11
+      ],
+      [
+        "[slate'']",
+        8
+      ],
+      [
+        "[slothy']",
+        8
+      ],
+      [
+        "[sloth']",
+        7
+      ],
+      [
+        "[slime'']",
+        7
+      ]
+    ],
+    "bad_length_guesses": 1175,
+    "total_guesses": 1736
+  },
+  "last_update": 131,
+  "updates_with_gradient_above_1e_6": 50,
+  "loss_steps_with_masking": 0,
+  "small_advantage_examples": [
+    {
+      "id": "1ff4b9395e2d4b0eb572114372b83b77",
+      "step": 131,
+      "reward": 0.4,
+      "win": false,
+      "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+      "guesses": [
+        "[crane]",
+        "[rip'y']",
+        "[slime'y'']"
+      ],
+      "effective": true,
+      "advantage": -2.9802322387695312e-08,
+      "tokens": 37
+    },
+    {
+      "id": "8423092f44244b609fc28e286f426d44",
+      "step": 131,
+      "reward": 0.4,
+      "win": false,
+      "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+      "guesses": [
+        "[crane]",
+        "[pricky']",
+        "[pricky']",
+        "[slice']"
+      ],
+      "effective": true,
+      "advantage": -2.9802322387695312e-08,
+      "tokens": 45
+    },
+    {
+      "id": "b5a4284d7add4d2990e7a7cd6fb5ad8b",
+      "step": 131,
+      "reward": 0.4,
+      "win": false,
+      "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+      "guesses": [
+        "[crane]",
+        "[supeer']",
+        "[supeer']",
+        "[thick']"
+      ],
+      "effective": true,
+      "advantage": 2.9802322387695312e-08,
+      "tokens": 44
+    },
+    {
+      "id": "969afef84e654b06af1070016cc726de",
+      "step": 131,
+      "reward": 0.4,
+      "win": false,
+      "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+      "guesses": [
+        "[crane]",
+        "[slinky']",
+        "[slate']"
+      ],
+      "effective": true,
+      "advantage": 2.9802322387695312e-08,
+      "tokens": 34
+    }
+  ],
+  "last_episode_examples": [
+    {
+      "id": "6af129488a30413faf7bb1549085c91e",
+      "step": 132,
+      "reward": 0.4,
+      "win": false,
+      "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+      "guesses": [
+        "[crane]",
+        "[slatey']",
+        "[slate'']"
+      ],
+      "effective": false,
+      "advantage": null,
+      "tokens": 35
+    },
+    {
+      "id": "e5bd4f381c4244ec9ce9549a160b86e3",
+      "step": 132,
+      "reward": 0.4,
+      "win": false,
+      "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+      "guesses": [
+        "[crane]",
+        "[rise']",
+        "[slice']"
+      ],
+      "effective": false,
+      "advantage": null,
+      "tokens": 32
+    },
+    {
+      "id": "17760c56820d4901afae0f4ecab2c0c3",
+      "step": 132,
+      "reward": 0.5,
+      "win": false,
+      "outcome": "Invalid Move: You tried submitting a word in the wrong format. Please make sure to use squared brackets.",
+      "guesses": [
+        "[crane]",
+        "[slatey']",
+        "[slay']"
+      ],
+      "effective": false,
+      "advantage": null,
+      "tokens": 34
+    }
+  ]
+}

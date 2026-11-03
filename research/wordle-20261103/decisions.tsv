@@ -1,0 +1,8 @@
+decision	reason	evidence	result
+Prioritize Wordle gameplay	User named Wordle as the ultimate goal	Original RL gradient 1.66e-8 and malformed replies	Kernel work paused for this task
+Use concise supervised warmup	Cached 360M cannot follow the Hub format	16 held-out baseline episodes, zero formatted first guesses	Preserve Hub prompt and rewards
+Exclude held-out answer games	Avoid training on held-out solutions	150 source rows excluded using actual seed-0 eval answers	3067 legal move targets, max 436 tokens
+Require exact renderer parity	Native SFT requires sampled-token attribution	All 3067 rows match native tokenizer and final-assistant target masks	Proof saved in renderer-proof.json
+Use per-tensor checkpoint writes	Bulk default checkpoint exceeded host RAM floor	guard-sft-r1/result.json stopped save at 1.84GB available RAM	Rerun completed, 5.45GB minimum available, zero job swap
+Measure task success explicitly	User requested pass@1 and pass@4	240 episodes over 20 eval tasks and four seeds per checkpoint	All three checkpoints score zero wins; format gains are not solving gains
+Audit held-out answer overlap	Task split samples words with replacement	RL rollouts saw stamp, which appears in eval	Also report matched 19 unseen-answer words; all scores remain zero

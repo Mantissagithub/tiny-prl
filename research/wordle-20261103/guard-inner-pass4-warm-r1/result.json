@@ -1,0 +1,18 @@
+{
+  "command": [
+    "/home/pradheep/.venv/bin/python",
+    "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/evaluate.py",
+    "pass4-warm-r1",
+    "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/model-step50",
+    "pass4"
+  ],
+  "returncode": 0,
+  "stop_reason": null,
+  "elapsed_seconds": 117.95596331299748,
+  "minimum_available_bytes": 5893857280,
+  "peak_cgroup_bytes": 3927584768,
+  "peak_swap_bytes": 0,
+  "peak_gpu_mib": 1833,
+  "disk_free_before_bytes": 21226471424,
+  "minimum_disk_free_bytes": 21223841792
+}

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/home/pradheep/.venv/bin/python",
+    "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/train.py"
+  ],
+  "returncode": 1,
+  "stop_reason": "available system RAM below 2 GiB",
+  "elapsed_seconds": 69.3444714530051,
+  "minimum_available_bytes": 1839669248,
+  "peak_cgroup_bytes": 7516184576,
+  "peak_swap_bytes": 0,
+  "peak_gpu_mib": 6051,
+  "disk_free_before_bytes": 34958393344,
+  "minimum_disk_free_bytes": 32478150656
+}
