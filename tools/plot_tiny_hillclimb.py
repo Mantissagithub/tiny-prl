@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tiny-prl hill-climb poster (examples/tiny/hillclimb.png).
 
-Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-231);
+Every number is embedded from examples/tiny/EXPERIMENTS.md (Experiments 1-233);
 the script reads no other file. The first positional argument is accepted for
 CLI compatibility and is not used.
 
@@ -20,7 +20,7 @@ from matplotlib import font_manager
 from matplotlib.lines import Line2D
 
 PAGE_W = 9.6  # inches; 1920 px at 200 dpi
-PAGE_H = 51.5  # inches; append the serving panel at the existing scale
+PAGE_H = 55.0  # inches; append the serving panel at the existing scale
 DPI = 200
 GUTTER = 0.5
 
@@ -107,7 +107,7 @@ SERVING = {
     "R22 (R22_SERVING_PILOT.json, serial pilot)": ((4.20, 3.93), (4.24, 8.58)),
 }
 
-# Experiment index. Outcome codes and lanes for all 231 experiments.
+# Experiment index. Outcome codes and lanes for all 233 experiments.
 OUTCOMES = {
     "V": "verified (kept)",
     "C": "component-only",
@@ -559,6 +559,9 @@ CODES["X"].append(230)
 LANES[-1][2].extend([229, 230])
 CODES["X"].append(231)
 LANES[-1][2].append(231)
+CODES["X"].append(232)
+CODES["C"].append(233)
+LANES[-1][2].extend([232, 233])
 
 # Callouts: (experiment, lane, text, x offset in experiments, y offset in lanes, alignment).
 CALLOUTS = [
@@ -603,10 +606,10 @@ def register_fonts() -> tuple[str, str]:
 def check_index() -> None:
     codes_of = {e: code for code, exps in CODES.items() for e in exps}
     lanes_of = {e: key for key, _, exps in LANES for e in exps}
-    assert len(codes_of) == sum(map(len, CODES.values())) == 231
-    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 231
-    assert sorted(codes_of) == list(range(1, 232)), "every experiment needs exactly one outcome"
-    assert sorted(lanes_of) == list(range(1, 232)), "every experiment needs exactly one lane"
+    assert len(codes_of) == sum(map(len, CODES.values())) == 233
+    assert len(lanes_of) == sum(len(exps) for _, _, exps in LANES) == 233
+    assert sorted(codes_of) == list(range(1, 234)), "every experiment needs exactly one outcome"
+    assert sorted(lanes_of) == list(range(1, 234)), "every experiment needs exactly one lane"
 
 
 class Page:
@@ -937,7 +940,7 @@ def draw_timeline(pg, top):
     height = 1.55
     lane_row = {key: 3 - idx for idx, (key, _, _) in enumerate(LANES)}
     ax = pg.axes(2.3, top, PAGE_W - GUTTER - 2.3, height)
-    ax.set_xlim(0, 231)
+    ax.set_xlim(0, 233)
     ax.set_ylim(-0.6, 3.6)
     for key, label, _ in LANES:
         ax.axhline(lane_row[key], color=RULE, linewidth=0.6, zorder=0)
@@ -969,7 +972,7 @@ def draw_timeline(pg, top):
             va="center",
         )
     ax.set_yticks([])
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 231])
+    ax.set_xticks([1, 25, 50, 75, 100, 125, 150, 175, 233])
     ax.get_xticklabels()[-1].set_ha("right")
     ax.set_xlabel(
         "experiment number, chronological (ledger order)", fontsize=7.1, color=SUB, fontfamily=pg.prose, labelpad=2
@@ -1028,7 +1031,7 @@ def draw_footer(pg, y):
             "measured on one kernel, trainer step or memory, with no end-to-end RL win established. Validated: a "
             "correctness or capacity result, not a speed claim. Rejected: not kept, or slower. Fails parity: a strict "
             "numerical gate failed. Blocked: a watchdog, OOM or host-floor stop with no result. Source: "
-            "examples/tiny/EXPERIMENTS.md, Experiments 1-231; the numbers are embedded in "
+            "examples/tiny/EXPERIMENTS.md, Experiments 1-233; the numbers are embedded in "
             "tools/plot_tiny_hillclimb.py.",
             175,
         ),
@@ -1406,11 +1409,49 @@ def draw_counter_controls(pg):
     pg.text(GUTTER, 50.37, "230 · one process/variant: merged PTX exact on BF16/mixed-delta proofs, no timing gain; compact GU regresses. Package and RL curve retained.", size=6.7, color=SUB)
 
 
+# Experiment 233: fixed-work B1 measurements, five processes per arm.
+B1_233 = {'CUDA step': {'baseline': [[2.8631041049957275, 2.8605440855026245, 2.8671679496765137],
+                            [2.9112319946289062, 2.908687949180603, 2.915279984474182],
+                            [3.2199679613113403, 3.2174079418182373, 3.2206239700317383]],
+               'candidate': [[2.8353439569473267, 2.834383964538574, 2.8409600257873535],
+                             [2.88972806930542, 2.8876800537109375, 2.8979198932647705],
+                             [3.192896008491516, 3.1908479928970337, 3.2000800371170044]]},
+ 'Generation': {'baseline': [[218.8421249993553, 218.56290100186015, 219.35774099983973],
+                             [221.37557200039737, 220.89431199856335, 221.6153250010393],
+                             [262.1557890015538, 262.0111870019173, 262.2326480013726]],
+                'candidate': [[216.91404500234057, 216.7106229971978, 217.0579089979583],
+                              [219.6265279999352, 219.13913500247872, 220.09008599707158],
+                              [260.1982619999035, 260.1264129989431, 260.85755999883986]]}}
+
+
+def draw_b1_vadd2(pg):
+    for label, x, unit in (("CUDA step", 0.95, "ms / decoder step"),
+                           ("Generation", 5.35, "ms / 64-token batch")):
+        ax = pg.axes(x, 51.85, 3.55, 1.45)
+        for arm, color, name in (("baseline", INK, "previous package"),
+                                 ("candidate", ACCENT, "B1 integer add")):
+            rows = B1_233[label][arm]
+            ax.errorbar(range(3), [r[0] for r in rows],
+                        yerr=[[r[0] - r[1] for r in rows], [r[2] - r[0] for r in rows]],
+                        color=color, marker="o", markersize=3, linewidth=1, capsize=3, label=name)
+        ax.set_xticks(range(3), ["32", "128", "1024"])
+        ax.set_xlabel("prompt tokens", fontsize=6.6, fontfamily=pg.prose, color=SUB)
+        ax.set_ylabel(unit, fontsize=6.5, fontfamily=pg.prose, color=SUB)
+        ax.set_title(label, fontsize=8, fontfamily=pg.prose, color=INK)
+        clean_axes(ax)
+        ax.legend(frameon=False, prop={"family": pg.prose, "size": 6.5}, loc="upper left")
+    pg.text(GUTTER, 53.65, "233 · B1 CUDA-step paired medians: −0.92% / −0.70% / −0.80%; strict blocks 11/15, 15/15, 15/15. Short-context misses retained.", size=6.7, color=SUB)
+    pg.text(GUTTER, 53.82, "Generation: −0.88% / −0.79% / −0.75%; all five candidate process medians below all controls. Whiskers: process min–max.", size=6.7, color=SUB)
+    pg.text(GUTTER, 53.99, "Tokens and sampled-token logprobs match exactly. Integrated instructions match the tested variant; B2 stays byte-identical.", size=6.7, color=SUB)
+    pg.text(GUTTER, 54.16, "232 · paired raw loads exact, but +0.20% / +0.47% / +0.18% slower; rejected. No new verified RL wall-time point.", size=6.7, color=SUB)
+    pg.text(GUTTER, 54.33, "RL validation: 2 updates, 3 refreshes, finite metrics; 220 rollouts / 24,184 tokens, 62.93 s. Unequal work: no RL speedup claim.", size=6.7, color=SUB)
+
+
 def build(output: Path, prose: str, mono: str) -> None:
     fig = plt.figure(figsize=(PAGE_W, PAGE_H), dpi=DPI, facecolor="white")
     pg = Page(fig, prose, mono)
 
-    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-231", size=6.8, color=SUB, mono=True)
+    pg.text(GUTTER, 0.28, "examples/tiny/EXPERIMENTS.md · experiments 1-233", size=6.8, color=SUB, mono=True)
     pg.text(GUTTER, 0.52, "tiny-prl hill climb · RTX 4060 Laptop", size=24, color=INK, weight="normal")
     pg.text(
         GUTTER,
@@ -1488,7 +1529,7 @@ def build(output: Path, prose: str, mono: str) -> None:
     pg.section(
         17.1,
         "04",
-        "Index of all 231 experiments",
+        "Index of all 233 experiments",
         "One marker per experiment on one timeline, four lanes, colored by outcome as the ledger records it.",
     )
     draw_timeline(pg, 17.95)
@@ -1513,7 +1554,9 @@ def build(output: Path, prose: str, mono: str) -> None:
     draw_counter_controls(pg)
     pg.text(GUTTER, 50.59, "231 · paired metadata B1 +1.16% / +1.40% / +0.97%; exact, not kept. B2 machine code unchanged; no gain claimed.", size=6.7, color=SUB)
     pg.text(GUTTER, 50.76, "Original-address control is byte-identical at both batches. No extra GPU sweep, production change or RL curve point.", size=6.7, color=SUB)
-    draw_footer(pg, 51.05)
+    pg.section(51.18, "14", "Packed integer addition reaches serving", "Exp 233 · B1-only exact reconstruction; CUDA steps and full vLLM generation measured separately.")
+    draw_b1_vadd2(pg)
+    draw_footer(pg, 54.55)
 
     fig.savefig(output, dpi=DPI, facecolor="white")
     plt.close(fig)
