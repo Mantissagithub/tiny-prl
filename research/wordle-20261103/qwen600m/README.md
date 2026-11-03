@@ -47,3 +47,26 @@ for the matched control. `qwen_thinking_report.py` checks the recorded task keys
 seeds and budgets before producing this comparison. The scorer treats assistant
 messages containing only reasoning as empty final answers, preserving those
 failed attempts in the denominator.
+
+## Larger reasoning budgets
+
+Four-game pilots used eval tasks 2000–2003, one attempt each, seed 42,
+temperature 1 and unchanged Hub instructions and rewards. These are not pass@4
+estimates or matched samples of the full 20-word evaluation.
+
+| Tokens/turn | Context | Completed opening answers | Accepted opening moves | Wins |
+|---|---:|---:|---:|---:|
+| 1,024 | 4,096 | 0/4 | 0/4 | 0/4 |
+| 2,048 | 8,192 | 0/4 | 0/4 | 0/4 |
+| 4,096 | 8,192 | 4/4 | 3/4 | 0/4 |
+
+At 4,096 tokens no calls were token-length truncated, but the model still
+repeated guesses, generated nonwords or malformed answers, or reached the turn
+limit. More budget let it finish reasoning without establishing successful play.
+All pilots completed without infrastructure errors, timeouts or job swap;
+sampled GPU peak stayed below 2.4 GiB. No training was run.
+
+[Pilot results and budgets](large-budget-pilots.json). Pass `pilot qwen large thinking`
+after the run tag and model path; replace `large` with `xlarge` or `xxlarge`
+for the other profiles. `qwen_reasoning_pilot.py`
+scores completed pilots separately from the full pass@1/pass@4 scorer.

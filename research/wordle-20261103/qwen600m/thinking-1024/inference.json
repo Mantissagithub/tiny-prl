@@ -1,0 +1,64 @@
+{
+  "server": {
+    "host": null,
+    "port": 8000,
+    "liveness_timeout_seconds": 30.0
+  },
+  "router": null,
+  "backend_port": 8100,
+  "vllm": {
+    "model": "/home/pradheep/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca",
+    "max_model_len": 4096,
+    "chat_template": null,
+    "tool_call_parser": null,
+    "reasoning_parser": "qwen3",
+    "rope_scaling": null,
+    "tensor_parallel_size": 1,
+    "data_parallel_size": 1,
+    "data_parallel_size_local": null,
+    "data_parallel_rpc_port": 13345,
+    "api_server_count": 1,
+    "gpu_memory_utilization": 0.25,
+    "enable_prefix_caching": null,
+    "quantization": null,
+    "enable_lora": false,
+    "max_lora_rank": null,
+    "lora_target_modules": null,
+    "enable_expert_parallel": false,
+    "enable_eplb": false,
+    "enable_ep_weight_filter": true,
+    "enable_return_routed_experts": false,
+    "max_num_seqs": 1,
+    "max_num_batched_tokens": 1024,
+    "enforce_eager": false,
+    "compilation_config": {
+      "mode": "NONE",
+      "cudagraph_mode": "FULL_DECODE_ONLY",
+      "cudagraph_capture_sizes": [
+        1
+      ]
+    },
+    "kernel_config": {
+      "enable_jit_warmup": false
+    }
+  },
+  "log": {
+    "level": "info",
+    "vf_level": "info",
+    "json_logging": false,
+    "log_data": false,
+    "interval": 10.0
+  },
+  "env_vars": {},
+  "use_deep_gemm": false,
+  "weight_broadcast": {
+    "type": "filesystem"
+  },
+  "kv_cache_offload": null,
+  "use_pd_kv_transfer": false,
+  "enable_return_sampling_mask": false,
+  "top_p_before_top_k": true,
+  "decode_megakernel": false,
+  "enable_fp32_lm_head": true,
+  "enable_fp32_router_logits": true
+}

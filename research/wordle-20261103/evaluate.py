@@ -14,6 +14,9 @@ pass4 = len(sys.argv) > 3 and sys.argv[3] == 'pass4'
 qwen = 'qwen' in sys.argv[4:]
 roomy = 'roomy' in sys.argv[4:]
 thinking = 'thinking' in sys.argv[4:]
+large = 'large' in sys.argv[4:]
+xlarge = 'xlarge' in sys.argv[4:]
+xxlarge = 'xxlarge' in sys.argv[4:]
 case = WORK / tag
 case.mkdir(exist_ok=False)
 prefix = ['/home/pradheep/.local/bin/uv', 'run', '--offline', '--no-project', '--python', '/home/pradheep/.venv/bin/python']
@@ -32,6 +35,13 @@ if qwen:
 if roomy:
     inference['vllm']['max_model_len'] = 2048
     inference['vllm']['max_num_batched_tokens'] = 2048
+if large or xlarge or xxlarge:
+    inference['vllm']['max_model_len'] = 4096 if large else 8192
+    inference['vllm']['max_num_batched_tokens'] = 1024
+    inference['vllm']['max_num_seqs'] = 1
+    inference['vllm']['compilation_config']['cudagraph_capture_sizes'] = [1]
+    if xlarge or xxlarge:
+        inference['vllm']['gpu_memory_utilization'] = 0.30
 (case / 'inference.json').write_text(json.dumps(inference, indent=2))
 config = {
     'model': model, 'group_size': 2, 'select': {'limit': 8},
@@ -50,6 +60,16 @@ if roomy:
     player = config['source'][0]['env']['player']
     player['max_output_tokens'] = 1536
     player['max_input_tokens'] = 1792
+if large or xlarge or xxlarge:
+    budget = 4096 if xxlarge else 2048 if xlarge else 1024
+    config['sampling']['max_tokens'] = budget
+    config['group_size'] = 1
+    config['select']['limit'] = 4
+    config['concurrency'] = {'min_inflight': 1, 'max_inflight': 1}
+    player = config['source'][0]['env']['player']
+    player['max_output_tokens'] = 6 * budget
+    player['max_input_tokens'] = inference['vllm']['max_model_len'] - budget
+    player['timeout']['rollout'] = 120
 (case / 'eval.json').write_text(json.dumps(config, indent=2))
 with (case / 'inference.log').open('w') as log:
     proc = subprocess.Popen(prefix + ['inference', '@', str(case / 'inference.json')], env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -75,7 +95,7 @@ with (case / 'inference.log').open('w') as log:
             config_path = case / f'{name}.json'
             config_path.write_text(json.dumps(config, indent=2))
             with (case / f'{name}.log').open('w') as log:
-                result = subprocess.run(prefix + ['eval', '@', str(config_path)], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=240)
+                result = subprocess.run(prefix + ['eval', '@', str(config_path)], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=540 if large or xlarge or xxlarge else 240)
             (case / f'{name}-completion.json').write_text(json.dumps({'returncode': result.returncode}))
             if result.returncode:
                 raise RuntimeError(f'evaluation failed; see {name}.log')

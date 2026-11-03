@@ -1,0 +1,63 @@
+{
+  "model": "/home/pradheep/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca",
+  "group_size": 1,
+  "select": {
+    "limit": 4
+  },
+  "client": {
+    "base_url": "http://localhost:8000/v1"
+  },
+  "sampling": {
+    "max_tokens": 1024,
+    "temperature": 1.0,
+    "seed": 42,
+    "chat_template_kwargs": {
+      "enable_thinking": true
+    }
+  },
+  "concurrency": {
+    "min_inflight": 1,
+    "max_inflight": 1
+  },
+  "source": [
+    {
+      "name": "primeintellect-wordle",
+      "serve": {
+        "pool": {
+          "type": "elastic",
+          "max_workers": 1
+        }
+      },
+      "env": {
+        "taskset": {
+          "id": "tiny_prl_wordle",
+          "split": "eval",
+          "seed": 0
+        },
+        "player": {
+          "harness": {
+            "id": "null"
+          },
+          "runtime": {
+            "type": "subprocess",
+            "fork_server": true
+          },
+          "max_turns": 6,
+          "max_output_tokens": 6144,
+          "max_input_tokens": 3072,
+          "timeout": {
+            "rollout": 120
+          }
+        }
+      }
+    }
+  ],
+  "dashboard": false,
+  "output_dir": "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/qwen-think1024-pilot-r1/evaluation",
+  "run": {
+    "name": "wordle"
+  },
+  "monitors": {
+    "file": {}
+  }
+}

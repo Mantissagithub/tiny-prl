@@ -1,0 +1,46 @@
+{
+  "scope": "four eval tasks 2000-2003, one attempt each, seed 42; not pass@4",
+  "model": "Qwen/Qwen3-0.6B",
+  "hub_prompt_and_rewards_unchanged": true,
+  "results": [
+    {
+      "tokens_per_turn": 1024,
+      "context": 4096,
+      "games": 4,
+      "engine_wins": 0,
+      "first_final_answers": 0,
+      "first_moves_with_feedback": 0,
+      "total_calls": 16,
+      "truncated_calls": 4,
+      "output_tokens": 8665,
+      "peak_gpu_mib": 2047,
+      "job_swap_bytes": 0
+    },
+    {
+      "tokens_per_turn": 2048,
+      "context": 8192,
+      "games": 4,
+      "engine_wins": 0,
+      "first_final_answers": 0,
+      "first_moves_with_feedback": 0,
+      "total_calls": 16,
+      "truncated_calls": 4,
+      "output_tokens": 12761,
+      "peak_gpu_mib": 2437,
+      "job_swap_bytes": 0
+    },
+    {
+      "tokens_per_turn": 4096,
+      "context": 8192,
+      "games": 4,
+      "engine_wins": 0,
+      "first_final_answers": 4,
+      "first_moves_with_feedback": 3,
+      "total_calls": 14,
+      "truncated_calls": 0,
+      "output_tokens": 24107,
+      "peak_gpu_mib": 2437,
+      "job_swap_bytes": 0
+    }
+  ]
+}

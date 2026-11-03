@@ -1,0 +1,21 @@
+{
+  "command": [
+    "/home/pradheep/.venv/bin/python",
+    "/home/pradheep/tiny-prl/prime-rl/outputs/wordle-learning-20261103/evaluate.py",
+    "qwen-think4096-pilot-r1",
+    "/home/pradheep/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca",
+    "pilot",
+    "qwen",
+    "xxlarge",
+    "thinking"
+  ],
+  "returncode": 0,
+  "stop_reason": null,
+  "elapsed_seconds": 186.2380289099965,
+  "minimum_available_bytes": 5851697152,
+  "peak_cgroup_bytes": 4887711744,
+  "peak_swap_bytes": 0,
+  "peak_gpu_mib": 2437,
+  "disk_free_before_bytes": 18878107648,
+  "minimum_disk_free_bytes": 18875936768
+}

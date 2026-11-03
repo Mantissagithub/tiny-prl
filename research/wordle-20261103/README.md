@@ -18,6 +18,8 @@ I evaluated 20 taskset evaluation tasks with four different seeds per word, temp
 
 The initial two-update RL run completed, saved a checkpoint and produced gradient norms 0.175 and 0.105. That establishes functional updates, not task improvement. The task sampler uses replacement; one evaluation answer occurred in those RL rollouts. The matched 19-word unseen-answer subset also scored zero for all three checkpoints. Details are in [pass-at-comparison.md](pass-at-comparison.md).
 
+[Qwen3-600M results](qwen600m/README.md) cover its separate baseline, matched thinking-mode comparison and reasoning-budget pilots up to 4,096 tokens per turn.
+
 The longer run was stopped at update 131. Its 1,763 recorded episodes contained zero wins. After update 100, all 561 recorded episodes ended in invalid moves, and 275 of 280 completed rollout pairs tied in reward. The model commonly opened with `[crane]` and then produced invalid guesses such as `[slatey']`. Existing Hub rewards retain earlier partial credit after a later invalid move. I have preserved those rewards rather than silently changing the environment.
 
 ## Tied-reward fix

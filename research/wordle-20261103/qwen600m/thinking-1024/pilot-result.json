@@ -1,0 +1,89 @@
+{
+  "tag": "qwen-think1024-pilot-r1",
+  "games": 4,
+  "engine_wins": 0,
+  "first_final_answers": 0,
+  "first_moves_with_feedback": 0,
+  "total_calls": 16,
+  "truncated_calls": 4,
+  "output_tokens": 8665,
+  "outcomes": {
+    "Invalid Move: Your word must be exactly 5 letters.": 2,
+    "Invalid Move: You have already guessed 'apple' before. Please try a different word.": 1,
+    "Invalid Move: You have already guessed 'pearl' before. Please try a different word.": 1
+  },
+  "episodes_detail": [
+    {
+      "task_id": "2000",
+      "engine_win": false,
+      "correct_answer_reward": 0.0,
+      "outcome": "Invalid Move: Your word must be exactly 5 letters.",
+      "first_final_answer": "",
+      "final_answers": [
+        "",
+        "\n\n[apple]"
+      ],
+      "first_reasoning_tail": "d the second letter is X. Therefore, the correct word is Y and X. But how many letters? The word is 5 letters. So the correct word is Y and X in positions 1 and 2.\n\nNow, let's think about the third guess. The third guess is [X][?][?][?][?]. Feedback is for each letter. First letter is X (wrong), so X is not in position 1. Second, third, fourth letters have no feedback yet. So the correct word has X somewhere else in the third, fourth, fifth positions.\n\nSo far, the correct letters are Y (position",
+      "first_move_feedback": false,
+      "calls": 2,
+      "output_tokens": 1568,
+      "truncated_calls": 1
+    },
+    {
+      "task_id": "2001",
+      "engine_win": false,
+      "correct_answer_reward": 0.0,
+      "outcome": "Invalid Move: You have already guessed 'apple' before. Please try a different word.",
+      "first_final_answer": "",
+      "final_answers": [
+        "",
+        "\n\n<guess>[apple]</guess>",
+        "\n\n<guess>[apple]</guess>",
+        "\n\n<guess>[apple]</guess>"
+      ],
+      "first_reasoning_tail": "ach guess and their corresponding feedback.\n\nFirst guess: [apple]. Feedback: Maybe the first letter is Y, meaning present but not correct position. Second guess: [beep]. Feedback: The first letter is correct but in the right position. Wait, but the feedback for the first letter in the second guess would be G. So if the first letter is correct in position 1 of the second guess, that would mean the first letter in the correct word is also present in the second guess. So the correct word could be '",
+      "first_move_feedback": false,
+      "calls": 4,
+      "output_tokens": 2527,
+      "truncated_calls": 1
+    },
+    {
+      "task_id": "2002",
+      "engine_win": false,
+      "correct_answer_reward": 0.0,
+      "outcome": "Invalid Move: Your word must be exactly 5 letters.",
+      "first_final_answer": "",
+      "final_answers": [
+        "",
+        "\n\n<guess>[apple]</guess>",
+        "\n\n<guess>[apple]</guess>",
+        "\n\n<guess>[pencil]</guess>"
+      ],
+      "first_reasoning_tail": "ach guess and their corresponding feedback.\n\nFirst guess: [apple]. Feedback: Maybe the first letter is Y, meaning present but not correct position. Second guess: [beep]. Feedback: The first letter is correct but in the right position. Wait, but the feedback for the first letter in the second guess would be G. So if the first letter is correct in position 1 of the second guess, that would mean the first letter in the correct word is also present in the second guess. So the correct word could be '",
+      "first_move_feedback": false,
+      "calls": 4,
+      "output_tokens": 1736,
+      "truncated_calls": 1
+    },
+    {
+      "task_id": "2003",
+      "engine_win": false,
+      "correct_answer_reward": 0.0,
+      "outcome": "Invalid Move: You have already guessed 'pearl' before. Please try a different word.",
+      "first_final_answer": "",
+      "final_answers": [
+        "",
+        "\n\n<guess>[apple]</guess>",
+        "\n\n<guess>[apple]</guess>",
+        "\n\n<guess>[pearl]</guess>",
+        "\n\n<guess>[pearl]</guess>",
+        "\n\n<guess>[pearl]</guess>"
+      ],
+      "first_reasoning_tail": "ach guess and their corresponding feedback.\n\nFirst guess: [apple]. Feedback: Maybe the first letter is Y, meaning present but not correct position. Second guess: [beep]. Feedback: The first letter is correct but in the right position. Wait, but the feedback for the first letter in the second guess would be G. So if the first letter is correct in position 1 of the second guess, that would mean the first letter in the correct word is also present in the second guess. So the correct word could be '",
+      "first_move_feedback": false,
+      "calls": 6,
+      "output_tokens": 2834,
+      "truncated_calls": 1
+    }
+  ]
+}
