@@ -92,3 +92,6 @@ still ended games, so I did not start RL from this adapter.
 [Warmup summary](sft100/summary.json), [training configuration](sft100/sft.toml)
 and [gameplay results](sft100/pass-at.json). Checkpoint and adapter weights remain
 local under `outputs/qwen-wordle-training-20261103/`.
+
+Separate [training-loss](sft100/loss.png) and [learning-rate](sft100/learning-rate.png)
+plots use the 100 measured pairs in [curves.csv](sft100/curves.csv).
