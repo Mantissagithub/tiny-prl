@@ -1,5 +1,54 @@
 # Tiny single-GPU RL baseline
 
+## Installed interactive command
+
+Install the small runtime outside this checkout. It reuses the pinned home venv
+without modifying it:
+
+```bash
+uv run --offline --no-project --python "$HOME/.venv/bin/python" python tools/install_tiny_prl.py
+tiny-prl initialize ~/my-training
+cd ~/my-training
+```
+
+Initialization presents the three supported models and four reviewed environments,
+downloads the chosen base model into a run-owned cache, and prepares the applicable
+SmolLM2 kernel. Qwen3-0.6B uses stock vLLM. GSM8K is available through the pinned
+taskset, but successful learning on this laptop has not yet been established.
+
+Edit `algo.py` to change `compute_advantages(rewards, lengths)`. The inputs are
+one-dimensional CPU FP32 tensors of shaped rewards and sampled-token counts.
+Return one finite advantage per rollout. The starter calls the tested GRPO
+implementation, preserving its exact-zero behavior for tied rewards. The trainer
+loads this function when running from the initialized folder.
+
+```bash
+tiny-prl train --max-steps 100 --hf-repo YOUR_ACCOUNT/YOUR_CHOSEN_NAME
+```
+
+`tiny-prl.json` stores the selections; `output/` stores the run. A direct command
+also works:
+
+```bash
+tiny-prl train qwen3-600m --env primeintellect:gsm8k --output ~/math-run \
+  --max-steps 100 --hf-repo YOUR_ACCOUNT/YOUR_CHOSEN_NAME
+```
+
+HF names are explicit. New model repositories default to private. After a
+successful run, the command exports the final LoRA adapter or full model, uploads
+it, and compares each file's content hash at the immutable HF commit. Only then
+does it delete run-owned base weights, broadcasts, local checkpoints and the
+export. Logs, metrics, configs, and the verified HF link remain. The upload
+contains inference/new-training weights, not optimizer state for exact resume.
+Any failed training, export, upload or verification leaves model files local.
+Retry a finished run with `tiny-prl upload ~/math-run --hf-repo owner/name`.
+Without `--hf-repo`, model files remain local until a destination is chosen.
+
+The executable is `~/.local/bin/tiny-prl`; its runtime is
+`~/.local/share/tiny-prl`. Keep those paths and `~/.venv` when removing this
+checkout. Shared Hugging Face caches are never deleted by the command. Deleted
+base weights are downloaded again for a new run.
+
 ## Workspace layout
 
 The training fork and kernel fork are separate repositories on `main`:

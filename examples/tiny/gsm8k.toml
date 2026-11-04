@@ -1,0 +1,22 @@
+seq_len = 1024
+
+[orchestrator.train.sampling]
+max_completion_tokens = 512
+
+[[orchestrator.train.source]]
+name = "gsm8k"
+serve.pool.type = "elastic"
+serve.pool.max_workers = 1
+env.taskset.id = "gsm8k"
+env.taskset.split = "train"
+env.agent.harness.id = "null"
+env.agent.runtime.type = "subprocess"
+env.agent.runtime.fork_server = true
+env.agent.max_turns = 1
+env.agent.max_output_tokens = 512
+env.agent.max_input_tokens = 512
+env.agent.timeout.rollout = 120
+
+[inference.vllm]
+max_model_len = 1024
+max_num_batched_tokens = 1024

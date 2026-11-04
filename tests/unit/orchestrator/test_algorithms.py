@@ -226,6 +226,24 @@ def _rewarded_episode(reward, length):
     return episode
 
 
+def test_grpo_loads_workspace_advantage_function(tmp_path, monkeypatch):
+    (tmp_path / "workspace_algo.py").write_text("def compute_advantages(rewards, lengths):\n    return [2.0, -3.0]\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    episodes = [_rewarded_episode(0.4, 33), _rewarded_episode(0.6, 34)]
+    algorithm = GRPOAlgorithm(_build(type="grpo", advantage_fn="workspace_algo.compute_advantages"), None)
+    asyncio.run(algorithm.score_group(episodes))
+    assert [scalar_advantage(e.traces[0]) for e in episodes] == [2.0, -3.0]
+
+
+@pytest.mark.parametrize("values", [[1.0], [float("nan"), 1.0]])
+def test_grpo_rejects_invalid_custom_advantages(values):
+    episodes = [_rewarded_episode(0.4, 33), _rewarded_episode(0.6, 34)]
+    algorithm = GRPOAlgorithm(_build(type="grpo"), None)
+    algorithm.advantage_fn = lambda rewards, lengths: values
+    with pytest.raises(ValueError, match="one finite scalar"):
+        asyncio.run(algorithm.score_group(episodes))
+
+
 @pytest.mark.parametrize(("reward", "lengths"), [(0.4, (33, 34)), (0.8, (46, 32)), (0.2, (3, 3))])
 def test_grpo_equal_rewards_are_exactly_untrainable(reward, lengths):
     episodes = [_rewarded_episode(reward, length) for length in lengths]

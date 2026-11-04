@@ -7,9 +7,17 @@ import verifiers.v1 as vf
 from prime_rl.configs.algorithm import GRPOAlgoConfig
 from prime_rl.orchestrator.algo.base import Algorithm, iter_trainable_traces
 from prime_rl.orchestrator.algo.routing import assign_advantages, trainable_nodes
+from prime_rl.utils.utils import import_object
 
 if TYPE_CHECKING:
     from prime_rl.orchestrator.clients import InferenceClient
+
+
+def default_advantages(rewards, lengths):
+    """Length-weighted GRPO centering, with exactly zero credit for tied rewards."""
+    centered_rewards = rewards - rewards[:1]
+    baseline = (lengths * centered_rewards).sum() / lengths.sum()
+    return centered_rewards - baseline
 
 
 class GRPOAlgorithm(Algorithm):
@@ -21,6 +29,7 @@ class GRPOAlgorithm(Algorithm):
         super().__init__(config, clients)
         self.length_penalty = config.length_penalty
         self.loss_aggregation = config.loss_aggregation
+        self.advantage_fn = import_object(config.advantage_fn) if config.advantage_fn else default_advantages
 
     async def score_group(self, episodes: list[vf.Episode]) -> None:
         import torch  # only the trainer-side extras ship torch; an eval process never scores a group
@@ -45,10 +54,9 @@ class GRPOAlgorithm(Algorithm):
         lengths = torch.tensor(
             [sum(sum(node.mask) for node in trainable_nodes(trace)) for trace in traces], dtype=rewards.dtype
         )
-        # Center before averaging so tied rewards yield exact zero credit in FP32.
-        centered_rewards = shaped_rewards - shaped_rewards[:1]
-        baseline = (lengths * centered_rewards).sum() / lengths.sum()
-        advantages = centered_rewards - baseline
+        advantages = torch.as_tensor(self.advantage_fn(shaped_rewards, lengths), dtype=rewards.dtype)
+        if advantages.shape != rewards.shape or not torch.isfinite(advantages).all():
+            raise ValueError("advantage_fn must return one finite scalar per trainable trace")
         for trace, advantage in zip(traces, advantages.tolist(), strict=True):
             assign_advantages(trace, advantage)
         nodes = [node for trace in traces for node in trainable_nodes(trace)]

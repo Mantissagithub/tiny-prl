@@ -1,0 +1,16 @@
+[orchestrator.train.sampling]
+max_completion_tokens = 192
+
+[[orchestrator.train.source]]
+name = "reverse-text"
+serve.pool.type = "elastic"
+serve.pool.max_workers = 1
+env.taskset.id = "reverse-text"
+env.taskset.dataset_split = "train"
+env.agent.harness.id = "null"
+env.agent.runtime.type = "subprocess"
+env.agent.runtime.fork_server = true
+env.agent.max_turns = 1
+env.agent.max_output_tokens = 192
+env.agent.max_input_tokens = 320
+env.agent.timeout.rollout = 60

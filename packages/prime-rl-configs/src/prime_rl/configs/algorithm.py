@@ -200,6 +200,10 @@ class GRPOAlgoConfig(BaseAlgoConfig):
 
     action_loss_type: ClassVar[ActionLossType] = "rl"
 
+    advantage_fn: str | None = None
+    """Optional callable import path. Receives shaped FP32 rewards and sampled-token lengths;
+    returns one finite scalar advantage per trainable trace. None uses length-weighted GRPO."""
+
     length_penalty: LengthPenaltyConfig | None = None
     """Linear length penalty subtracted from each reward before the GRPO baseline (see ``LinearLengthPenaltyConfig``): a ``pass_rate``-scaled sum of output-token, input-token, and turns terms, each normalized by the group's own max for that quantity. None disables it."""
 

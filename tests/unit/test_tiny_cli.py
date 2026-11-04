@@ -1,7 +1,9 @@
 """Launcher boundaries that must hold before a real GPU run."""
 
 import importlib.util
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +19,7 @@ def load(name):
 
 launcher = load("tiny_prl")
 guard = load("tiny_guard")
+hf = load("tiny_hf")
 
 
 def test_stock_preset_does_not_enable_lossless():
@@ -80,3 +83,69 @@ def test_guard_checks_resource_and_time_boundaries():
     assert guard.stop_reason(3 * gib, gib, 7600, 5, 10) == "free disk below 2 GiB"
     assert guard.stop_reason(3 * gib, 3 * gib, 7677, 5, 10) == "GPU memory exceeded 7676 MiB"
     assert guard.stop_reason(3 * gib, 3 * gib, 7600, 11, 10) == "run timeout"
+
+
+def test_model_cleanup_requires_verification_and_run_ownership(tmp_path):
+    run = tmp_path / "run"
+    model = tmp_path / "owned-model"
+    for path in [run / "checkpoints", run / "broadcasts", run / "export", model]:
+        path.mkdir(parents=True)
+        (path / "weights").write_bytes(b"keep until verified")
+    state = {"download_dir": str(model), "status": "prepared"}
+    with pytest.raises(ValueError, match="before a verified"):
+        hf.cleanup_models(run, state)
+    assert (model / "weights").exists()
+    state.update(status="verified", uploaded_files={"weights": "checked-hash"})
+    with pytest.raises(ValueError, match="not owned"):
+        hf.cleanup_models(run, state)
+    assert (run / "checkpoints/weights").exists()
+    (model / ".tiny-prl-owner").write_text(str(run.resolve()))
+    (run / "metrics.json").write_text(json.dumps({"loss": 1.0}))
+    hf.cleanup_models(run, state)
+    assert not model.exists() and not (run / "checkpoints").exists()
+    assert (run / "metrics.json").exists()
+
+
+def test_remote_verification_rejects_wrong_content_before_cleanup(tmp_path):
+    import hashlib
+
+    (tmp_path / "config.json").write_bytes(b"{}")
+    digest = hashlib.sha1(b"blob 2\0{}").hexdigest()
+    item = SimpleNamespace(path="config.json", size=2, lfs=None, blob_id=digest)
+    api = SimpleNamespace(list_repo_tree=lambda *args, **kwargs: [item])
+    assert hf.verify_files(api, "owner/model", "commit", tmp_path) == {"config.json": hashlib.sha256(b"{}").hexdigest()}
+    item.blob_id = "wrong"
+    with pytest.raises(ValueError, match="content mismatch"):
+        hf.verify_files(api, "owner/model", "commit", tmp_path)
+    assert (tmp_path / "config.json").exists()
+
+
+def test_failed_hf_upload_preserves_checkpoint_and_download(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    run = tmp_path / "run"
+    download = tmp_path / "download"
+    adapter = run / "broadcasts/step_1"
+    checkpoint = run / "checkpoints/step_1/trainer"
+    for directory in [download, adapter, checkpoint, run / "configs"]:
+        directory.mkdir(parents=True, exist_ok=True)
+    (checkpoint / ".metadata").write_bytes(b"checkpoint")
+    (adapter / "adapter_config.json").write_text("{}")
+    (adapter / "adapter_model.safetensors").write_bytes(b"weights")
+    (download / ".tiny-prl-owner").write_text(str(run.resolve()))
+    (download / "model.safetensors").write_bytes(b"base weights")
+    hf.receipt_path(run).write_text(
+        json.dumps({"base_model": "owner/base", "max_steps": 1, "download_dir": str(download), "status": "prepared"})
+    )
+
+    def fail_upload(**kwargs):
+        raise OSError("network unavailable")
+
+    api = SimpleNamespace(create_repo=lambda *args, **kwargs: None, upload_folder=fail_upload)
+    monkeypatch.setattr(huggingface_hub, "HfApi", lambda: api)
+    with pytest.raises(OSError, match="network unavailable"):
+        hf.finish_run(run, "owner/model", {}, None)
+    assert (checkpoint / ".metadata").exists()
+    assert (adapter / "adapter_model.safetensors").exists()
+    assert (download / "model.safetensors").exists()
+    assert (run / "export/adapter_model.safetensors").exists()
