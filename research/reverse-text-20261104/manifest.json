@@ -1,0 +1,14 @@
+{
+  "source": "PrimeIntellect/Reverse-Text-RL",
+  "selection": "256 shortest upstream prompts; shortest 32 held out; remaining 224 for training",
+  "train": 224,
+  "test": 32,
+  "prompt_overlap": 0,
+  "split_hashes": {
+    "train": "4a4d87a68d9a1b77c087e2733d47431a5e8e45d35f1c6de9957facbd067e70bf",
+    "test": "d2638dd3bcc649913d6ec63331e10678b16390eba7095f3ade241f25e5a0d407"
+  },
+  "taskset_source": "deps/verifiers/environments/reverse_text",
+  "git_head": "79c82b3d5387528b7ee4661e41e13525e39c8799",
+  "decision": "Run a ten-update RL smoke only if valid baseline rollouts show nonconstant within-task reward. Require finite nonzero gradients and applied policy versions; compare exact reversal and similarity on unchanged holdout. A single pilot cannot establish reliable learning."
+}

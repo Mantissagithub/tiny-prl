@@ -1,0 +1,137 @@
+{
+  "model": "Qwen/Qwen3-0.6B",
+  "mode": "LoRA rank 8 RL; thinking disabled",
+  "updates": 10,
+  "batch_size": 8,
+  "group_size": 4,
+  "learning_rate": 1e-05,
+  "sequence_length": 512,
+  "finite_nonzero_gradient_updates": 10,
+  "gradient_norm_range": [
+    0.16201430559158325,
+    0.5868330597877502
+  ],
+  "baseline": {
+    "episodes": 128,
+    "tasks": 32,
+    "samples_per_task": 4,
+    "pass_at_1": 0,
+    "pass_at_4": 0,
+    "mean_similarity_reward": 0.25970023900511197,
+    "reward_range": [
+      0.0,
+      0.5098039215686274
+    ],
+    "tasks_with_reward_contrast": 32,
+    "formatted": 121,
+    "truncated": 0,
+    "per_seed": {
+      "42": {
+        "pass_at_1": 0,
+        "mean_reward": 0.2657674207066622
+      },
+      "43": {
+        "pass_at_1": 0,
+        "mean_reward": 0.26728565577003016
+      },
+      "44": {
+        "pass_at_1": 0,
+        "mean_reward": 0.25789286412852724
+      },
+      "45": {
+        "pass_at_1": 0,
+        "mean_reward": 0.24785501541522825
+      }
+    }
+  },
+  "after_rl10": {
+    "episodes": 128,
+    "tasks": 32,
+    "samples_per_task": 4,
+    "pass_at_1": 0,
+    "pass_at_4": 0,
+    "mean_similarity_reward": 0.2706093194636297,
+    "reward_range": [
+      0.0,
+      0.5
+    ],
+    "tasks_with_reward_contrast": 32,
+    "formatted": 123,
+    "truncated": 0,
+    "per_seed": {
+      "42": {
+        "pass_at_1": 0,
+        "mean_reward": 0.28248908429239533
+      },
+      "43": {
+        "pass_at_1": 0,
+        "mean_reward": 0.2724195604249656
+      },
+      "44": {
+        "pass_at_1": 0,
+        "mean_reward": 0.2713460103844145
+      },
+      "45": {
+        "pass_at_1": 0,
+        "mean_reward": 0.25618262275274345
+      }
+    }
+  },
+  "reward_delta": 0.010909080458517753,
+  "paired_task_bootstrap_95pct_interval": [
+    -0.002339486647394433,
+    0.024774413331188287
+  ],
+  "bootstrap": "10000 resamples of 32 task means, retaining the four seeds together; RNG seed 7; one training run only",
+  "resources": {
+    "baseline": {
+      "command": [
+        "/home/pradheep/.venv/bin/python",
+        "/home/pradheep/tiny-prl/prime-rl/outputs/reverse-text-20261104/evaluate.py",
+        "baseline-r2"
+      ],
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 66.12748992999991,
+      "minimum_available_bytes": 9342095360,
+      "peak_cgroup_bytes": 3600076800,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 2057,
+      "disk_free_before_bytes": 15129673728,
+      "minimum_disk_free_bytes": 15115587584
+    },
+    "training": {
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 74.61290040400013,
+      "minimum_available_bytes": 5617598464,
+      "minimum_disk_free_bytes": 11982610432,
+      "peak_cgroup_bytes": 7516192768,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 5878
+    },
+    "after": {
+      "command": [
+        "/home/pradheep/.venv/bin/python",
+        "/home/pradheep/tiny-prl/prime-rl/outputs/reverse-text-20261104/evaluate.py",
+        "after-rl10",
+        "/home/pradheep/tiny-prl/prime-rl/outputs/reverse-text-20261104/rl/qwen600m-r1/broadcasts/step_10"
+      ],
+      "returncode": 0,
+      "stop_reason": null,
+      "elapsed_seconds": 65.53697825599988,
+      "minimum_available_bytes": 9289043968,
+      "peak_cgroup_bytes": 5345103872,
+      "peak_swap_bytes": 0,
+      "peak_gpu_mib": 2057,
+      "disk_free_before_bytes": 11982614528,
+      "minimum_disk_free_bytes": 11981131776
+    }
+  },
+  "adapter": {
+    "lora_B_tensors": 196,
+    "nonzero_lora_B_tensors": 196,
+    "adapter_bytes": 20229808
+  },
+  "verdict": "End-to-end integration passed. No exact successes before or after. Small similarity change is not established as a reliable learning gain."
+}
