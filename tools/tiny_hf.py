@@ -32,6 +32,11 @@ def prepare_run(run, model, steps, repo, environment=None):
         if state["base_model"] != model:
             raise ValueError("Initialized model differs from requested model; choose a new output folder")
         directory = Path(state["download_dir"])
+        if not directory.exists():
+            directory.mkdir(parents=True)
+            (directory / ".tiny-prl-owner").write_text(str(run.resolve()))
+        elif not (directory / ".tiny-prl-owner").is_file():
+            raise ValueError("Model cache has no ownership marker; refusing to reuse it")
     else:
         directory = Path.home() / ".cache/tiny-prl/models" / uuid.uuid4().hex
         directory.mkdir(parents=True)

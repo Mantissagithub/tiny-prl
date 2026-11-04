@@ -106,6 +106,26 @@ def test_model_cleanup_requires_verification_and_run_ownership(tmp_path):
     assert (run / "metrics.json").exists()
 
 
+def test_removed_model_cache_is_recreated_for_an_initialized_run(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    run = tmp_path / "run"
+    model = tmp_path / "cleared-cache"
+    hf.receipt_path(run).parent.mkdir(parents=True)
+    hf.receipt_path(run).write_text(
+        json.dumps({"base_model": "owner/base", "base_revision": "pinned", "download_dir": str(model)})
+    )
+
+    def download(repo, *, local_dir, revision, **kwargs):
+        assert revision == "pinned"
+        (local_dir / "model.safetensors").write_bytes(b"downloaded again")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    assert hf.prepare_run(run, "owner/base", 10, None) == model
+    assert (model / ".tiny-prl-owner").read_text() == str(run.resolve())
+    assert (model / "model.safetensors").read_bytes() == b"downloaded again"
+
+
 def test_remote_verification_rejects_wrong_content_before_cleanup(tmp_path):
     import hashlib
 
