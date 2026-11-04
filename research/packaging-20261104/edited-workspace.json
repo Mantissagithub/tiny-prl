@@ -1,0 +1,73 @@
+{
+  "custom_function": "default_advantages(rewards, lengths) * 0.5",
+  "training_steps": 2,
+  "learning_rate_override": 2e-05,
+  "custom_function_calls": 9,
+  "trainer_consumed_traces": 8,
+  "all_consumed_advantages_match_custom_function": true,
+  "all_consumed_advantages_differ_from_default": true,
+  "gradient_norms": [
+    0.10933273285627365,
+    0.11100039631128311
+  ],
+  "final_checkpoint_present": true,
+  "guard": {
+    "returncode": 0,
+    "stop_reason": null,
+    "elapsed_seconds": 53.92737011099962,
+    "minimum_available_bytes": 6060683264,
+    "minimum_disk_free_bytes": 20549701632,
+    "peak_cgroup_bytes": 7516192768,
+    "peak_swap_bytes": 0,
+    "peak_gpu_mib": 5874
+  },
+  "trace_proof": [
+    {
+      "trace_id": "bef309cf1aed45189e80b6d715609378",
+      "custom_advantage": -0.03333986550569534,
+      "default_advantage": -0.06667973101139069
+    },
+    {
+      "trace_id": "4cfd5a05d6eb415da723dd2287bc6498",
+      "custom_advantage": 0.037507347762584686,
+      "default_advantage": 0.07501469552516937
+    },
+    {
+      "trace_id": "eea4cc33f37548009a22cdfb11be79fa",
+      "custom_advantage": 0.01478041335940361,
+      "default_advantage": 0.02956082671880722
+    },
+    {
+      "trace_id": "71569c79682f423baa4e3e8565029736",
+      "custom_advantage": -0.017114166170358658,
+      "default_advantage": -0.034228332340717316
+    },
+    {
+      "trace_id": "55ef7c10d0a645ea8942eee3e242b314",
+      "custom_advantage": 0.01118633896112442,
+      "default_advantage": 0.02237267792224884
+    },
+    {
+      "trace_id": "d5aa809c240a4a5aa5f4e11e49245987",
+      "custom_advantage": -0.04770186170935631,
+      "default_advantage": -0.09540372341871262
+    },
+    {
+      "trace_id": "922f567214b845458af5c0ff7715b370",
+      "custom_advantage": 0.055155280977487564,
+      "default_advantage": 0.11031056195497513
+    },
+    {
+      "trace_id": "eb4643c078f94216acb494d4992b6427",
+      "custom_advantage": -0.026101455092430115,
+      "default_advantage": -0.05220291018486023
+    }
+  ],
+  "runtime_backup": {
+    "repo": "Pradheep1647/tiny-prl-experiment-archive",
+    "commit": "8545ff91d2e45599a08d0301bf7a05d20f879d80",
+    "private": true,
+    "archive_sha256": "cd8262965eb8e99053d0c8eff70d2c009c1c2cb12b6aaf05fbdc631c2dad33e0",
+    "url": "https://huggingface.co/datasets/Pradheep1647/tiny-prl-experiment-archive/tree/main/runtime"
+  }
+}
