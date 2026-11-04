@@ -47,7 +47,14 @@ def main():
         target = staging / "tools" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "tools" / name, target)
-    for name in ["pyproject.toml", "uv.lock", "README.md", "LICENSE", "docs/tiny-prl.md"]:
+    for name in [
+        "pyproject.toml",
+        "uv.lock",
+        "README.md",
+        "LICENSE",
+        "docs/tiny-prl.md",
+        "docs/tiny-prl-cleanup-handoff.md",
+    ]:
         if (ROOT / name).is_file():
             (staging / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, staging / name)

@@ -1,0 +1,34 @@
+[
+  {
+    "case": "workspace",
+    "repo": "Pradheep1647/tiny-prl-qwen3-0.6b-reverse-text-r01",
+    "commit": "3dd760cf2091a612a0f4006bd54d8aa4f4820a55",
+    "url": "https://huggingface.co/Pradheep1647/tiny-prl-qwen3-0.6b-reverse-text-r01/tree/3dd760cf2091a612a0f4006bd54d8aa4f4820a55",
+    "verified_uploaded_files": {
+      "README.md": "3efdeed54c5b1c1cd26c2ef8c21a7d2c68121ddce0c9387b39fd55fd99b740cd",
+      "adapter_config.json": "c7536c46360a617ab8235e71e09f299e6e0cdab2bc09c353a7936dee9de715bf",
+      "adapter_model.safetensors": "429c6fae8d32937197c70c1b390b9a1f05e1b150ce3fccd9b240ae1e92598bb7",
+      "algo.py": "eeaece60fd97ee499176089045104de773b2548081ce34bbf8d79284f5dd6abd",
+      "tokenizer.json": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+      "tokenizer_config.json": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101"
+    },
+    "local_model_files_removed": true,
+    "metrics_retained": true
+  },
+  {
+    "case": "edited",
+    "repo": "Pradheep1647/tiny-prl-qwen3-0.6b-reverse-text-r02",
+    "commit": "d66a06b6725b8174e5829c5d8d7f7c5bd029a302",
+    "url": "https://huggingface.co/Pradheep1647/tiny-prl-qwen3-0.6b-reverse-text-r02/tree/d66a06b6725b8174e5829c5d8d7f7c5bd029a302",
+    "verified_uploaded_files": {
+      "README.md": "3efdeed54c5b1c1cd26c2ef8c21a7d2c68121ddce0c9387b39fd55fd99b740cd",
+      "adapter_config.json": "c7536c46360a617ab8235e71e09f299e6e0cdab2bc09c353a7936dee9de715bf",
+      "adapter_model.safetensors": "c7d261608daba4d5354bac1ff4e5735c05ad9f2346e2f361cad2ab5f1dd15db5",
+      "algo.py": "5fb964a14bc8173383cae5517bf58d75068fb2e4b5b42a7982375b1985be8b5d",
+      "tokenizer.json": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+      "tokenizer_config.json": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101"
+    },
+    "local_model_files_removed": true,
+    "metrics_retained": true
+  }
+]

@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from tiny_hf import prepare_run
+from tiny_hf import prepare_run, suggest_repo
 
 ALGORITHM = '''"""Edit compute_advantages to change group credit assignment.
 
@@ -54,13 +54,13 @@ def initialize(args, env, build_kernels):
     if environment.replace(":", "/", 1) not in ENVIRONMENTS:
         raise ValueError("Unsupported environment: " + environment)
     repo = args.hf_repo
-    if repo is None and args.model is None:
-        repo = input("HF destination owner/name, blank to decide later: ").strip() or None
     env["HF_HUB_OFFLINE"] = "0"
     os.environ.update(env)
     for path in reversed(env["PYTHONPATH"].split(os.pathsep)):
         sys.path.insert(0, path)
     preset = "qwen3-600m-lora" if model == "qwen3-600m" else model
+    destination = repo or suggest_repo(MODEL_IDS[preset], environment)
+    print(f"HF destination: {destination} (new repositories private; run number allocated at training start)")
     prepare_run(folder / "output", MODEL_IDS[preset], 10, repo, environment)
     if model != "qwen3-600m":
         build_kernels(env, model)
@@ -74,6 +74,6 @@ def initialize(args, env, build_kernels):
         + "\n"
     )
     print(f"Workspace: {folder}\nEdit {folder / 'algo.py'} to change compute_advantages(rewards, lengths).")
-    print("From that folder, run tiny-prl train --max-steps 100 --hf-repo owner/name")
-    print("A verified upload removes local model files. Without an HF destination, weights stay local.")
+    print("From that folder, run tiny-prl train --max-steps 100")
+    print("After verified HF upload, local model files are removed. Failed uploads keep all weights for retry.")
     return 0

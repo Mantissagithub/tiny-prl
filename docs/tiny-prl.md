@@ -23,18 +23,21 @@ implementation, preserving its exact-zero behavior for tied rewards. The trainer
 loads this function when running from the initialized folder.
 
 ```bash
-tiny-prl train --max-steps 100 --hf-repo YOUR_ACCOUNT/YOUR_CHOSEN_NAME
+tiny-prl train --max-steps 100
 ```
 
 `tiny-prl.json` stores the selections; `output/` stores the run. A direct command
 also works:
 
 ```bash
-tiny-prl train qwen3-600m --env primeintellect:gsm8k --output ~/math-run \
-  --max-steps 100 --hf-repo YOUR_ACCOUNT/YOUR_CHOSEN_NAME
+tiny-prl train qwen3-600m --env primeintellect:gsm8k --output ~/math-run --max-steps 100
 ```
 
-HF names are explicit. New model repositories default to private. After a
+HF names follow `<account>/tiny-prl-<model>-<env>-rNN`, using the next available
+run number at training start. For this laptop, an example is
+`Pradheep1647/tiny-prl-qwen3-0.6b-gsm8k-r01`. Override with `--hf-repo owner/name`.
+Authentication comes from the local HF credential store; tokens are not embedded
+in source, run configs, or archives. New repositories default to private. After a
 successful run, the command exports the final LoRA adapter or full model, uploads
 it, and compares each file's content hash at the immutable HF commit. Only then
 does it delete run-owned base weights, broadcasts, local checkpoints and the
@@ -42,7 +45,7 @@ export. Logs, metrics, configs, and the verified HF link remain. The upload
 contains inference/new-training weights, not optimizer state for exact resume.
 Any failed training, export, upload or verification leaves model files local.
 Retry a finished run with `tiny-prl upload ~/math-run --hf-repo owner/name`.
-Without `--hf-repo`, model files remain local until a destination is chosen.
+The explicit `upload` retry command uses the destination printed for that run.
 
 The executable is `~/.local/bin/tiny-prl`; its runtime is
 `~/.local/share/tiny-prl`. Keep those paths and `~/.venv` when removing this

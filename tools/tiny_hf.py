@@ -11,6 +11,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def suggest_repo(model, environment, api=None):
+    from huggingface_hub import HfApi
+
+    api = api or HfApi()
+    owner = api.whoami()["name"]
+    model = model.rsplit("/", 1)[-1].lower().removesuffix("-instruct")
+    task = environment.replace(":", "/", 1).rsplit("/", 1)[-1]
+    prefix = f"{owner}/tiny-prl-{model}-{task}-r"
+    number = 1
+    while api.repo_exists(f"{prefix}{number:02d}", repo_type="model"):
+        number += 1
+    return f"{prefix}{number:02d}"
+
+
 def receipt_path(run):
     return run / "configs/tiny-prl.json"
 

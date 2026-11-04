@@ -22,6 +22,21 @@ guard = load("tiny_guard")
 hf = load("tiny_hf")
 
 
+@pytest.mark.parametrize(
+    ("model", "slug"),
+    [
+        ("Qwen/Qwen3-0.6B", "qwen3-0.6b"),
+        ("HuggingFaceTB/SmolLM2-135M-Instruct", "smollm2-135m"),
+        ("HuggingFaceTB/SmolLM2-360M-Instruct", "smollm2-360m"),
+    ],
+)
+def test_hf_naming_convention_uses_next_available_run(model, slug):
+    api = SimpleNamespace(
+        whoami=lambda: {"name": "Pradheep1647"}, repo_exists=lambda name, **kwargs: name.endswith("r01")
+    )
+    assert hf.suggest_repo(model, "primeintellect:gsm8k", api) == f"Pradheep1647/tiny-prl-{slug}-gsm8k-r02"
+
+
 def test_stock_preset_does_not_enable_lossless():
     args = launcher.config_args("smollm2-360m-stock", ["--max-steps", "100"])
     assert str(launcher.EXAMPLES / "smollm2-360m-lossless.toml") not in args

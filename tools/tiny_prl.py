@@ -211,12 +211,15 @@ def main():
     if args.command == "upload":
         if overrides:
             parser.error("upload takes no additional arguments")
+        env = environment()
+        env["HF_HUB_OFFLINE"] = "0"
+        os.environ.update(env)
         from tiny_hf import finish_run
 
         GPU_LOCK.parent.mkdir(parents=True, exist_ok=True)
         with GPU_LOCK.open("a") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return finish_run(args.output.resolve(), args.hf_repo, environment(), run_guarded)
+            return finish_run(args.output.resolve(), args.hf_repo, env, run_guarded)
     if args.command == "build-kernels":
         if overrides:
             parser.error("build-kernels takes no additional arguments")
@@ -308,7 +311,7 @@ def main():
 
     flags = config_args(args.preset, overrides, args.env)
     config = cli(RLConfig, args=flags)
-    if args.hf_repo and config.ckpt is None:
+    if args.output and config.ckpt is None:
         raise ValueError("--hf-repo requires checkpoint saving; remove --no-ckpt")
     if args.output and config.run_dir.resolve() != args.output.resolve():
         raise ValueError("--output cannot be combined with a conflicting --run.dir override")
@@ -342,13 +345,16 @@ def main():
         if shutil.disk_usage(config.output_dir).free < 8 * 1024**3:
             raise ValueError("Need 8 GiB free disk for training/checkpoints")
         if args.output:
-            from tiny_hf import prepare_run
+            from tiny_hf import prepare_run, suggest_repo
 
             model = MODEL_IDS.get(args.preset)
             if model is None:
                 raise ValueError(
                     "--output supports the three tested model presets; use native configs for other models"
                 )
+            if args.hf_repo is None:
+                args.hf_repo = suggest_repo(model, args.env or "primeintellect/alphabet-sort")
+            print(f"HF destination: {args.hf_repo}", flush=True)
             local = prepare_run(config.run_dir, model, config.max_steps, args.hf_repo, args.env)
             if workspace.is_file():
                 shutil.copy2(workspace.parent / "algo.py", config.run_dir / "configs/algo.py")
